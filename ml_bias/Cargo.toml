@@ -9,4 +9,6 @@ name = "ml_bias"
 crate-type = ["cdylib"]
 
 [dependencies]
+numpy = "0.22.1"
 pyo3 = "0.22.0"
+rust-numpy = "0.1.0"
