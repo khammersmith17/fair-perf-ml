@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 pub struct PreTraining {
     pub facet_a: Vec<i16>,
     pub facet_d: Vec<i16>,
@@ -95,4 +97,29 @@ pub fn kolmorogv_smirnov(data: &PreTraining) -> f32 {
     } else {
         return neg_outcome_diff;
     }
+}
+
+pub fn pre_training_bias(
+    facet_a_trues: Vec<i16>,
+    facet_d_trues: Vec<i16>,
+) -> Result<HashMap<String, f32>, String> {
+    let data = PreTraining {
+        facet_a: facet_a_trues,
+        facet_d: facet_d_trues,
+    };
+
+    let computed_data: PreTrainingComputations = data.generate();
+    let mut result = HashMap::new();
+    result.insert("CI".into(), class_imbalance(&data));
+    result.insert("DPL".into(), diff_in_proportion_of_labels(&data));
+    result.insert("KL".into(), kl_divergence(&computed_data));
+    // do JS
+    result.insert("LPNorm".into(), lp_norm(&computed_data));
+    result.insert(
+        "TotalVarationDistance".into(),
+        total_variation_distance(&computed_data),
+    );
+    result.insert("KS".into(), kolmorogv_smirnov(&data));
+
+    Ok(result)
 }

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 pub struct PostTrainingData {
     pub facet_a_scores: Vec<i16>,
     pub facet_d_scores: Vec<i16>,
@@ -357,4 +359,34 @@ pub fn generalized_entropy(data: &PostTrainingData) -> f32 {
         .collect();
     let result: f32 = transformed_benefits.iter().sum::<f32>();
     return result * (0.5 * n);
+}
+
+pub fn post_training_bias(
+    facet_a_scores: Vec<i16>,
+    facet_d_scores: Vec<i16>,
+    facet_a_trues: Vec<i16>,
+    facet_d_trues: Vec<i16>,
+) -> Result<HashMap<String, f32>, String> {
+    let data = PostTrainingData {
+        facet_a_scores,
+        facet_d_scores,
+        facet_a_trues,
+        facet_d_trues,
+    };
+    let pre_computed_data: PostTrainingComputations = data.general_data_computations();
+    let mut result = HashMap::new();
+    result.insert("DDPL".into(), diff_in_pos_proportion_in_pred_labels(&data));
+    result.insert("DI".into(), disparate_impact(&data));
+    result.insert("AD".into(), accuracy_difference(&pre_computed_data, &data));
+    result.insert("RD".into(), recall_difference(&pre_computed_data));
+    result.insert("CDACC".into(), diff_in_cond_acceptance(&data));
+    result.insert("DAR".into(), diff_in_acceptance_rate(&pre_computed_data));
+    result.insert("SD".into(), specailty_difference(&pre_computed_data));
+    result.insert("DCR".into(), diff_in_cond_rejection(&data));
+    result.insert("DRR".into(), diff_in_rejection_rate(&pre_computed_data));
+    result.insert("TE".into(), treatment_equity(&pre_computed_data));
+    result.insert("CCDPL".into(), cond_dem_desp_in_pred_labels(&data));
+    result.insert("GE".into(), generalized_entropy(&data));
+
+    Ok(result)
 }
