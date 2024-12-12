@@ -81,21 +81,6 @@ impl DataBiasRuntime {
     }
 }
 
-pub struct ModelBiasRuntimeResult {
-    ddpl: bool,
-    di: bool,
-    ad: bool,
-    rd: bool,
-    cdacc: bool,
-    dar: bool,
-    sd: bool,
-    dcr: bool,
-    drr: bool,
-    te: bool,
-    ccdpl: bool,
-    ge: bool,
-}
-
 pub struct ModelBiasRuntime {
     ddpl: f32,
     di: f32,

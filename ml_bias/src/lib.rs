@@ -13,9 +13,13 @@ mod data_handler;
 use data_handler::{apply_label, perform_segmentation_data_bias, perform_segmentation_model_bias};
 
 mod runtime;
-use runtime::{DataBiasRuntime, ModelBiasRuntime, ModelBiasRuntimeResult};
+use runtime::{DataBiasRuntime, ModelBiasRuntime};
 
 #[pyfunction]
+#[pyo3(signature = (
+    baseline,
+    latest)
+)]
 pub fn data_bias_runtime_check<'py>(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
@@ -31,14 +35,18 @@ pub fn data_bias_runtime_check<'py>(
     };
     let mut runtime_result: HashMap<String, String> = current.runtime_check(baseline);
     if runtime_result.len() > 0 {
-        runtime_result.insert("Status".to_string(), "failed".to_string());
+        runtime_result.insert("status".to_string(), "failed".to_string());
     } else {
-        runtime_result.insert("Status".to_string(), "passed".to_string());
+        runtime_result.insert("status".to_string(), "passed".to_string());
     }
     Ok(runtime_result)
 }
 
 #[pyfunction]
+#[pyo3(signature = (
+    baseline,
+    latest)
+)]
 pub fn model_bias_runtime_check<'py>(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
@@ -53,14 +61,22 @@ pub fn model_bias_runtime_check<'py>(
     };
     let mut runtime_result: HashMap<String, String> = current.runtime_check(baseline);
     if runtime_result.len() > 0 {
-        runtime_result.insert("Status".to_string(), "failed".to_string());
+        runtime_result.insert("status".to_string(), "failed".to_string());
     } else {
-        runtime_result.insert("Status".to_string(), "passed".to_string());
+        runtime_result.insert("status".to_string(), "passed".to_string());
     }
     Ok(runtime_result)
 }
 
 #[pyfunction]
+#[pyo3(signature = (
+    feature_array,
+    ground_truth_array,
+    prediction_array,
+    feature_label_or_threshold,
+    ground_truth_label_or_threshold,
+    prediction_label_or_threshold)
+)]
 pub fn model_bias_analyzer<'py>(
     py: Python<'_>,
     feature_array: &Bound<'_, PyUntypedArray>,
@@ -73,17 +89,17 @@ pub fn model_bias_analyzer<'py>(
     let labeled_predictions: Vec<i16> =
         match apply_label(py, prediction_array, prediction_label_or_threshold) {
             Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err("Invalid types passed")),
+            Err(err) => return Err(PyTypeError::new_err(err)),
         };
     let labeled_ground_truth: Vec<i16> =
         match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
             Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err("Invalid types passed")),
+            Err(err) => return Err(PyTypeError::new_err(err)),
         };
     let labeled_features: Vec<i16> =
         match apply_label(py, feature_array, feature_label_or_threshold) {
             Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err("Invalid types passed")),
+            Err(err) => return Err(PyTypeError::new_err(err)),
         };
     let (facet_a_scores, facet_d_scores, facet_a_trues, facet_d_trues) =
         match perform_segmentation_model_bias(
@@ -92,15 +108,21 @@ pub fn model_bias_analyzer<'py>(
             labeled_ground_truth,
         ) {
             Ok(res) => res,
-            Err(err) => return Err(PyTypeError::new_err("Invalid types passed")),
+            Err(err) => return Err(PyTypeError::new_err(err)),
         };
     match post_training_bias(facet_a_scores, facet_d_scores, facet_a_trues, facet_d_trues) {
         Ok(value) => Ok(value),
-        Err(err) => Err(PyTypeError::new_err("Invalid types passed")),
+        Err(err) => Err(PyTypeError::new_err(err)),
     }
 }
 
 #[pyfunction]
+#[pyo3(signature = (
+    feature_array,
+    ground_truth_array,
+    feature_label_or_threshold,
+    ground_truth_label_or_threshold)
+)]
 fn data_bias_analyzer<'py>(
     py: Python<'_>,
     feature_array: &Bound<'_, PyUntypedArray>,
@@ -111,23 +133,23 @@ fn data_bias_analyzer<'py>(
     let labeled_ground_truth =
         match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
             Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err("Invalid types passed")),
+            Err(err) => return Err(PyTypeError::new_err(err)),
         };
 
     let labeled_feature = match apply_label(py, feature_array, feature_label_or_threshold) {
         Ok(array) => array,
-        Err(err) => return Err(PyTypeError::new_err("Invalid types passed")),
+        Err(err) => return Err(PyTypeError::new_err(err)),
     };
 
     let (facet_a_trues, facet_d_trues) =
         match perform_segmentation_data_bias(labeled_feature, labeled_ground_truth) {
             Ok(values) => values,
-            Err(err) => return Err(PyTypeError::new_err("Invalid types passed")),
+            Err(err) => return Err(PyTypeError::new_err(err)),
         };
 
     match pre_training_bias(facet_a_trues, facet_d_trues) {
         Ok(result) => Ok(result),
-        Err(err) => Err(PyTypeError::new_err("Invalid types passed")),
+        Err(err) => Err(PyTypeError::new_err(err)),
     }
 }
 
