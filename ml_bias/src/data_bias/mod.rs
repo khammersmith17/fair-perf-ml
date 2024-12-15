@@ -22,7 +22,7 @@ pub struct PreTrainingComputations {
 }
 
 pub fn class_imbalance(data: &PreTraining) -> f32 {
-    return (data.facet_a.len() + data.facet_d.len()) as f32
+    return (data.facet_a.len() as i32 - data.facet_d.len() as i32).abs() as f32
         / (data.facet_a.len() + data.facet_d.len()) as f32;
 }
 
@@ -39,15 +39,20 @@ pub fn kl_divergence(data: &PreTrainingComputations) -> f32 {
         + (1.0_f32 - data.a_acceptance)
             * ((1.0_f32 - data.a_acceptance) / (1.0_f32 - data.d_acceptance)).ln();
 }
-/*
-pub fn jensen_shannon(data: &PreTraining) -> f32 {
+
+fn ks_kl_div(p_facet: f32, p: f32) -> f32 {
+    return p_facet
+        + (p_facet / p).ln()
+        + (1.0_f32 - p_facet) * ((1.0_f32 - p_facet) / (1.0_f32 - p)).ln();
+}
+
+pub fn jensen_shannon(data: &PreTraining, pre_comp: &PreTrainingComputations) -> f32 {
     let p: f32 = 0.5_f32
         * (data.facet_a.iter().sum::<i16>() as f32 / data.facet_d.len() as f32
             - data.facet_d.iter().sum::<i16>() as f32 / data.facet_a.len() as f32);
 
-    return 0.5 * (kl_divergence(data.facet_a, p) +
+    return 0.5 * (ks_kl_div(pre_comp.a_acceptance, p) + ks_kl_div(pre_comp.d_acceptance, p));
 }
-*/
 
 pub fn lp_norm(data: &PreTrainingComputations) -> f32 {
     return ((data.a_acceptance - data.d_acceptance).powf(2.0)
@@ -110,16 +115,19 @@ pub fn pre_training_bias(
 
     let computed_data: PreTrainingComputations = data.generate();
     let mut result = HashMap::new();
-    result.insert("CI".into(), class_imbalance(&data));
-    result.insert("DPL".into(), diff_in_proportion_of_labels(&data));
-    result.insert("KL".into(), kl_divergence(&computed_data));
+    result.insert("ClassImbalance".into(), class_imbalance(&data));
+    result.insert(
+        "DifferenceInProportionalOfLabels".into(),
+        diff_in_proportion_of_labels(&data),
+    );
+    result.insert("KlDivergance".into(), kl_divergence(&computed_data));
     // do JS
-    result.insert("LPNorm".into(), lp_norm(&computed_data));
+    result.insert("LpNorm".into(), lp_norm(&computed_data));
     result.insert(
         "TotalVarationDistance".into(),
         total_variation_distance(&computed_data),
     );
-    result.insert("KS".into(), kolmorogv_smirnov(&data));
+    result.insert("KolmorogvSmirnov".into(), kolmorogv_smirnov(&data));
 
     Ok(result)
 }

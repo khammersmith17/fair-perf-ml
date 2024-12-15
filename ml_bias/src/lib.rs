@@ -158,6 +158,8 @@ fn data_bias_analyzer<'py>(
 fn ml_bias(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(model_bias_analyzer, m)?)?;
     m.add_function(wrap_pyfunction!(data_bias_analyzer, m)?)?;
+    m.add_function(wrap_pyfunction!(data_bias_runtime_check, m)?)?;
+    m.add_function(wrap_pyfunction!(model_bias_runtime_check, m)?)?;
 
     Ok(())
 }

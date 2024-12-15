@@ -4,37 +4,43 @@ pub struct DataBiasRuntime {
     ci: f32,
     dpl: f32,
     kl: f32,
+    js: f32
     lpnorm: f32,
     tvd: f32,
 }
 
 impl DataBiasRuntime {
     pub fn new(data: HashMap<String, f32>) -> Result<DataBiasRuntime, String> {
-        let ci = match data.get("CI") {
+        let ci = match data.get("ClassImbalance") {
             Some(val) => *val,
-            None => return Err("CI not present".to_string()),
+            None => return Err("ClassImbalance not present".to_string()),
         };
-        let dpl = match data.get("DPL") {
+        let dpl = match data.get("DfferenceInProportionalOfLabels") {
             Some(val) => *val,
-            None => return Err("DPL not present".to_string()),
+            None => return Err("DfferenceInProportionalOfLabels not present".to_string()),
         };
-        let kl = match data.get("KL") {
+        let kl = match data.get("KlDivergence") {
             Some(val) => *val,
-            None => return Err("KL not present".to_string()),
+            None => return Err("KlDivergence not present".to_string()),
         };
-        let lpnorm = match data.get("LPNorm") {
+        let js = match data.get("JsDivergance") {
             Some(val) => *val,
-            None => return Err("LPNorm not present".to_string()),
+            None => return Err("JsDivergence not present".to_string())
         };
-        let tvd = match data.get("TVD") {
+        let lpnorm = match data.get("LpNorm") {
             Some(val) => *val,
-            None => return Err("TVD not present".to_string()),
+            None => return Err("LpNorm not present".to_string()),
+        };
+        let tvd = match data.get("TotalVariationDifference") {
+            Some(val) => *val,
+            None => return Err("TotalVariationDifference not present".to_string()),
         };
 
         Ok(DataBiasRuntime {
             ci,
             dpl,
             kl,
+            js,
             lpnorm,
             tvd,
         })
@@ -43,7 +49,7 @@ impl DataBiasRuntime {
         let mut result: HashMap<String, String> = HashMap::new();
         if self.ci.abs() > baseline.ci.abs() {
             result.insert(
-                "CI".to_string(),
+                "ClassImbalance".to_string(),
                 format!(
                     "Exceeded baseline by: {}",
                     (self.ci.abs() - baseline.ci.abs()).abs()
@@ -52,7 +58,7 @@ impl DataBiasRuntime {
         }
         if self.dpl.abs() > baseline.dpl.abs() {
             result.insert(
-                "DPL".to_string(),
+                "DfferenceInProportionalOfLabels".to_string(),
                 format!(
                     "Exceed baseline by: {}",
                     (self.dpl.abs() - baseline.dpl.abs()).abs()
@@ -61,19 +67,25 @@ impl DataBiasRuntime {
         }
         if self.kl > baseline.kl {
             result.insert(
-                "KL".to_string(),
+                "KlDivergence".to_string(),
+                format!("Execeed baseline by: {}", self.kl - baseline.kl),
+            );
+        }
+        if self.js > baseline.js {
+            result.insert(
+                "JsDivergance".to_string(),
                 format!("Execeed baseline by: {}", self.kl - baseline.kl),
             );
         }
         if self.lpnorm > baseline.lpnorm {
             result.insert(
-                "LPNorm".to_string(),
+                "LpNorm".to_string(),
                 format!("Exceeded baseline by: {}", self.lpnorm - baseline.lpnorm),
             );
         }
         if self.tvd > baseline.tvd {
             result.insert(
-                "TVD".to_string(),
+                "TotalVariationDistance".to_string(),
                 format!("Exceed baseline by: {}", self.tvd - baseline.tvd),
             );
         }
