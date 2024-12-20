@@ -4,9 +4,10 @@ pub struct DataBiasRuntime {
     ci: f32,
     dpl: f32,
     kl: f32,
-    js: f32
+    js: f32,
     lpnorm: f32,
     tvd: f32,
+    ks: f32,
 }
 
 impl DataBiasRuntime {
@@ -15,25 +16,29 @@ impl DataBiasRuntime {
             Some(val) => *val,
             None => return Err("ClassImbalance not present".to_string()),
         };
-        let dpl = match data.get("DfferenceInProportionalOfLabels") {
+        let dpl = match data.get("DifferenceInProportionOfLabels") {
             Some(val) => *val,
-            None => return Err("DfferenceInProportionalOfLabels not present".to_string()),
+            None => return Err("DifferenceInProportionOfLabels not present".to_string()),
         };
         let kl = match data.get("KlDivergence") {
             Some(val) => *val,
             None => return Err("KlDivergence not present".to_string()),
         };
-        let js = match data.get("JsDivergance") {
+        let js = match data.get("JsDivergence") {
             Some(val) => *val,
-            None => return Err("JsDivergence not present".to_string())
+            None => return Err("JsDivergence not present".to_string()),
         };
         let lpnorm = match data.get("LpNorm") {
             Some(val) => *val,
             None => return Err("LpNorm not present".to_string()),
         };
-        let tvd = match data.get("TotalVariationDifference") {
+        let tvd = match data.get("TotalVarationDistance") {
             Some(val) => *val,
             None => return Err("TotalVariationDifference not present".to_string()),
+        };
+        let ks = match data.get("KolmorogvSmirnov") {
+            Some(val) => *val,
+            None => return Err("KolmogorvSmirnov is not present".to_string()),
         };
 
         Ok(DataBiasRuntime {
@@ -43,6 +48,7 @@ impl DataBiasRuntime {
             js,
             lpnorm,
             tvd,
+            ks,
         })
     }
     pub fn runtime_check(&self, baseline: DataBiasRuntime) -> HashMap<String, String> {
@@ -89,6 +95,12 @@ impl DataBiasRuntime {
                 format!("Exceed baseline by: {}", self.tvd - baseline.tvd),
             );
         }
+        if self.ks > baseline.ks {
+            result.insert(
+                "TotalVariationDistance".to_string(),
+                format!("Exceed baseline by: {}", self.tvd - baseline.tvd),
+            );
+        }
         result
     }
 }
@@ -110,53 +122,57 @@ pub struct ModelBiasRuntime {
 
 impl ModelBiasRuntime {
     pub fn new(data: HashMap<String, f32>) -> Result<ModelBiasRuntime, String> {
-        let ddpl = match data.get("DDPL") {
+        let ddpl = match data.get("DifferenceInPositivePredictedLabels") {
             Some(val) => *val,
-            None => return Err("DDPL is not present".to_string()),
+            None => return Err("DifferenceInPositivePredictedLabels is not present".to_string()),
         };
-        let di = match data.get("DI") {
+        let di = match data.get("DisparateImpact") {
             Some(val) => *val,
-            None => return Err("DI is not present".to_string()),
+            None => return Err("DisparateImpact is not present".to_string()),
         };
-        let ad = match data.get("AD") {
+        let ad = match data.get("AccuracyDifference") {
             Some(val) => *val,
-            None => return Err("AD is not present".to_string()),
+            None => return Err("AccuracyDifference is not present".to_string()),
         };
-        let rd = match data.get("RD") {
+        let rd = match data.get("RecallDifference") {
             Some(val) => *val,
-            None => return Err("RD is not present".to_string()),
+            None => return Err("RecallDifference is not present".to_string()),
         };
         let cdacc = match data.get("CDACC") {
             Some(val) => *val,
             None => return Err("CDACC is not present".to_string()),
         };
-        let dar = match data.get("DAR") {
+        let dar = match data.get("DifferenceInAcceptanceRates") {
             Some(val) => *val,
-            None => return Err("DAR is not present".to_string()),
+            None => return Err("DifferenceInAcceptanceRates is not present".to_string()),
         };
-        let sd = match data.get("SD") {
+        let sd = match data.get("SpecailityDifference") {
             Some(val) => *val,
-            None => return Err("SD not present".to_string()),
+            None => return Err("SpecailityDifference not present".to_string()),
         };
-        let dcr = match data.get("DCR") {
+        let dcr = match data.get("DifferenceInConditionalRejection") {
             Some(val) => *val,
-            None => return Err("DCR not present".to_string()),
+            None => return Err("DifferenceInConditionalRejection not present".to_string()),
         };
-        let drr = match data.get("DRR") {
+        let drr = match data.get("DifferenceInRejectionRate") {
             Some(val) => *val,
-            None => return Err("DRR is not present".to_string()),
+            None => return Err("DifferenceInRejectionRate is not present".to_string()),
         };
-        let te = match data.get("TE") {
+        let te = match data.get("TreatmentEquity") {
             Some(val) => *val,
-            None => return Err("TE is not present".to_string()),
+            None => return Err("TreatmentEquity is not present".to_string()),
         };
-        let ccdpl = match data.get("CCDPL") {
+        let ccdpl = match data.get("ConditionalDemographicDesparityPredictedLabels") {
             Some(val) => *val,
-            None => return Err("CCDPL is not present".to_string()),
+            None => {
+                return Err(
+                    "ConditionalDemographicDesparityPredictedLabels is not present".to_string(),
+                )
+            }
         };
-        let ge = match data.get("GE") {
+        let ge = match data.get("GeneralizedEntropy") {
             Some(val) => *val,
-            None => return Err("GE is not present".to_string()),
+            None => return Err("GeneralizedEntropy is not present".to_string()),
         };
         Ok(ModelBiasRuntime {
             ddpl,
