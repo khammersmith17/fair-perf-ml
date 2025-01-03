@@ -102,15 +102,7 @@ pub fn kolmorogv_smirnov(data: &PreTraining) -> f32 {
     }
 }
 
-pub fn pre_training_bias(
-    facet_a_trues: Vec<i16>,
-    facet_d_trues: Vec<i16>,
-) -> Result<HashMap<String, f32>, String> {
-    let data = PreTraining {
-        facet_a: facet_a_trues,
-        facet_d: facet_d_trues,
-    };
-
+pub fn pre_training_bias(data: PreTraining) -> Result<HashMap<String, f32>, String> {
     let computed_data: PreTrainingComputations = data.generate();
     let mut result = HashMap::new();
     result.insert("ClassImbalance".into(), class_imbalance(&data));

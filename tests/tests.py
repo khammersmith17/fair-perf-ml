@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
-from ml_bias import (
+from fair_ml import (
     data_bias_analyzer,
     data_bias_runtime_check,
-    #model_bias_analyzer
+    model_bias_analyzer,
+    model_bias_runtime_check
 )
 
 def get_data() -> pd.DataFrame:
@@ -47,7 +48,8 @@ def test_db_numpy(bl_df, runtime_test) -> None:
 
     runtime_check = data_bias_runtime_check(
         db_bl,
-        db_runtime
+        db_runtime,
+        0.15
     )
 
     print(f"baseline:\n{db_bl}")
@@ -86,6 +88,37 @@ def test_db_list(bl_df, runtime_test) -> None:
     #print("\n")
     #print(f"runtime check:{runtime_check}")
 
+def test_mb(bl_df, runtime_test):
+    bl = model_bias_analyzer(
+        bl_df["sex"].to_numpy(),
+        bl_df["rings"].to_numpy(),
+        bl_df["preds"].to_numpy(),
+        "M",
+        15,
+        15.0
+    )
+
+    runtime = model_bias_analyzer(
+        runtime_test["sex"].to_numpy(),
+        runtime_test["rings"].to_numpy(),
+        runtime_test["preds"].to_numpy(),
+        "M",
+        15,
+        15.0
+    )
+
+    runtime_check = model_bias_runtime_check(
+        bl,
+        runtime,
+        0.15
+    )
+
+    print(f"bl:\n{bl}" )
+    print("\n")
+    print(f"runtime:\n{runtime}")
+    print("\n")
+    print(f"check:\n{runtime_check}")
+
 if __name__ == "__main__":
     df = get_data()
     df["preds"] = df.rings.apply(
@@ -97,5 +130,5 @@ if __name__ == "__main__":
     print("TESTING DATA BIAS WITH NUMPY ARRAYS...")
     test_db_numpy(bl_df, runtime_test)
     print("\n")
-    print("TESTING DATA BIAS WITH STD LISTS...")
-    #test_db_list(bl_df, runtime_test)
+    print("TESTING MB...")
+    test_mb(bl_df, runtime_test)

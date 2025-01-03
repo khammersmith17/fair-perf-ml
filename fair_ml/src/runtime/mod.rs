@@ -51,9 +51,13 @@ impl DataBiasRuntime {
             ks,
         })
     }
-    pub fn runtime_check(&self, baseline: DataBiasRuntime) -> HashMap<String, String> {
+    pub fn runtime_check(
+        &self,
+        baseline: DataBiasRuntime,
+        threshold: f32,
+    ) -> HashMap<String, String> {
         let mut result: HashMap<String, String> = HashMap::new();
-        if self.ci.abs() > baseline.ci.abs() {
+        if self.ci.abs() > baseline.ci.abs() * (1_f32 + threshold) {
             result.insert(
                 "ClassImbalance".to_string(),
                 format!(
@@ -62,7 +66,7 @@ impl DataBiasRuntime {
                 ),
             );
         }
-        if self.dpl.abs() > baseline.dpl.abs() {
+        if self.dpl.abs() > baseline.dpl.abs() * (1_f32 + threshold) {
             result.insert(
                 "DfferenceInProportionalOfLabels".to_string(),
                 format!(
@@ -71,31 +75,31 @@ impl DataBiasRuntime {
                 ),
             );
         }
-        if self.kl > baseline.kl {
+        if self.kl > baseline.kl * (1_f32 + threshold) {
             result.insert(
                 "KlDivergence".to_string(),
                 format!("Execeed baseline by: {}", self.kl - baseline.kl),
             );
         }
-        if self.js > baseline.js {
+        if self.js > baseline.js * (1_f32 + threshold) {
             result.insert(
                 "JsDivergance".to_string(),
                 format!("Execeed baseline by: {}", self.kl - baseline.kl),
             );
         }
-        if self.lpnorm > baseline.lpnorm {
+        if self.lpnorm > baseline.lpnorm * (1_f32 + threshold) {
             result.insert(
                 "LpNorm".to_string(),
                 format!("Exceeded baseline by: {}", self.lpnorm - baseline.lpnorm),
             );
         }
-        if self.tvd > baseline.tvd {
+        if self.tvd > baseline.tvd * (1_f32 + threshold) {
             result.insert(
                 "TotalVariationDistance".to_string(),
                 format!("Exceed baseline by: {}", self.tvd - baseline.tvd),
             );
         }
-        if self.ks > baseline.ks {
+        if self.ks > baseline.ks * (1_f32 + threshold) {
             result.insert(
                 "TotalVariationDistance".to_string(),
                 format!("Exceed baseline by: {}", self.tvd - baseline.tvd),
@@ -138,11 +142,11 @@ impl ModelBiasRuntime {
             Some(val) => *val,
             None => return Err("RecallDifference is not present".to_string()),
         };
-        let cdacc = match data.get("CDACC") {
+        let cdacc = match data.get("DifferenceInConditionalAcceptance") {
             Some(val) => *val,
-            None => return Err("CDACC is not present".to_string()),
+            None => return Err("DifferenceInConditionalAcceptance is not present".to_string()),
         };
-        let dar = match data.get("DifferenceInAcceptanceRates") {
+        let dar = match data.get("DifferenceInAcceptanceRate") {
             Some(val) => *val,
             None => return Err("DifferenceInAcceptanceRates is not present".to_string()),
         };
@@ -189,9 +193,13 @@ impl ModelBiasRuntime {
             ge,
         })
     }
-    pub fn runtime_check(&self, baseline: ModelBiasRuntime) -> HashMap<String, String> {
+    pub fn runtime_check(
+        &self,
+        baseline: ModelBiasRuntime,
+        threshold: f32,
+    ) -> HashMap<String, String> {
         let mut result: HashMap<String, String> = HashMap::new();
-        if self.ddpl.abs() > baseline.ddpl.abs() {
+        if self.ddpl.abs() > baseline.ddpl.abs() * (1_f32 + threshold) {
             result.insert(
                 "DDPL".to_string(),
                 format!(
@@ -201,13 +209,13 @@ impl ModelBiasRuntime {
             );
         }
 
-        if self.di > baseline.di {
+        if self.di > baseline.di * (1_f32 + threshold) {
             result.insert(
                 "DI".to_string(),
                 format!("Exceed baseline by: {}", (self.di - baseline.di).abs()),
             );
         }
-        if self.ad.abs() > baseline.ad.abs() {
+        if self.ad.abs() > baseline.ad.abs() * (1_f32 + threshold) {
             result.insert(
                 "AD".to_string(),
                 format!(
@@ -216,7 +224,7 @@ impl ModelBiasRuntime {
                 ),
             );
         }
-        if self.rd.abs() > baseline.rd.abs() {
+        if self.rd.abs() > baseline.rd.abs() * (1_f32 + threshold) {
             result.insert(
                 "RD".to_string(),
                 format!(
@@ -225,7 +233,7 @@ impl ModelBiasRuntime {
                 ),
             );
         }
-        if self.cdacc.abs() > baseline.cdacc.abs() {
+        if self.cdacc.abs() > baseline.cdacc.abs() * (1_f32 + threshold) {
             result.insert(
                 "CDACC".to_string(),
                 format!(
@@ -234,7 +242,7 @@ impl ModelBiasRuntime {
                 ),
             );
         }
-        if self.dar.abs() > baseline.dar.abs() {
+        if self.dar.abs() > baseline.dar.abs() * (1_f32 + threshold) {
             result.insert(
                 "DAR".to_string(),
                 format!(
@@ -243,7 +251,7 @@ impl ModelBiasRuntime {
                 ),
             );
         }
-        if self.sd.abs() > baseline.sd.abs() {
+        if self.sd.abs() > baseline.sd.abs() * (1_f32 + threshold) {
             result.insert(
                 "SD".to_string(),
                 format!(
@@ -252,7 +260,7 @@ impl ModelBiasRuntime {
                 ),
             );
         }
-        if self.dcr.abs() > baseline.dcr.abs() {
+        if self.dcr.abs() > baseline.dcr.abs() * (1_f32 + threshold) {
             result.insert(
                 "DCR".to_string(),
                 format!(
@@ -261,7 +269,7 @@ impl ModelBiasRuntime {
                 ),
             );
         }
-        if self.drr.abs() > baseline.drr.abs() {
+        if self.drr.abs() > baseline.drr.abs() * (1_f32 + threshold) {
             result.insert(
                 "DRR".to_string(),
                 format!(
@@ -270,7 +278,7 @@ impl ModelBiasRuntime {
                 ),
             );
         }
-        if self.te.abs() > baseline.te.abs() {
+        if self.te.abs() > baseline.te.abs() * (1_f32 + threshold) {
             result.insert(
                 "TE".to_string(),
                 format!(
@@ -279,7 +287,7 @@ impl ModelBiasRuntime {
                 ),
             );
         }
-        if self.ccdpl.abs() > baseline.ccdpl.abs() {
+        if self.ccdpl.abs() > baseline.ccdpl.abs() * (1_f32 + threshold) {
             result.insert(
                 "CCDPL".to_string(),
                 format!(
@@ -288,7 +296,7 @@ impl ModelBiasRuntime {
                 ),
             );
         }
-        if self.ge > baseline.ge {
+        if self.ge > baseline.ge * (1_f32 + threshold) {
             result.insert(
                 "GE".to_string(),
                 format!("Exceed baseline by: {}", (self.ge - baseline.ge).abs()),

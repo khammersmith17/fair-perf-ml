@@ -1,3 +1,5 @@
+use super::data_bias::PreTraining;
+use super::model_bias::PostTrainingData;
 use numpy::dtype_bound;
 use numpy::PyUntypedArrayMethods;
 use numpy::{PyArrayDescrMethods, PyUntypedArray};
@@ -110,34 +112,34 @@ pub fn apply_label<'py>(
 pub fn perform_segmentation_data_bias(
     feature_values: Vec<i16>,
     ground_truth_values: Vec<i16>,
-) -> Result<(Vec<i16>, Vec<i16>), String> {
-    let mut facet_a_trues: Vec<i16> = Vec::new();
-    let mut facet_d_trues: Vec<i16> = Vec::new();
+) -> Result<PreTraining, String> {
+    let mut facet_a: Vec<i16> = Vec::new();
+    let mut facet_d: Vec<i16> = Vec::new();
 
     for (feature, ground_truth) in zip!(feature_values, ground_truth_values) {
         match *feature {
             1_i16 => {
-                facet_a_trues.push(ground_truth);
+                facet_a.push(ground_truth);
             }
-            _ => facet_d_trues.push(ground_truth),
+            _ => facet_d.push(ground_truth),
         }
     }
 
-    if facet_a_trues.is_empty() | facet_d_trues.is_empty() {
+    if facet_a.is_empty() | facet_d.is_empty() {
         return Err("No deviation".into());
     }
 
-    Ok((facet_a_trues, facet_d_trues))
+    Ok(PreTraining { facet_a, facet_d })
 }
 
 pub fn perform_segmentation_model_bias(
     feature_values: Vec<i16>,
     prediction_values: Vec<i16>,
     ground_truth_values: Vec<i16>,
-) -> Result<(Vec<i16>, Vec<i16>, Vec<i16>, Vec<i16>), String> {
+) -> Result<PostTrainingData, String> {
     let mut facet_a_trues: Vec<i16> = Vec::new();
-    let mut facet_a_preds: Vec<i16> = Vec::new();
-    let mut facet_d_preds: Vec<i16> = Vec::new();
+    let mut facet_a_scores: Vec<i16> = Vec::new();
+    let mut facet_d_scores: Vec<i16> = Vec::new();
     let mut facet_d_trues: Vec<i16> = Vec::new();
 
     for (feature, (prediction, ground_truth)) in
@@ -146,18 +148,23 @@ pub fn perform_segmentation_model_bias(
         match *feature {
             1_i16 => {
                 facet_a_trues.push(ground_truth);
-                facet_a_preds.push(*prediction);
+                facet_a_scores.push(*prediction);
             }
             _ => {
                 facet_d_trues.push(ground_truth);
-                facet_d_preds.push(*prediction);
+                facet_d_scores.push(*prediction);
             }
         }
     }
     if facet_a_trues.is_empty() | facet_d_trues.is_empty() {
         return Err("no deviaton".into());
     }
-    Ok((facet_a_trues, facet_a_preds, facet_d_trues, facet_d_preds))
+    Ok(PostTrainingData {
+        facet_a_trues,
+        facet_a_scores,
+        facet_d_trues,
+        facet_d_scores,
+    })
 }
 
 fn apply_label_discrete<T>(array: Vec<T>, label: T) -> Vec<i16>
