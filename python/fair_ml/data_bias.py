@@ -11,14 +11,25 @@ from ._internal import (
 
 
 def perform_analysis(
-    feature: Union[List[Union[str, float, int]], NDArray],
-    ground_truth: Union[List[Union[str, float, int]], NDArray],
+    feature: Union[List[Union[str, float, int]], NDArray], # pyright: ignore
+    ground_truth: Union[List[Union[str, float, int]], NDArray], # pyright: ignore
     feature_label_or_threshold: Union[str, float, int],
     ground_truth_label_or_threshold: Union[str, float, int]
     ) -> dict[str, float]:
-
+    """
+    interface into rust class
+    makes sure we are passing numpy arrays to the rust function
+    Args:
+        feature: Union[List[Union[str, float, int]], NDArray] -> the feature data
+            most efficient to pass as numpy array
+        ground_truth: Union[List[Union[str, float, int]], NDArray] -> the ground truth data
+            most efficient to pass as numpy array
+        feature_label_or_threshold: Union[str, float, int] -> segmentation parameter for the feature
+        ground_truth_label_or_threshold: Union[str, float, int] -> segmenation parameter for ground truth
+    """
     # want to pass numpy arrays to rust
     # type resolution in rust mod depends on numpy arrays
+    # ignoring lsp message because we are deliberately changing the type on these values
     if not _is_numpy(feature):
         assert(isinstance(feature, list))
         feature: NDArray = _convert_obj_type(feature, ArrayType.FEATURE)
@@ -40,8 +51,18 @@ def perform_analysis(
 def runtime_comparison(
     baseline: dict[str, float],
     latest: dict[str, float],
-    threshold: Optional[float]
+    threshold: Optional[float]=None
     ) -> dict[str, str]:
+    """
+    interface into rust module
+    serves to nicely formats the return as dicts are ordered and hashmaps are not
+    Args:
+        baseline: dict -> the result from calling perform_analysis on the baseline data
+        latest: dict -> the current data for comparison from calling perform_analysis
+        threshold: Optionl[float]=None -> the comparison threshold, defaults to 0.10 in rust mod
+    Returns:
+        dict
+    """
     res: str = data_bias_runtime_check(
         baseline=baseline,
         latest=latest,

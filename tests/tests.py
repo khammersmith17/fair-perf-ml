@@ -1,10 +1,8 @@
 import pandas as pd
 import numpy as np
 from fair_ml import (
-    data_bias_analyzer,
-    data_bias_runtime_check,
-    model_bias_analyzer,
-    model_bias_runtime_check
+    data_bias,
+    model_bias
 )
 
 def get_data() -> pd.DataFrame:
@@ -32,21 +30,21 @@ def test_db_numpy(bl_df, runtime_test) -> None:
     """
     testing using a numpy array with the db methods
     """
-    db_bl = data_bias_analyzer(
+    db_bl = data_bias.perform_analysis(
         bl_df["sex"].to_numpy(),
         bl_df["rings"].to_numpy(),
         "M",
         15
     )
 
-    db_runtime = data_bias_analyzer(
+    db_runtime = data_bias.perform_analysis(
         runtime_test["sex"].to_numpy(),
         runtime_test["rings"].to_numpy(),
         "M",
         15
     )
 
-    runtime_check = data_bias_runtime_check(
+    runtime_check = data_bias.runtime_comparison(
         db_bl,
         db_runtime,
         0.15
@@ -63,33 +61,33 @@ def test_db_list(bl_df, runtime_test) -> None:
     """
     testing using a numpy array with the db methods
     """
-    db_bl = data_bias_analyzer(
+    db_bl = data_bias.perform_analysis(
         bl_df["sex"].to_list(),
         bl_df["rings"].to_list(),
         "M",
         15
     )
 
-    db_runtime = data_bias_analyzer(
+    db_runtime = data_bias.perform_analysis(
         runtime_test["sex"].to_list(),
         runtime_test["rings"].to_list(),
         "M",
         15
     )
 
-    #runtime_check = data_bias_runtime_check(
-    #    db_bl,
-    #    db_runtime
-    #)
+    runtime_check = data_bias.runtime_comparison(
+        db_bl,
+        db_runtime
+    )
 
     print(f"baseline\n{db_bl}")
     print("\n")
     print(f"runtime\n:{db_runtime}")
-    #print("\n")
-    #print(f"runtime check:{runtime_check}")
+    print("\n")
+    print(f"runtime check:{runtime_check}")
 
 def test_mb(bl_df, runtime_test):
-    bl = model_bias_analyzer(
+    bl = model_bias.perform_analysis(
         bl_df["sex"].to_numpy(),
         bl_df["rings"].to_numpy(),
         bl_df["preds"].to_numpy(),
@@ -98,7 +96,7 @@ def test_mb(bl_df, runtime_test):
         15.0
     )
 
-    runtime = model_bias_analyzer(
+    runtime = model_bias.perform_analysis(
         runtime_test["sex"].to_numpy(),
         runtime_test["rings"].to_numpy(),
         runtime_test["preds"].to_numpy(),
@@ -107,7 +105,7 @@ def test_mb(bl_df, runtime_test):
         15.0
     )
 
-    runtime_check = model_bias_runtime_check(
+    runtime_check = model_bias.runtime_comparison(
         bl,
         runtime,
         0.15
