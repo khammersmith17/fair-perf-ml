@@ -24,4 +24,3 @@ def _convert_obj_type(arr: List[Union[str, float, int]], t: ArrayType) -> NDArra
         raise ValueError(f"Objects in {t.value} must all be of the same data type")
 
     return np.array(arr)
-

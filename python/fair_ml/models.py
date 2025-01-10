@@ -1,49 +1,8 @@
 from pydantic import BaseModel, ConfigDict
-from typing import Optional, Union
-
-
-class DataBiasRuntimeReturn(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True
-    )
-    DfferenceInProportionalOfLabels: Optional[str]
-    KlDivergence: Optional[str]
-    JsDivergance: Optional[str]
-    LpNorm: Optional[str]
-    TotalVariationDistance: Optional[str]
-    TotalVariationDistance: Optional[str]
-
-
-class ModelBiasRuntimeReturn(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True
-    )
-    DifferenceInPositivePredictedLabels: Optional[str]
-    DisparateImpact: Optional[str]
-    AccuracyDifference: Optional[str]
-    RecallDifference: Optional[str]
-    DifferenceInConditionalAcceptance: Optional[str]
-    DifferenceInAcceptanceRate: Optional[str]
-    SpecailityDifference: Optional[str]
-    DifferenceInConditionalRejection: Optional[str]
-    DifferenceInRejectionRate: Optional[str]
-    TreatmentEquity: Optional[str]
-    ConditionalDemographicDesparityPredictedLabels: Optional[str]
-    GeneralizedEntropy: Optional[str]
-
-
-class BaseRuntimeReturn(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True
-    )
-    passed: bool
-    failed_report: Optional[Union[DataBiasRuntimeReturn, ModelBiasRuntimeReturn]]
 
 
 class ModelBiasBaseline(BaseModel):
+    """data model for consistently formatted returns to users"""
     model_config = ConfigDict(
         extra="forbid",
         strict=True
@@ -62,6 +21,7 @@ class ModelBiasBaseline(BaseModel):
     GeneralizedEntropy: float
 
 class DataBiasBaseline(BaseModel):
+    """data model for consistently formatted returns to users"""
     model_config = ConfigDict(
         extra="forbid",
         strict=True

@@ -68,7 +68,7 @@ impl DataBiasRuntime {
         }
         if self.dpl.abs() > baseline.dpl.abs() * (1_f32 + threshold) {
             result.insert(
-                "DfferenceInProportionalOfLabels".to_string(),
+                "DfferenceInProportionOfLabels".to_string(),
                 format!(
                     "Exceed baseline by: {}",
                     (self.dpl.abs() - baseline.dpl.abs()).abs()
@@ -101,7 +101,7 @@ impl DataBiasRuntime {
         }
         if self.ks > baseline.ks * (1_f32 + threshold) {
             result.insert(
-                "TotalVariationDistance".to_string(),
+                "KolmorogvSmirnov".to_string(),
                 format!("Exceed baseline by: {}", self.tvd - baseline.tvd),
             );
         }

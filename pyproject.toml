@@ -4,13 +4,26 @@ build-backend = "maturin"
 
 [project]
 name = "fair_ml"
+description = "A package for evalutating machine learning models for pre training and post training bias"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
+dependencies = [
+    "pydantic>=2.9.2",
+    "numpy>=2.0.0",
+    "orjson>=3.9.0"
+]
 dynamic = ["version"]
+authors = [
+    {name = "Kilian Hammersmith", email = "kilianhammersmith@gmail.com"}
+]
+maintainers = [
+    {name = "Kilian Hammersmith", email = "kilianhammersmith@gmail.com"}
+]
+keywords = ["machine learning", "bias", "py03", "rust"]
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"

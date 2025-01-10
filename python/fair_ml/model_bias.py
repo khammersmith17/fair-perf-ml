@@ -1,10 +1,10 @@
-from ._fair_ml import model_bias_analyzer, model_bias_runtime
+from ._fair_ml import model_bias_analyzer, model_bias_runtime_check
 from ._internal import (
     ArrayType,
     _is_numpy,
     _convert_obj_type
 )
-from .models import BaseRuntimeReturn, ModelBiasBaseline
+from .models import ModelBiasBaseline
 from numpy.typing import NDArray
 from typing import List, Union, Optional
 import orjson
@@ -69,11 +69,11 @@ def runtime_comparison(
     Returns:
         dict
     """
-    res: str = model_bias_runtime(
+    res: str = model_bias_runtime_check(
         baseline=baseline,
         latest=comparison,
         threshold=threshold
     )
 
     # for nice formatting
-    return BaseRuntimeReturn(**orjson.loads(res)).model_dump()
+    return orjson.loads(res)

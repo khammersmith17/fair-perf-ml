@@ -66,10 +66,14 @@ pub fn apply_label<'py>(
                 .map(|item| item.unwrap().extract().unwrap())
                 .collect::<Vec<f64>>();
 
-            if !label.is_instance_of::<PyFloat>() {
+            // handling users passing float vs int as label_or_threshold
+            let data_label: f64 = if label.is_instance_of::<PyFloat>() {
+                label.extract::<f64>().unwrap()
+            } else if label.is_instance_of::<PyInt>() {
+                label.extract::<i64>().unwrap() as f64
+            } else {
                 return Err("float".into());
-            }
-            let data_label: f64 = label.extract::<f64>().unwrap();
+            };
 
             let data_set: std::collections::HashSet<i32> = data_vec
                 .iter()
@@ -93,11 +97,14 @@ pub fn apply_label<'py>(
                 .map(|value| *value as i32)
                 .collect::<std::collections::HashSet<_>>();
 
-            if !label.is_instance_of::<PyInt>() {
-                return Err("int".into());
-            }
-
-            let data_label: i64 = label.extract::<i64>().unwrap();
+            // handling users passing float vs int as label_or_threshold
+            let data_label: i64 = if label.is_instance_of::<PyFloat>() {
+                label.extract::<f64>().unwrap() as i64
+            } else if label.is_instance_of::<PyInt>() {
+                label.extract::<i64>().unwrap()
+            } else {
+                return Err("float".into());
+            };
 
             if data_set.len() == 2 {
                 apply_label_discrete(data_vec, data_label)
