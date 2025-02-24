@@ -331,7 +331,7 @@ pub fn generalized_entropy(data: &PostTrainingData) -> f32 {
 
 pub fn post_training_bias(data: PostTrainingData) -> Result<HashMap<String, f32>, String> {
     let pre_computed_data: PostTrainingComputations = data.general_data_computations();
-    let mut result = HashMap::new();
+    let mut result: HashMap<String, f32> = HashMap::with_capacity(12);
     result.insert(
         "DifferenceInPositivePredictedLabels".into(),
         diff_in_pos_proportion_in_pred_labels(&data),

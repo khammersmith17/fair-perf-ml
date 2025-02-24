@@ -1,20 +1,13 @@
 use super::data_bias::PreTraining;
 use super::model_bias::PostTrainingData;
+use crate::zip;
 use numpy::dtype_bound;
 use numpy::PyUntypedArrayMethods;
 use numpy::{PyArrayDescrMethods, PyUntypedArray};
 use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyInt, PyString};
 
-#[macro_export]
-macro_rules! zip {
-    ($x: expr) => ($x);
-    ($x: expr, $($y: expr), +) => (
-        $x.iter().zip(
-            zip!($($y), +))
-    )
-}
-
+#[derive(PartialEq)]
 pub enum PassedType {
     Float,
     Integer,

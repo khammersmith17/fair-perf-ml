@@ -104,7 +104,7 @@ pub fn kolmorogv_smirnov(data: &PreTraining) -> f32 {
 
 pub fn pre_training_bias(data: PreTraining) -> Result<HashMap<String, f32>, String> {
     let computed_data: PreTrainingComputations = data.generate();
-    let mut result = HashMap::new();
+    let mut result: HashMap<String, f32> = HashMap::with_capacity(7);
     result.insert("ClassImbalance".into(), class_imbalance(&data));
     result.insert(
         "DifferenceInProportionOfLabels".into(),
