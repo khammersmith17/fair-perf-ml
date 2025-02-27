@@ -11,7 +11,7 @@ use data_handler::{apply_label, perform_segmentation_data_bias, perform_segmenta
 mod runtime;
 use runtime::{DataBiasRuntime, ModelBiasRuntime};
 mod models;
-use models::{FailureRuntimeReturn, PassedRuntimeReturn};
+use models::{FailureRuntimeReturn, ModelPerformance, ModelType, PassedRuntimeReturn};
 mod macros;
 mod model_perf;
 use model_perf::{LinearRegressionPerf, LinearRegressionReport, ModelPerformanceType, PerfEntry};
@@ -184,7 +184,7 @@ fn model_performance_regression<'py>(
     py: Python<'_>,
     y_pred: &Bound<'_, PyUntypedArray>,
     y_true: &Bound<'_, PyUntypedArray>,
-) -> PyResult<HashMap<String, f32>> {
+) -> PyResult<String> {
     let (y_true, y_pred) = match PerfEntry::validate_and_cast_regression(py, y_true, y_pred) {
         Ok(res) => res,
         Err(_) => {
@@ -195,7 +195,11 @@ fn model_performance_regression<'py>(
     };
     let perf: LinearRegressionPerf = LinearRegressionPerf::new(y_true, y_pred);
     let report: LinearRegressionReport = perf.into();
-    Ok(report.generate_report())
+    match serde_json::to_string(&report.generate_report()) {
+        Ok(res) => Ok(res),
+        Err(_) => Err(PySystemError::new_err("Internal error")), // this should not happen if we
+                                                                 // get to this point
+    }
 }
 
 #[pyfunction]

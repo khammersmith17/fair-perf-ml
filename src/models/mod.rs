@@ -1,4 +1,3 @@
-use crate::model_perf::ModelPerformanceType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -13,6 +12,7 @@ pub struct PassedRuntimeReturn {
     pub passed: bool,
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum ModelType {
     LinearRegression,
     LogisiticRegression,
@@ -29,12 +29,4 @@ impl TryFrom<&str> for ModelType {
             _ => Err("invalid model type".into()),
         }
     }
-}
-
-pub struct ModelPerformance<T>
-where
-    T: ModelPerformanceType,
-{
-    model_type: ModelType,
-    performance_data: T,
 }

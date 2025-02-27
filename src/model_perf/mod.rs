@@ -2,14 +2,15 @@ use crate::data_handler::{determine_type, PassedType};
 use crate::zip;
 use numpy::PyUntypedArray;
 use pyo3::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 
-fn update_failure_report_above(map: &HashMap<String, String>, metric: String, diff: f32) {
+fn update_failure_report_above(map: &mut HashMap<String, String>, metric: String, diff: f32) {
     map.insert(metric, format!("Exceeded threshold by {diff}"));
 }
 
-fn update_failure_report_below(map: &HashMap<String, String>, metric: String, diff: f32) {
+fn update_failure_report_below(map: &mut HashMap<String, String>, metric: String, diff: f32) {
     map.insert(metric, format!("Below threshold by {diff}"));
 }
 
@@ -201,6 +202,8 @@ impl PerfEntry {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BinaryClassificationReport {
     balanced_accuracy: f32,
     precision_positive: f32,
@@ -209,6 +212,43 @@ pub struct BinaryClassificationReport {
     recall_negative: f32,
     accuracy: f32,
     f1_score: f32,
+}
+
+impl TryFrom<HashMap<String, f32>> for BinaryClassificationReport {
+    type Error = String;
+    fn try_from(map: HashMap<String, f32>) -> Result<Self, Self::Error> {
+        let Some(balanced_accuracy) = map.get("BalancedAccuracy") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(precision_positive) = map.get("PrecisionPositive") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(precision_negative) = map.get("PrecisionNegative") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(recall_positive) = map.get("RecallPositive") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(recall_negative) = map.get("RecallNegative") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(accuracy) = map.get("Accuracy") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(f1_score) = map.get("F1Score") else {
+            return Err("Invalid regression report".into());
+        };
+
+        Ok(BinaryClassificationReport {
+            balanced_accuracy: *balanced_accuracy,
+            precision_positive: *precision_positive,
+            precision_negative: *precision_negative,
+            recall_positive: *recall_positive,
+            recall_negative: *recall_negative,
+            accuracy: *accuracy,
+            f1_score: *f1_score,
+        })
+    }
 }
 
 impl ModelPerformanceType for BinaryClassificationReport {
@@ -272,6 +312,8 @@ impl ModelPerformanceType for BinaryClassificationReport {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogisiticRegressionReport {
     balanced_accuracy: f32,
     precision_positive: f32,
@@ -281,6 +323,115 @@ pub struct LogisiticRegressionReport {
     accuracy: f32,
     f1_score: f32,
     log_loss: f32,
+}
+
+impl TryFrom<HashMap<String, f32>> for LogisiticRegressionReport {
+    type Error = String;
+    fn try_from(map: HashMap<String, f32>) -> Result<Self, Self::Error> {
+        let Some(balanced_accuracy) = map.get("BalancedAccuracy") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(precision_positive) = map.get("PrecisionPositive") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(precision_negative) = map.get("PrecisionNegative") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(recall_positive) = map.get("RecallPositive") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(recall_negative) = map.get("RecallNegative") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(accuracy) = map.get("Accuracy") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(f1_score) = map.get("F1Score") else {
+            return Err("Invalid regression report".into());
+        };
+        let Some(log_loss) = map.get("LogLoss") else {
+            return Err("Invalid regression report".into());
+        };
+
+        Ok(LogisiticRegressionReport {
+            balanced_accuracy: *balanced_accuracy,
+            precision_positive: *precision_positive,
+            precision_negative: *precision_negative,
+            recall_positive: *recall_positive,
+            recall_negative: *recall_negative,
+            accuracy: *accuracy,
+            f1_score: *f1_score,
+            log_loss: *log_loss,
+        })
+    }
+}
+
+impl ModelPerformanceType for LogisiticRegressionReport {
+    fn compare_to_baseline(
+        &self,
+        baseline: &Self,
+        drift_threshold: f32,
+    ) -> HashMap<String, String> {
+        let mut res: HashMap<String, String> = HashMap::with_capacity(7);
+        let drift_factor = 1_f32 - drift_threshold;
+        if self.balanced_accuracy < baseline.balanced_accuracy * drift_factor {
+            update_failure_report_below(
+                &mut res,
+                "BalancedAccuracy".into(),
+                baseline.balanced_accuracy - self.balanced_accuracy,
+            );
+        }
+        if self.precision_positive < baseline.precision_positive * drift_factor {
+            update_failure_report_below(
+                &mut res,
+                "PrecisionPositive".into(),
+                baseline.precision_positive - self.precision_positive,
+            );
+        }
+        if self.precision_negative < baseline.precision_negative * drift_factor {
+            update_failure_report_below(
+                &mut res,
+                "PrecisionNegative".into(),
+                baseline.precision_negative - self.precision_negative,
+            );
+        }
+        if self.recall_positive < baseline.recall_positive * drift_factor {
+            update_failure_report_below(
+                &mut res,
+                "RecallPositive".into(),
+                baseline.recall_positive - self.recall_positive,
+            );
+        }
+        if self.recall_negative < baseline.recall_negative * drift_factor {
+            update_failure_report_below(
+                &mut res,
+                "RecallNegative".into(),
+                baseline.recall_negative - self.recall_negative,
+            );
+        }
+        if self.accuracy < baseline.accuracy * drift_factor {
+            update_failure_report_below(
+                &mut res,
+                "Accuracy".into(),
+                baseline.accuracy - self.accuracy,
+            );
+        }
+        if self.f1_score < baseline.f1_score * drift_factor {
+            update_failure_report_below(
+                &mut res,
+                "F1Score".into(),
+                baseline.f1_score - self.f1_score,
+            );
+        }
+        if self.log_loss < baseline.log_loss * drift_factor {
+            update_failure_report_below(
+                &mut res,
+                "F1Score".into(),
+                baseline.log_loss - self.log_loss,
+            );
+        }
+        res
+    }
 }
 
 pub struct ClassificationPerf {
@@ -374,6 +525,8 @@ struct LogisiticRegressionPerf {
     label_data: ClassificationPerf,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LinearRegressionReport {
     rmse: f32,
     mse: f32,
