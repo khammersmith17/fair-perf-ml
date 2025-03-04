@@ -11,10 +11,13 @@ use data_handler::{apply_label, perform_segmentation_data_bias, perform_segmenta
 mod runtime;
 use runtime::{DataBiasRuntime, ModelBiasRuntime};
 mod models;
-use models::{FailureRuntimeReturn, ModelPerformance, ModelType, PassedRuntimeReturn};
+use models::{FailureRuntimeReturn, ModelType, PassedRuntimeReturn};
 mod macros;
 mod model_perf;
-use model_perf::{LinearRegressionPerf, LinearRegressionReport, ModelPerformanceType, PerfEntry};
+use model_perf::{
+    model_perf_classification, model_perf_logistic_regression, model_perf_regression,
+    LinearRegressionReport, ModelPerformanceType,
+};
 
 #[pyfunction]
 #[pyo3(signature = (
@@ -28,12 +31,12 @@ pub fn data_bias_runtime_check<'py>(
     latest: HashMap<String, f32>,
     threshold: f32,
 ) -> PyResult<String> {
-    let current = match DataBiasRuntime::new(latest) {
+    let current = match DataBiasRuntime::try_from(latest) {
         Ok(obj) => obj,
         Err(_) => return Err(PyValueError::new_err("Invalid metrics body passed")),
     };
 
-    let baseline = match DataBiasRuntime::new(baseline) {
+    let baseline = match DataBiasRuntime::try_from(baseline) {
         Ok(obj) => obj,
         Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
     };
@@ -66,11 +69,11 @@ pub fn model_bias_runtime_check<'py>(
     latest: HashMap<String, f32>,
     threshold: f32,
 ) -> PyResult<String> {
-    let current = match ModelBiasRuntime::new(latest) {
+    let current = match ModelBiasRuntime::try_from(latest) {
         Ok(obj) => obj,
         Err(_) => return Err(PyValueError::new_err("Invalid metrics body passed")),
     };
-    let baseline = match ModelBiasRuntime::new(baseline) {
+    let baseline = match ModelBiasRuntime::try_from(baseline) {
         Ok(obj) => obj,
         Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
     };
@@ -184,21 +187,51 @@ fn model_performance_regression<'py>(
     py: Python<'_>,
     y_pred: &Bound<'_, PyUntypedArray>,
     y_true: &Bound<'_, PyUntypedArray>,
-) -> PyResult<String> {
-    let (y_true, y_pred) = match PerfEntry::validate_and_cast_regression(py, y_true, y_pred) {
-        Ok(res) => res,
-        Err(_) => {
-            return Err(PyValueError::new_err::<String>(
-                "Invalid arrays for y_pred and y_true".into(),
-            ))
-        }
-    };
-    let perf: LinearRegressionPerf = LinearRegressionPerf::new(y_true, y_pred);
-    let report: LinearRegressionReport = perf.into();
-    match serde_json::to_string(&report.generate_report()) {
+) -> PyResult<HashMap<String, f32>> {
+    match model_perf_regression(py, y_pred, y_true) {
         Ok(res) => Ok(res),
-        Err(_) => Err(PySystemError::new_err("Internal error")), // this should not happen if we
-                                                                 // get to this point
+        Err(_) => Err(PyValueError::new_err::<String>(
+            "Invalid arrays for y_pred and y_true".into(),
+        )),
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    y_pred,
+    y_true)
+)]
+fn model_performance_classification<'py>(
+    py: Python<'_>,
+    y_pred: &Bound<'_, PyUntypedArray>,
+    y_true: &Bound<'_, PyUntypedArray>,
+) -> PyResult<HashMap<String, f32>> {
+    match model_perf_classification(py, y_pred, y_true) {
+        Ok(res) => Ok(res),
+        Err(_) => Err(PyValueError::new_err::<String>(
+            "Invalid arrays for y_pred and y_true".into(),
+        )),
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    y_pred,
+    y_true,
+    decision_threshold=0.5
+)
+)]
+fn model_performance_logisitic_regression<'py>(
+    py: Python<'_>,
+    y_pred: &Bound<'_, PyUntypedArray>,
+    y_true: &Bound<'_, PyUntypedArray>,
+    decision_threshold: f32,
+) -> PyResult<HashMap<String, f32>> {
+    match model_perf_logistic_regression(py, y_pred, y_true, decision_threshold) {
+        Ok(res) => Ok(res),
+        Err(_) => Err(PyValueError::new_err::<String>(
+            "Invalid arrays for y_pred and y_true".into(),
+        )),
     }
 }
 
@@ -209,9 +242,58 @@ fn model_performance_regression<'py>(
     threshold=0.10
 )
 )]
-fn regression_performance_runtime(
+fn regression_performance_runtime_full(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
+    threshold: f32,
+) -> PyResult<String> {
+    let baseline: LinearRegressionReport = match LinearRegressionReport::try_from(baseline) {
+        Ok(val) => val,
+        Err(e) => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid baseline report: {}",
+                e
+            )))
+        }
+    };
+    let latest: LinearRegressionReport = match LinearRegressionReport::try_from(latest) {
+        Ok(val) => val,
+        Err(e) => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid latest report: {}",
+                e
+            )))
+        }
+    };
+    let results = latest.compare_to_baseline(&baseline, threshold);
+    if results.len() > 0 {
+        match serde_json::to_string(&FailureRuntimeReturn {
+            passed: false,
+            fail_report: Some(results),
+        }) {
+            Ok(val) => Ok(val),
+            Err(_) => Err(PySystemError::new_err("Internal error")),
+        }
+    } else {
+        match serde_json::to_string(&PassedRuntimeReturn { passed: true }) {
+            Ok(val) => Ok(val),
+            Err(_) => Err(PySystemError::new_err("Internal error")),
+        }
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    baseline,
+    latest,
+    evaluation_metrics,
+    threshold=0.10
+)
+)]
+fn regression_performance_runtime_partial(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    evaluation_metrics: Vec<String>,
     threshold: f32,
 ) -> PyResult<String> {
     let baseline: LinearRegressionReport = match LinearRegressionReport::try_from(baseline) {
@@ -258,6 +340,8 @@ fn fair_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(data_bias_runtime_check, m)?)?;
     m.add_function(wrap_pyfunction!(model_bias_runtime_check, m)?)?;
     m.add_function(wrap_pyfunction!(model_performance_regression, m)?)?;
-    m.add_function(wrap_pyfunction!(regression_performance_runtime, m)?)?;
+    m.add_function(wrap_pyfunction!(model_performance_classification, m)?)?;
+    m.add_function(wrap_pyfunction!(regression_performance_runtime_full, m)?)?;
+    m.add_function(wrap_pyfunction!(model_performance_logisitic_regression, m)?)?;
     Ok(())
 }

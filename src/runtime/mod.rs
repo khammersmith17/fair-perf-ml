@@ -10,8 +10,9 @@ pub struct DataBiasRuntime {
     ks: f32,
 }
 
-impl DataBiasRuntime {
-    pub fn new(data: HashMap<String, f32>) -> Result<DataBiasRuntime, String> {
+impl TryFrom<HashMap<String, f32>> for DataBiasRuntime {
+    type Error = String;
+    fn try_from(data: HashMap<String, f32>) -> Result<Self, Self::Error> {
         let ci = match data.get("ClassImbalance") {
             Some(val) => *val,
             None => return Err("ClassImbalance not present".to_string()),
@@ -51,6 +52,9 @@ impl DataBiasRuntime {
             ks,
         })
     }
+}
+
+impl DataBiasRuntime {
     pub fn runtime_check(
         &self,
         baseline: DataBiasRuntime,
@@ -124,8 +128,9 @@ pub struct ModelBiasRuntime {
     ge: f32,
 }
 
-impl ModelBiasRuntime {
-    pub fn new(data: HashMap<String, f32>) -> Result<ModelBiasRuntime, String> {
+impl TryFrom<HashMap<String, f32>> for ModelBiasRuntime {
+    type Error = String;
+    fn try_from(data: HashMap<String, f32>) -> Result<Self, Self::Error> {
         let ddpl = match data.get("DifferenceInPositivePredictedLabels") {
             Some(val) => *val,
             None => return Err("DifferenceInPositivePredictedLabels is not present".to_string()),
@@ -193,6 +198,9 @@ impl ModelBiasRuntime {
             ge,
         })
     }
+}
+
+impl ModelBiasRuntime {
     pub fn runtime_check(
         &self,
         baseline: ModelBiasRuntime,

@@ -2,7 +2,6 @@ use crate::data_handler::{determine_type, PassedType};
 use crate::zip;
 use numpy::PyUntypedArray;
 use pyo3::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -14,6 +13,17 @@ fn update_failure_report_below(map: &mut HashMap<String, String>, metric: String
     map.insert(metric, format!("Below threshold by {diff}"));
 }
 
+pub fn model_perf_regression<'py>(
+    py: Python<'_>,
+    y_pred_src: &Bound<'_, PyUntypedArray>,
+    y_true_src: &Bound<'_, PyUntypedArray>,
+) -> Result<HashMap<String, f32>, Box<dyn Error>> {
+    let (y_true, y_pred) = PerfEntry::validate_and_cast_regression(py, y_true_src, y_pred_src)?;
+    let perf: LinearRegressionPerf = LinearRegressionPerf::new(y_true, y_pred);
+    let report: LinearRegressionReport = perf.into();
+    Ok(report.generate_report())
+}
+
 pub trait ModelPerformanceType {
     fn compare_to_baseline(
         &self,
@@ -23,6 +33,29 @@ pub trait ModelPerformanceType {
         HashMap::new()
     }
 }
+
+pub fn model_perf_classification<'py>(
+    py: Python<'_>,
+    y_pred_src: &Bound<'_, PyUntypedArray>,
+    y_true_src: &Bound<'_, PyUntypedArray>,
+) -> Result<HashMap<String, f32>, Box<dyn Error>> {
+    let perf: ClassificationPerf = ClassificationPerf::new(py, y_true_src, y_pred_src)?;
+    let report: BinaryClassificationReport = perf.into();
+    Ok(report.generate_report())
+}
+
+pub fn model_perf_logistic_regression<'py>(
+    py: Python<'_>,
+    y_pred_src: &Bound<'_, PyUntypedArray>,
+    y_true_src: &Bound<'_, PyUntypedArray>,
+    threshold: f32,
+) -> Result<HashMap<String, f32>, Box<dyn Error>> {
+    let perf: LogisticRegressionPerf =
+        LogisticRegressionPerf::new(py, y_pred_src, y_true_src, threshold)?;
+    let lr_report: LogisticRegressionReport = perf.into();
+    let map = lr_report.report();
+    Ok(map)
+}
 struct GeneralClassificationMetrics;
 
 impl GeneralClassificationMetrics {
@@ -30,7 +63,7 @@ impl GeneralClassificationMetrics {
         rp * rn * 0.5_f32
     }
 
-    fn precision_positive(y_pred: &Vec<f32>, y_true: &Vec<f32>) -> f32 {
+    fn precision_positive(y_pred: &[f32], y_true: &[f32]) -> f32 {
         let total_pred_positives: f32 = y_pred.iter().sum::<f32>();
         let mut true_positives: f32 = 0_f32;
         for (t, p) in zip!(y_true, y_pred) {
@@ -41,7 +74,7 @@ impl GeneralClassificationMetrics {
         true_positives / total_pred_positives
     }
 
-    fn precision_negative(y_pred: &Vec<f32>, y_true: &Vec<f32>, len: f32) -> f32 {
+    fn precision_negative(y_pred: &[f32], y_true: &[f32], len: f32) -> f32 {
         let total_pred_negatives: f32 = len - y_pred.iter().sum::<f32>();
         let mut true_negatives: f32 = 0_f32;
         for (t, p) in zip!(y_true, y_pred) {
@@ -52,7 +85,7 @@ impl GeneralClassificationMetrics {
         true_negatives / total_pred_negatives
     }
 
-    fn recall_positive(y_pred: &Vec<f32>, y_true: &Vec<f32>) -> f32 {
+    fn recall_positive(y_pred: &[f32], y_true: &[f32]) -> f32 {
         let total_true_positives: f32 = y_true.iter().sum::<f32>();
         let mut true_positives: f32 = 0_f32;
         for (t, p) in zip!(y_true, y_pred) {
@@ -63,7 +96,7 @@ impl GeneralClassificationMetrics {
         true_positives / total_true_positives
     }
 
-    fn recall_negative(y_pred: &Vec<f32>, y_true: &Vec<f32>, len: f32) -> f32 {
+    fn recall_negative(y_pred: &[f32], y_true: &[f32], len: f32) -> f32 {
         let total_true_negatives: f32 = len - y_true.iter().sum::<f32>();
         let mut true_negatives: f32 = 0_f32;
         for (t, p) in zip!(y_true, y_pred) {
@@ -88,7 +121,7 @@ impl GeneralClassificationMetrics {
         2_f32 * rp * pp / (rp + pp)
     }
 
-    fn log_loss_score(y_proba: &Vec<f32>, y_true: &Vec<f32>, mean_f: f32) -> f32 {
+    fn log_loss_score(y_proba: &[f32], y_true: &[f32], mean_f: f32) -> f32 {
         let mut penalties = 0_f32;
         for (t, p) in zip!(y_true, y_proba) {
             penalties += t * f32::log10(*p) + (1_f32 - t) * f32::log10(1_f32 - p);
@@ -133,28 +166,6 @@ impl PerfEntry {
         let y_true: Vec<f32> = Self::convert_f32(py, y_pred_src, determine_type(py, y_true_src))?;
         let y_pred: Vec<f32> = Self::convert_f32(py, y_true_src, determine_type(py, y_pred_src))?;
         Ok((y_true, y_pred))
-    }
-
-    fn convert_usize(
-        _py: Python<'_>,
-        arr: &Bound<'_, PyUntypedArray>,
-        passed_type: PassedType,
-    ) -> Result<Vec<usize>, Box<dyn Error>> {
-        // pulls the py data type out
-        // applying labels as usize
-        let res: Vec<usize> = match passed_type {
-            PassedType::Float => arr
-                .iter()?
-                .map(|item| item.unwrap().extract::<f64>().unwrap() as usize)
-                .collect::<Vec<usize>>(),
-            PassedType::Integer => arr
-                .iter()?
-                .clone()
-                .map(|item| item.unwrap().extract::<f32>().unwrap() as usize)
-                .collect::<Vec<usize>>(),
-            _ => panic!("Wrong PassedType made it through"),
-        };
-        Ok(res)
     }
 
     fn convert_f32(
@@ -202,8 +213,6 @@ impl PerfEntry {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct BinaryClassificationReport {
     balanced_accuracy: f32,
     precision_positive: f32,
@@ -212,6 +221,20 @@ pub struct BinaryClassificationReport {
     recall_negative: f32,
     accuracy: f32,
     f1_score: f32,
+}
+
+impl BinaryClassificationReport {
+    pub fn generate_report(&self) -> HashMap<String, f32> {
+        let mut map: HashMap<String, f32> = HashMap::with_capacity(7);
+        map.insert("BalancedAccuracy".into(), self.balanced_accuracy);
+        map.insert("PrecisionPositive".into(), self.precision_positive);
+        map.insert("PrecisionNegative".into(), self.precision_negative);
+        map.insert("RecallPositive".into(), self.recall_positive);
+        map.insert("RecallNegative".into(), self.recall_negative);
+        map.insert("Accuracy".into(), self.accuracy);
+        map.insert("F1Score".into(), self.f1_score);
+        map
+    }
 }
 
 impl TryFrom<HashMap<String, f32>> for BinaryClassificationReport {
@@ -312,9 +335,7 @@ impl ModelPerformanceType for BinaryClassificationReport {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LogisiticRegressionReport {
+pub struct LogisticRegressionReport {
     balanced_accuracy: f32,
     precision_positive: f32,
     precision_negative: f32,
@@ -325,7 +346,22 @@ pub struct LogisiticRegressionReport {
     log_loss: f32,
 }
 
-impl TryFrom<HashMap<String, f32>> for LogisiticRegressionReport {
+impl LogisticRegressionReport {
+    pub fn report(&self) -> HashMap<String, f32> {
+        let mut map: HashMap<String, f32> = HashMap::with_capacity(8);
+        map.insert("BalancedAccuracy".into(), self.balanced_accuracy);
+        map.insert("PrecisionPositive".into(), self.precision_positive);
+        map.insert("PrecisionNegative".into(), self.precision_negative);
+        map.insert("RecallPositive".into(), self.recall_positive);
+        map.insert("RecallNegative".into(), self.recall_negative);
+        map.insert("Accuracy".into(), self.accuracy);
+        map.insert("F1Score".into(), self.f1_score);
+        map.insert("LogLoss".into(), self.log_loss);
+        map
+    }
+}
+
+impl TryFrom<HashMap<String, f32>> for LogisticRegressionReport {
     type Error = String;
     fn try_from(map: HashMap<String, f32>) -> Result<Self, Self::Error> {
         let Some(balanced_accuracy) = map.get("BalancedAccuracy") else {
@@ -353,7 +389,7 @@ impl TryFrom<HashMap<String, f32>> for LogisiticRegressionReport {
             return Err("Invalid regression report".into());
         };
 
-        Ok(LogisiticRegressionReport {
+        Ok(LogisticRegressionReport {
             balanced_accuracy: *balanced_accuracy,
             precision_positive: *precision_positive,
             precision_negative: *precision_negative,
@@ -366,7 +402,7 @@ impl TryFrom<HashMap<String, f32>> for LogisiticRegressionReport {
     }
 }
 
-impl ModelPerformanceType for LogisiticRegressionReport {
+impl ModelPerformanceType for LogisticRegressionReport {
     fn compare_to_baseline(
         &self,
         baseline: &Self,
@@ -468,13 +504,12 @@ impl Into<BinaryClassificationReport> for ClassificationPerf {
                 self.mean_f,
             ),
             f1_score: GeneralClassificationMetrics::f1_score(recall_positive, precision_positive),
-        };
-        todo!()
+        }
     }
 }
 
 impl ClassificationPerf {
-    pub fn new_from_label(
+    pub fn new(
         py: Python<'_>,
         y_true_src: &Bound<'_, PyUntypedArray>,
         y_pred_src: &Bound<'_, PyUntypedArray>,
@@ -490,43 +525,79 @@ impl ClassificationPerf {
             len,
         })
     }
+}
 
-    pub fn new_from_proba(
+struct LogisticRegressionPerf {
+    y_true: Vec<f32>,
+    y_pred: Vec<f32>,
+    y_proba: Vec<f32>,
+    mean_f: f32,
+    len: f32,
+}
+
+impl LogisticRegressionPerf {
+    fn new(
         py: Python<'_>,
-        y_true_src: &Bound<'_, PyUntypedArray>,
         y_pred_src: &Bound<'_, PyUntypedArray>,
+        y_true_src: &Bound<'_, PyUntypedArray>,
         threshold: f32,
-    ) -> Result<ClassificationPerf, Box<dyn Error>> {
-        let (y_pred, y_true) = PerfEntry::validate_and_cast_classification(
-            py,
-            y_true_src,
-            y_pred_src,
-            true,
-            Some(threshold),
-        )?;
-        let len: f32 = y_pred.len() as f32;
-        let mean_f: f32 = 1_f32 / len;
-        Ok(ClassificationPerf {
+    ) -> Result<LogisticRegressionPerf, Box<dyn Error>> {
+        let true_type: PassedType = determine_type(py, y_true_src);
+        let y_true: Vec<f32> = PerfEntry::convert_f32(py, y_true_src, true_type)?;
+        let pred_type = determine_type(py, y_pred_src);
+        let y_proba: Vec<f32> = PerfEntry::convert_f32(py, y_true_src, pred_type)?;
+        let y_pred = y_proba
+            .clone()
+            .iter()
+            .map(|x| if *x >= threshold { 1_f32 } else { 0_f32 })
+            .collect::<Vec<f32>>();
+        let len: f32 = y_true.len() as f32;
+        Ok(LogisticRegressionPerf {
             y_true,
             y_pred,
-            mean_f,
+            y_proba,
+            mean_f: 1_f32 / len,
             len,
         })
     }
+}
 
-    pub fn report(&self) -> HashMap<String, f32> {
-        let res: HashMap<String, f32> = HashMap::new();
-        res
+impl Into<LogisticRegressionReport> for LogisticRegressionPerf {
+    fn into(self) -> LogisticRegressionReport {
+        let recall_positive =
+            GeneralClassificationMetrics::recall_positive(&self.y_pred, &self.y_true);
+        let precision_positive =
+            GeneralClassificationMetrics::precision_positive(&self.y_pred, &self.y_true);
+        let recall_negative =
+            GeneralClassificationMetrics::recall_negative(&self.y_pred, &self.y_true, self.len);
+        LogisticRegressionReport {
+            balanced_accuracy: GeneralClassificationMetrics::balanced_accuracy(
+                recall_positive,
+                recall_negative,
+            ),
+            precision_positive,
+            precision_negative: GeneralClassificationMetrics::precision_negative(
+                &self.y_pred,
+                &self.y_true,
+                self.len,
+            ),
+            recall_positive,
+            recall_negative,
+            accuracy: GeneralClassificationMetrics::accuracy(
+                &self.y_pred,
+                &self.y_true,
+                self.mean_f,
+            ),
+            f1_score: GeneralClassificationMetrics::f1_score(recall_positive, precision_positive),
+            log_loss: GeneralClassificationMetrics::log_loss_score(
+                &self.y_proba,
+                &self.y_true,
+                self.mean_f,
+            ),
+        }
     }
 }
 
-struct LogisiticRegressionPerf {
-    y_proba: Vec<f32>,
-    label_data: ClassificationPerf,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct LinearRegressionReport {
     rmse: f32,
     mse: f32,
@@ -601,57 +672,59 @@ impl ModelPerformanceType for LinearRegressionReport {
     ) -> HashMap<String, String> {
         let mut res: HashMap<String, String> = HashMap::with_capacity(8);
         if self.rmse > baseline.rmse * (1_f32 + drift_threshold) {
-            res.insert(
+            update_failure_report_above(
+                &mut res,
                 "RootMeanSqauredError".into(),
-                format!("Exceeded threshold by {}", self.rmse - baseline.rmse),
+                self.rmse - baseline.rmse,
             );
         }
         if self.mse > baseline.mse * (1_f32 + drift_threshold) {
-            res.insert(
+            update_failure_report_above(
+                &mut res,
                 "MeanSqauredError".into(),
-                format!("Exceeded threshold by {}", self.mse - baseline.mse),
+                self.mse - baseline.mse,
             );
         }
         if self.mae > baseline.mae * (1_f32 + drift_threshold) {
-            res.insert(
+            update_failure_report_above(
+                &mut res,
                 "MeanAbsoluteError".into(),
-                format!("Exceeded threshold by {}", self.mae - baseline.mae),
+                self.mae - baseline.mae,
             );
         }
         if self.r_squared > baseline.r_squared * (1_f32 + drift_threshold) {
-            res.insert(
-                "R-Sqaured".into(),
-                format!(
-                    "Exceeded threshold by {}",
-                    self.r_squared - baseline.r_squared
-                ),
+            update_failure_report_above(
+                &mut res,
+                "R-Squared".into(),
+                self.r_squared - baseline.r_squared,
             );
         }
         if self.max_error > baseline.max_error * (1_f32 + drift_threshold) {
-            res.insert(
+            update_failure_report_above(
+                &mut res,
                 "MaxError".into(),
-                format!(
-                    "Exceeded threshold by {}",
-                    self.max_error - baseline.max_error
-                ),
+                self.max_error - baseline.max_error,
             );
         }
         if self.msle > baseline.msle * (1_f32 + drift_threshold) {
-            res.insert(
+            update_failure_report_above(
+                &mut res,
                 "MeanSqauredLogError".into(),
-                format!("Exceeded threshold by {}", self.msle - baseline.msle),
+                self.msle - baseline.msle,
             );
         }
         if self.rmsle > baseline.rmsle * (1_f32 + drift_threshold) {
-            res.insert(
+            update_failure_report_above(
+                &mut res,
                 "RootMeanSqauredLogError".into(),
-                format!("Exceeded threshold by {}", self.rmsle - baseline.rmsle),
+                self.rmsle - baseline.rmsle,
             );
         }
         if self.mape > baseline.mape * (1_f32 + drift_threshold) {
-            res.insert(
+            update_failure_report_above(
+                &mut res,
                 "MeanAbsolutePercentageError".into(),
-                format!("Exceeded threshold by {}", self.rmsle - baseline.rmsle),
+                self.mape - baseline.mape,
             );
         }
         res
