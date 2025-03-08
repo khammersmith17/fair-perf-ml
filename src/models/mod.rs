@@ -15,7 +15,7 @@ pub struct PassedRuntimeReturn {
 #[derive(Serialize, Deserialize)]
 pub enum ModelType {
     LinearRegression,
-    LogisiticRegression,
+    LogisticRegression,
     BinaryClassification,
 }
 
@@ -24,7 +24,7 @@ impl TryFrom<&str> for ModelType {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "LinearRegression" => Ok(Self::LinearRegression),
-            "LogisiticRegression" => Ok(Self::LogisiticRegression),
+            "LogisticRegression" => Ok(Self::LogisticRegression),
             "BinaryClassification" => Ok(Self::BinaryClassification),
             _ => Err("invalid model type".into()),
         }

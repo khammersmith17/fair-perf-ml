@@ -15,8 +15,11 @@ use models::{FailureRuntimeReturn, ModelType, PassedRuntimeReturn};
 mod macros;
 mod model_perf;
 use model_perf::{
-    model_perf_classification, model_perf_logistic_regression, model_perf_regression,
-    LinearRegressionReport, ModelPerformanceType,
+    map_string_to_bin_metric, map_string_to_linear_metric, model_perf_classification,
+    model_perf_logistic_regression, model_perf_regression, BinaryClassificationReport,
+    ClassificationEvaluationMetrics, LinearRegressionEvaluationMetrics, LinearRegressionReport,
+    LogisticRegressionReport, FULL_BINARY_CLASSIFICATION_METRICS, FULL_LOGISTIC_REGRESSION_METRICS,
+    FULL_REGRESSION_METRICS,
 };
 
 #[pyfunction]
@@ -41,20 +44,8 @@ pub fn data_bias_runtime_check<'py>(
         Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
     };
     let failure_report: HashMap<String, String> = current.runtime_check(baseline, threshold);
-    if failure_report.len() > 0 {
-        match serde_json::to_string(&FailureRuntimeReturn {
-            passed: false,
-            fail_report: Some(failure_report),
-        }) {
-            Ok(val) => Ok(val),
-            Err(_) => Err(PySystemError::new_err("Internal error")),
-        }
-    } else {
-        match serde_json::to_string(&PassedRuntimeReturn { passed: true }) {
-            Ok(val) => Ok(val),
-            Err(_) => Err(PySystemError::new_err("Internal error")),
-        }
-    }
+
+    process_failure_report(failure_report)
 }
 
 #[pyfunction]
@@ -78,20 +69,8 @@ pub fn model_bias_runtime_check<'py>(
         Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
     };
     let failure_report: HashMap<String, String> = current.runtime_check(baseline, threshold);
-    if failure_report.len() > 0 {
-        match serde_json::to_string(&FailureRuntimeReturn {
-            passed: false,
-            fail_report: Some(failure_report),
-        }) {
-            Ok(val) => Ok(val),
-            Err(_) => Err(PySystemError::new_err("Internal error")),
-        }
-    } else {
-        match serde_json::to_string(&PassedRuntimeReturn { passed: true }) {
-            Ok(val) => Ok(val),
-            Err(_) => Err(PySystemError::new_err("Internal error")),
-        }
-    }
+
+    process_failure_report(failure_report)
 }
 
 #[pyfunction]
@@ -237,63 +216,160 @@ fn model_performance_logisitic_regression<'py>(
 
 #[pyfunction]
 #[pyo3(signature = (
-    baseline,
-    latest,
-    threshold=0.10
-)
-)]
-fn regression_performance_runtime_full(
-    baseline: HashMap<String, f32>,
-    latest: HashMap<String, f32>,
-    threshold: f32,
-) -> PyResult<String> {
-    let baseline: LinearRegressionReport = match LinearRegressionReport::try_from(baseline) {
-        Ok(val) => val,
-        Err(e) => {
-            return Err(PyValueError::new_err(format!(
-                "Invalid baseline report: {}",
-                e
-            )))
-        }
-    };
-    let latest: LinearRegressionReport = match LinearRegressionReport::try_from(latest) {
-        Ok(val) => val,
-        Err(e) => {
-            return Err(PyValueError::new_err(format!(
-                "Invalid latest report: {}",
-                e
-            )))
-        }
-    };
-    let results = latest.compare_to_baseline(&baseline, threshold);
-    if results.len() > 0 {
-        match serde_json::to_string(&FailureRuntimeReturn {
-            passed: false,
-            fail_report: Some(results),
-        }) {
-            Ok(val) => Ok(val),
-            Err(_) => Err(PySystemError::new_err("Internal error")),
-        }
-    } else {
-        match serde_json::to_string(&PassedRuntimeReturn { passed: true }) {
-            Ok(val) => Ok(val),
-            Err(_) => Err(PySystemError::new_err("Internal error")),
-        }
-    }
-}
-
-#[pyfunction]
-#[pyo3(signature = (
+    model_type,
     baseline,
     latest,
     evaluation_metrics,
     threshold=0.10
 )
 )]
-fn regression_performance_runtime_partial(
+fn model_performance_runtime_entry_partial<'py>(
+    model_type: String,
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
     evaluation_metrics: Vec<String>,
+    threshold: f32,
+) -> PyResult<String> {
+    let model_type: ModelType = match ModelType::try_from(model_type.as_str()) {
+        Ok(t) => t,
+        Err(_) => return Err(PyValueError::new_err("Invalid model type")),
+    };
+
+    match model_type {
+        ModelType::LinearRegression => {
+            let metrics_to_eval: Vec<LinearRegressionEvaluationMetrics> =
+                match map_string_to_linear_metric(evaluation_metrics) {
+                    Ok(m) => m,
+                    Err(_) => return Err(PyValueError::new_err("Invalid metric name passed")),
+                };
+            regression_performance_runtime(baseline, latest, &metrics_to_eval, threshold)
+        }
+        ModelType::LogisticRegression => {
+            let metrics_to_eval: Vec<ClassificationEvaluationMetrics> =
+                match map_string_to_bin_metric(evaluation_metrics) {
+                    Ok(m) => m,
+                    Err(_) => return Err(PyValueError::new_err("Invalid metric name passed")),
+                };
+            logistic_performance_runtime(baseline, latest, &metrics_to_eval, threshold)
+        }
+        ModelType::BinaryClassification => {
+            let metrics_to_eval: Vec<ClassificationEvaluationMetrics> =
+                match map_string_to_bin_metric(evaluation_metrics) {
+                    Ok(m) => m,
+                    Err(_) => return Err(PyValueError::new_err("Invalid metric name passed")),
+                };
+            classification_performance_runtime(baseline, latest, &metrics_to_eval, threshold)
+        }
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    model_type,
+    baseline,
+    latest,
+    threshold=0.10
+)
+)]
+fn model_performance_runtime_entry_full<'py>(
+    model_type: String,
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    threshold: f32,
+) -> PyResult<String> {
+    let model_type: ModelType = match ModelType::try_from(model_type.as_str()) {
+        Ok(t) => t,
+        Err(_) => return Err(PyValueError::new_err("Invalid model type")),
+    };
+
+    match model_type {
+        ModelType::LinearRegression => {
+            regression_performance_runtime(baseline, latest, &FULL_REGRESSION_METRICS, threshold)
+        }
+        ModelType::LogisticRegression => logistic_performance_runtime(
+            baseline,
+            latest,
+            &FULL_LOGISTIC_REGRESSION_METRICS,
+            threshold,
+        ),
+        ModelType::BinaryClassification => classification_performance_runtime(
+            baseline,
+            latest,
+            &FULL_BINARY_CLASSIFICATION_METRICS,
+            threshold,
+        ),
+    }
+}
+
+fn classification_performance_runtime(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    metrics: &[ClassificationEvaluationMetrics],
+    threshold: f32,
+) -> PyResult<String> {
+    let baseline = match BinaryClassificationReport::try_from(baseline) {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid baseline report: {}",
+                e
+            )))
+        }
+    };
+    let latest = match BinaryClassificationReport::try_from(latest) {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid baseline report: {}",
+                e
+            )))
+        }
+    };
+    let res = match latest.compare_to_baseline(metrics, &baseline, threshold) {
+        Ok(valid) => valid,
+        Err(e) => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid metric name passed: {}",
+                e
+            )))
+        }
+    };
+
+    process_failure_report(res)
+}
+
+fn logistic_performance_runtime(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    metrics: &[ClassificationEvaluationMetrics],
+    threshold: f32,
+) -> PyResult<String> {
+    let baseline = match LogisticRegressionReport::try_from(baseline) {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid baseline report: {}",
+                e
+            )))
+        }
+    };
+    let latest = match LogisticRegressionReport::try_from(latest) {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid baseline report: {}",
+                e
+            )))
+        }
+    };
+    let res = latest.compare_to_baseline(metrics, &baseline, threshold);
+    process_failure_report(res)
+}
+
+fn regression_performance_runtime(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    evaluation_metrics: &[LinearRegressionEvaluationMetrics],
     threshold: f32,
 ) -> PyResult<String> {
     let baseline: LinearRegressionReport = match LinearRegressionReport::try_from(baseline) {
@@ -314,11 +390,16 @@ fn regression_performance_runtime_partial(
             )))
         }
     };
-    let results = latest.compare_to_baseline(&baseline, threshold);
-    if results.len() > 0 {
+
+    let results = latest.compare_to_baseline(&evaluation_metrics, &baseline, threshold);
+    process_failure_report(results)
+}
+
+fn process_failure_report(comp_results: HashMap<String, String>) -> Result<String, PyErr> {
+    if comp_results.len() > 0 {
         match serde_json::to_string(&FailureRuntimeReturn {
             passed: false,
-            fail_report: Some(results),
+            fail_report: Some(comp_results),
         }) {
             Ok(val) => Ok(val),
             Err(_) => Err(PySystemError::new_err("Internal error")),
@@ -341,7 +422,11 @@ fn fair_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(model_bias_runtime_check, m)?)?;
     m.add_function(wrap_pyfunction!(model_performance_regression, m)?)?;
     m.add_function(wrap_pyfunction!(model_performance_classification, m)?)?;
-    m.add_function(wrap_pyfunction!(regression_performance_runtime_full, m)?)?;
     m.add_function(wrap_pyfunction!(model_performance_logisitic_regression, m)?)?;
+    m.add_function(wrap_pyfunction!(model_performance_runtime_entry_full, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        model_performance_runtime_entry_partial,
+        m
+    )?)?;
     Ok(())
 }
