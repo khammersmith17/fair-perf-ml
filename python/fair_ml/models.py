@@ -1,4 +1,11 @@
 from pydantic import BaseModel, ConfigDict
+from enum import Enum
+from typing import Union
+
+class ModelType(str, Enum):
+    LinearRegression = "LinearRegression"
+    LogisticRegression = "LogisiticRegression"
+    BinaryClassification = "BinaryClassification"
 
 
 class ModelBiasBaseline(BaseModel):
@@ -33,3 +40,45 @@ class DataBiasBaseline(BaseModel):
     LpNorm: float
     TotalVarationDistance: float
     KolmorogvSmirnov: float
+
+
+# some models for conistent formatting on metric objects
+class LinearRegressionReport(BaseModel):
+    RootMeanSquaredError: float
+    MeanSquaredError: float
+    MeanAbsoluteError: float
+    RSquared: float
+    MaxError: float
+    MeanSquaredLogError: float
+    RootMeanSquaredLogError: float
+    MeanAbsolutePercentageError: float
+
+class LogisticRegressionReport(BaseModel):
+    BalancedAccuracy: float
+    PrecisionPositive: float
+    PrecisionNegative: float
+    RecallPositive: float
+    RecallNegative: float
+    Accuracy: float
+    F1Score: float
+    LogLoss: float
+
+class BinaryClassificationReport(BaseModel):
+    BalancedAccuracy: float
+    PrecisionPositive: float
+    PrecisionNegative: float
+    RecallPositive: float
+    RecallNegative: float
+    Accuracy: float
+    F1Score: float
+
+class ModelPerformance(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        use_enum_values=True
+    )
+    modelType: ModelType
+    performanceData: Union[LinearRegressionReport, LogisticRegressionReport, BinaryClassificationReport]
+
+

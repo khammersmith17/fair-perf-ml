@@ -3,7 +3,7 @@ from typing import Union, Optional, List
 from numpy.typing import NDArray
 import orjson
 from .models import DataBiasBaseline
-from ._internal import ArrayType, _is_numpy, _convert_obj_type
+from ._internal import check_and_convert_type
 
 
 def perform_analysis(
@@ -26,12 +26,8 @@ def perform_analysis(
     # want to pass numpy arrays to rust
     # type resolution in rust mod depends on numpy arrays
     # ignoring lsp message because we are deliberately changing the type on these values
-    if not _is_numpy(feature):
-        assert isinstance(feature, list)
-        feature: NDArray = _convert_obj_type(feature, ArrayType.FEATURE)
-    if not _is_numpy(ground_truth):
-        assert isinstance(ground_truth, list)
-        ground_truth: NDArray = _convert_obj_type(ground_truth, ArrayType.GROUND_TRUTH)
+    feature: NDArray = check_and_convert_type(feature)
+    ground_truth: NDArray = check_and_convert_type(ground_truth)
 
     res: dict[str, float] = data_bias_analyzer(
         feature_array=feature,

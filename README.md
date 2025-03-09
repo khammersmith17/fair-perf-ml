@@ -12,6 +12,14 @@ Bias analysis works by seperating a feature into two demographic groups, and pre
 
 To do so everything is segmented into two distinct groups representing favored and disfavord groups.
 
+Additionally, there is a module to monitor overall performance at runtime. The nature of ML makes it difficult to have unit tests, and to ensure performance at runtime. ML deployments are different from other software deployments given the inability to ensure accurate results. Our assertions need to be done after the fact. Though, most deploy the model and let it run. There often is not a consistent effort to ensure accuracy in the model predictions over the entire lifetime of the model. There are services available to do this with different vendors (ie AWS SageMaker), but this requires significant cost and compute; they also tend to be slow. 
+
+The goal of this package is to offer that kind of ML observability at no cost, and limited resources needed.
+
+The logic is written in Rust, with a python interface to let users pass in some different types (ie not only numpy arrays but also python lists, if for whatever reason someones likes to use python lists instead of numpy arrays), and an easy to use interface. The performance penalty there is minimal and makes use quite a bit easier. I generally feel that users do not need to pay someone a lot of money for services that do not require it.
+
+This package would not be possbile without the great work done by the contributors of PYO3, that work is wonderdul.
+
 ## Modules
 There are two modules that have very similar structure.
 

@@ -1,9 +1,5 @@
 from ._fair_ml import model_bias_analyzer, model_bias_runtime_check
-from ._internal import (
-    ArrayType,
-    _is_numpy,
-    _convert_obj_type
-)
+from ._internal import check_and_convert_type
 from .models import ModelBiasBaseline
 from numpy.typing import NDArray
 from typing import List, Union, Optional
@@ -31,15 +27,9 @@ def perform_analysis(
         ground_truth_label_or_threshold: Union[str, float, int] -> segmenation parameter for ground truth
         prediction_label_or_threshold: Union[str, float, int] -> segmenation parameter for predictions
     """
-    if not _is_numpy(feature):
-        assert(isinstance(feature, list))
-        feature: NDArray = _convert_obj_type(feature, ArrayType.FEATURE)
-    if not _is_numpy(ground_truth):
-        assert(isinstance(ground_truth, list))
-        ground_truth: NDArray = _convert_obj_type(ground_truth, ArrayType.GROUND_TRUTH)
-    if not _is_numpy(predictions):
-        assert(isinstance(predictions, list))
-        predictions: NDArray = _convert_obj_type(predictions, ArrayType.PREDICTIONS)
+    feature: NDArray = check_and_convert_type(feature)
+    ground_truth: NDArray = check_and_convert_type(ground_truth)
+    predictions: NDArray = check_and_convert_type(predictions)
 
     res: dict[str, float] = model_bias_analyzer(
         feature_array=feature,
