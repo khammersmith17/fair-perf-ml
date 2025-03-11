@@ -134,8 +134,7 @@ pub fn model_perf_regression<'py>(
     y_pred_src: &Bound<'_, PyUntypedArray>,
     y_true_src: &Bound<'_, PyUntypedArray>,
 ) -> Result<HashMap<String, f32>, Box<dyn Error>> {
-    let (y_true, y_pred) = PerfEntry::validate_and_cast_regression(py, y_true_src, y_pred_src)?;
-    let perf: LinearRegressionPerf = LinearRegressionPerf::new(y_true, y_pred);
+    let perf: LinearRegressionPerf = LinearRegressionPerf::new(py, y_true_src, y_pred_src)?;
     let report: LinearRegressionReport = perf.into();
     Ok(report.generate_report())
 }
@@ -670,6 +669,9 @@ impl ClassificationPerf {
     ) -> Result<ClassificationPerf, Box<dyn Error>> {
         let (y_pred, y_true) =
             PerfEntry::validate_and_cast_classification(py, y_true_src, y_pred_src, false, None)?;
+        if y_true.len() != y_pred.len() {
+            return Err("Arrays have different lengths".into());
+        }
         let len: f32 = y_pred.len() as f32;
         let mean_f: f32 = 1_f32 / len;
         Ok(ClassificationPerf {
@@ -700,6 +702,9 @@ impl LogisticRegressionPerf {
         let y_true: Vec<f32> = PerfEntry::convert_f32(py, y_true_src, true_type)?;
         let pred_type = determine_type(py, y_pred_src);
         let y_proba: Vec<f32> = PerfEntry::convert_f32(py, y_true_src, pred_type)?;
+        if y_true.len() != y_proba.len() {
+            return Err("Arrays have different lengths".into());
+        }
         let y_pred = y_proba
             .clone()
             .iter()
@@ -929,13 +934,21 @@ impl Into<LinearRegressionReport> for LinearRegressionPerf {
 }
 
 impl LinearRegressionPerf {
-    pub fn new(y_true: Vec<f32>, y_pred: Vec<f32>) -> LinearRegressionPerf {
+    pub fn new(
+        py: Python<'_>,
+        y_pred_src: &Bound<'_, PyUntypedArray>,
+        y_true_src: &Bound<'_, PyUntypedArray>,
+    ) -> Result<LinearRegressionPerf, Box<dyn Error>> {
+        let (y_true, y_pred) = PerfEntry::validate_and_cast_regression(py, y_true_src, y_pred_src)?;
+        if y_true.len() != y_pred.len() {
+            return Err("Arrays have different lengths".into());
+        }
         let mean_f: f32 = 1_f32 / y_pred.len() as f32;
-        LinearRegressionPerf {
+        Ok(LinearRegressionPerf {
             y_true,
             y_pred,
             mean_f,
-        }
+        })
     }
 
     fn root_mean_squared_error(&self) -> f32 {
