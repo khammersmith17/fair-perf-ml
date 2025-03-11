@@ -83,7 +83,7 @@ impl TryFrom<&str> for LinearRegressionEvaluationMetrics {
             "RootMeanSquaredError" => Ok(Self::RootMeanSquaredError),
             "MeanSquaredError" => Ok(Self::MeanSquaredError),
             "MeanAbsoluteError" => Ok(Self::MeanAbsoluteError),
-            "R-Squared" => Ok(Self::RSquared),
+            "RSquared" => Ok(Self::RSquared),
             "MaxError" => Ok(Self::MaxError),
             "MeanSquaredLogError" => Ok(Self::MeanSquaredLogError),
             "RootMeanSquaredLogError" => Ok(Self::RootMeanSquaredLogError),
@@ -775,7 +775,7 @@ impl TryFrom<HashMap<String, f32>> for LinearRegressionReport {
         let Some(mae) = map.get("MeanAbsoluteError") else {
             return Err("Invalid regression report".into());
         };
-        let Some(r_squared) = map.get("R-Squared") else {
+        let Some(r_squared) = map.get("RSquared") else {
             return Err("Invalid regression report".into());
         };
         let Some(max_error) = map.get("MaxError") else {
@@ -809,7 +809,7 @@ impl LinearRegressionReport {
         map.insert("RootMeanSquaredError".into(), self.rmse);
         map.insert("MeanSquaredError".into(), self.mse);
         map.insert("MeanAbsoluteError".into(), self.mae);
-        map.insert("R-Squared".into(), self.r_squared);
+        map.insert("RSquared".into(), self.r_squared);
         map.insert("MaxError".into(), self.max_error);
         map.insert("MeanSquaredLogError".into(), self.msle);
         map.insert("RootMeanSquaredLogError".into(), self.rmsle);
@@ -860,7 +860,7 @@ impl LinearRegressionReport {
                     if self.r_squared > baseline.r_squared * (1_f32 + drift_threshold) {
                         update_failure_report_above(
                             &mut res,
-                            "R-Squared".into(),
+                            "RSquared".into(),
                             self.r_squared - baseline.r_squared,
                         );
                     }
@@ -940,7 +940,7 @@ impl LinearRegressionPerf {
 
     fn root_mean_squared_error(&self) -> f32 {
         let mut errors = 0_f32;
-        for (t, p) in zip!(&self.y_true, &self.y_pred) {
+        for (t, p) in self.y_true.iter().zip(&self.y_pred) {
             errors += (t - p).powi(2);
         }
         (errors * self.mean_f).powf(0.5_f32)
@@ -964,11 +964,10 @@ impl LinearRegressionPerf {
 
     fn r_squared(&self) -> f32 {
         let y_mean: f32 = self.y_true.iter().sum::<f32>() * self.mean_f;
-        let ss_regression = self
-            .y_pred
-            .iter()
-            .map(|y| (y - y_mean).powi(2))
-            .sum::<f32>();
+        let mut ss_regression: f32 = 0_f32;
+        for (t, p) in self.y_true.iter().zip(&self.y_pred) {
+            ss_regression += (t - p).powi(2);
+        }
         let ss_total: f32 = self
             .y_true
             .iter()
@@ -988,7 +987,7 @@ impl LinearRegressionPerf {
     fn mean_squared_log_error(&self) -> f32 {
         let mut sum = 0_f32;
         for (t, p) in zip!(&self.y_true, &self.y_pred) {
-            sum += (1_f32 - t).log10() - (1_f32 - p).log10();
+            sum += (1_f32 + t).log10() - (1_f32 + p).log10();
         }
         sum.powi(2) / self.mean_f
     }
@@ -996,7 +995,7 @@ impl LinearRegressionPerf {
     fn root_mean_squared_log_error(&self) -> f32 {
         let mut sum = 0_f32;
         for (t, p) in zip!(&self.y_true, &self.y_pred) {
-            sum += (1_f32 - t).log10() - (1_f32 - p).log10();
+            sum += (1_f32 + t).log10() - (1_f32 + p).log10();
         }
         sum.powi(2).sqrt() / self.mean_f
     }

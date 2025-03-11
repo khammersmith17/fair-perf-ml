@@ -10,7 +10,7 @@ class BiasArrayType(str, Enum):
     PREDICTIONS = "predictions"
 
 
-def _check_and_convert_type(arr: Union[List[Union[str, float, int]], NDArray]) -> NDArray:
+def check_and_convert_type(arr: Union[List[Union[str, float, int]], NDArray]) -> NDArray:
     if _is_numpy(arr):
         return arr #pyright: ignore
     if not _is_uniform_type(arr): #pyright: ignore
@@ -23,6 +23,8 @@ def _is_numpy(arr: Union[List[Union[str, float, int]], NDArray]) -> bool:
 
 
 def _is_uniform_type(arr: List[Union[str, float, int]]) -> bool:
+    if not isinstance(arr, list):
+        return False
     T = type(arr[0])
     return all([True if type(item) == T else False for item in arr])
 
