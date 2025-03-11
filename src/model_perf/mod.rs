@@ -672,6 +672,9 @@ impl ClassificationPerf {
         if y_true.len() != y_pred.len() {
             return Err("Arrays have different lengths".into());
         }
+        if y_pred.len() == 0 {
+            return Err("Arrays have no data".into());
+        }
         let len: f32 = y_pred.len() as f32;
         let mean_f: f32 = 1_f32 / len;
         Ok(ClassificationPerf {
@@ -702,8 +705,12 @@ impl LogisticRegressionPerf {
         let y_true: Vec<f32> = PerfEntry::convert_f32(py, y_true_src, true_type)?;
         let pred_type = determine_type(py, y_pred_src);
         let y_proba: Vec<f32> = PerfEntry::convert_f32(py, y_true_src, pred_type)?;
+
         if y_true.len() != y_proba.len() {
             return Err("Arrays have different lengths".into());
+        }
+        if y_proba.len() == 0 {
+            return Err("Arrays have no data".into());
         }
         let y_pred = y_proba
             .clone()
@@ -942,6 +949,9 @@ impl LinearRegressionPerf {
         let (y_true, y_pred) = PerfEntry::validate_and_cast_regression(py, y_true_src, y_pred_src)?;
         if y_true.len() != y_pred.len() {
             return Err("Arrays have different lengths".into());
+        }
+        if y_true.len() == 0 {
+            return Err("Arrays are emtpy".into());
         }
         let mean_f: f32 = 1_f32 / y_pred.len() as f32;
         Ok(LinearRegressionPerf {

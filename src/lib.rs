@@ -169,9 +169,10 @@ fn model_performance_regression<'py>(
 ) -> PyResult<HashMap<String, f32>> {
     match model_perf_regression(py, y_pred, y_true) {
         Ok(res) => Ok(res),
-        Err(_) => Err(PyValueError::new_err(
-            "Invalid arrays for y_pred and y_true",
-        )),
+        Err(e) => Err(PyValueError::new_err(format!(
+            "Invalid arrays for y_pred and y_true: {}",
+            e
+        ))),
     }
 }
 
@@ -187,9 +188,10 @@ fn model_performance_classification<'py>(
 ) -> PyResult<HashMap<String, f32>> {
     match model_perf_classification(py, y_pred, y_true) {
         Ok(res) => Ok(res),
-        Err(_) => Err(PyValueError::new_err(
-            "Invalid arrays for y_pred and y_true",
-        )),
+        Err(e) => Err(PyValueError::new_err(format!(
+            "Invalid arrays for y_pred and y_true: {}",
+            e
+        ))),
     }
 }
 
@@ -208,9 +210,10 @@ fn model_performance_logisitic_regression<'py>(
 ) -> PyResult<HashMap<String, f32>> {
     match model_perf_logistic_regression(py, y_pred, y_true, decision_threshold) {
         Ok(res) => Ok(res),
-        Err(_) => Err(PyValueError::new_err(
-            "Invalid arrays for y_pred and y_true",
-        )),
+        Err(e) => Err(PyValueError::new_err(format!(
+            "Invalid arrays for y_pred and y_true: {}",
+            e
+        ))),
     }
 }
 

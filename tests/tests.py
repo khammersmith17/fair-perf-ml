@@ -9,10 +9,12 @@ from numpy.typing import NDArray
 from typing import Tuple
 
 
-def generate_binary_data(len: int) -> Tuple[NDArray, NDArray]:
-    pred = np.random.rand(len)
-    true = np.where(np.random.rand(len) >= 0.5, 1.0, 0.0)
-    return true, pred
+def generate_binary_data(len: int) -> Tuple[NDArray, NDArray, NDArray]:
+    pred = np.where(np.random.rand(len) >= 0.5, 1.0, 0.0)
+    proba = np.random.rand(len)
+    true = np.where(proba >= 0.5, 1.0, 0.0)
+    print(pred.size, proba.size, true.size)
+    return true, pred, proba
 
 def get_data() -> pd.DataFrame:
     headers = [
@@ -127,11 +129,11 @@ def test_mb_numpy(bl_df, runtime_test):
     print(f"check:\n{runtime_check}")
 
 
-def test_perf_reg(y_pred, y_true):
+def test_perf_reg_numpy(y_pred, y_true):
     l = int(y_pred.size * 0.7)
     bl_true = y_true[:l]
-    pred_true =y_true[:l]
-    bl_pred = y_pred[l:]
+    pred_true = y_true[l:]
+    bl_pred = y_pred[:l]
     pred_pred = y_pred[l:]
 
     bl = model_perf.linear_regression_analysis(
@@ -147,6 +149,72 @@ def test_perf_reg(y_pred, y_true):
     res = model_perf.runtime_check_full(baseline=bl, latest=runtime)
     print(res)
 
+def test_perf_reg_list(y_pred, y_true):
+    l = int(len(y_pred) * 0.7)
+    bl_true = y_true[:l]
+    pred_true = y_true[l:]
+    bl_pred = y_pred[:l]
+    pred_pred = y_pred[l:]
+
+    bl = model_perf.linear_regression_analysis(
+        y_true=bl_true,
+        y_pred=bl_pred
+    )
+    print(bl)
+
+    runtime = model_perf.linear_regression_analysis(
+        y_true=pred_true,
+        y_pred=pred_pred
+    )
+    print(runtime)
+
+    res = model_perf.runtime_check_full(baseline=bl, latest=runtime)
+    print(res)
+
+
+def test_perf_reg_classification_numpy(y_pred, y_true):
+    l = int(y_pred.size * 0.7)
+    bl_true = y_true[:l]
+    pred_true = y_true[l:]
+    bl_pred = y_pred[:l]
+    pred_pred = y_pred[l:]
+
+    bl = model_perf.binary_classification_analysis(
+        y_true=bl_true,
+        y_pred=bl_pred
+    )
+    print(bl)
+
+    runtime = model_perf.binary_classification_analysis(
+        y_true=pred_true,
+        y_pred=pred_pred
+    )
+    print(runtime)
+
+    res = model_perf.runtime_check_full(baseline=bl, latest=runtime)
+    print(res)
+
+def test_perf_reg_classification_list(y_pred, y_true):
+    l = int(len(y_pred)* 0.7)
+    bl_true = y_true[:l]
+    pred_true = y_true[l:]
+    bl_pred = y_pred[:l]
+    pred_pred = y_pred[l:]
+
+    bl = model_perf.binary_classification_analysis(
+        y_true=bl_true,
+        y_pred=bl_pred
+    )
+    print(bl)
+
+    runtime = model_perf.binary_classification_analysis(
+        y_true=pred_true,
+        y_pred=pred_pred
+    )
+    print(runtime)
+
+    res = model_perf.runtime_check_full(baseline=bl, latest=runtime)
+    print(res)
 
 def test_mb_list(bl_df, runtime_test):
     bl = model_bias.perform_analysis(
@@ -184,6 +252,8 @@ if __name__ == "__main__":
     df["preds"] = df.rings.apply(
         generate_synthetic_scores
     )
+
+    bin_true, bin_pred, bin_proba = generate_binary_data(10000)
     reg_true = df["rings"].to_numpy().copy()
     reg_pred = df["preds"].to_numpy().copy()
 
@@ -206,5 +276,17 @@ if __name__ == "__main__":
 
     print("\n")
     print("TESTING PERF WITH NUMPY ARRAYS")
-    test_perf_reg(reg_pred, reg_true)
+    test_perf_reg_numpy(reg_pred, reg_true)
+
+    print("\n")
+    print("TESTING PERF WITH LISTS")
+    test_perf_reg_list(reg_pred.tolist(), reg_true.tolist())
+
+    print("\n")
+    print("TESTING Classification PERF WITH NUMPY")
+    test_perf_reg_classification_numpy(bin_pred, bin_true) 
+
+    print("\n")
+    print("TESTING Classification PERF WITH LISTS")
+    test_perf_reg_classification_list(bin_pred.tolist(), bin_true.tolist())
 

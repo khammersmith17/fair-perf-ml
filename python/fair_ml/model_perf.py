@@ -29,7 +29,6 @@ def linear_regression_analysis(
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
     res: dict = model_performance_regression(y_true=y_true, y_pred=y_pred)
-    print(res)
     return ModelPerformance(
         modelType=ModelType.LinearRegression,
         performanceData=LinearRegressionReport(**res),
