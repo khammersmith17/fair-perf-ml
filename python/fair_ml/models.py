@@ -4,7 +4,7 @@ from typing import Union
 
 class ModelType(str, Enum):
     LinearRegression = "LinearRegression"
-    LogisticRegression = "LogisiticRegression"
+    LogisticRegression = "LogisticRegression"
     BinaryClassification = "BinaryClassification"
 
 

@@ -216,6 +216,53 @@ def test_perf_reg_classification_list(y_pred, y_true):
     res = model_perf.runtime_check_full(baseline=bl, latest=runtime)
     print(res)
 
+
+def test_perf_logisitc_reg_numpy(y_pred, y_true):
+    l = int(y_pred.size* 0.7)
+    bl_true = y_true[:l]
+    pred_true = y_true[l:]
+    bl_pred = y_pred[:l]
+    pred_pred = y_pred[l:]
+
+    bl = model_perf.logistic_regression_analysis(
+        y_true=bl_true,
+        y_pred=bl_pred
+    )
+    print(bl)
+
+    runtime = model_perf.logistic_regression_analysis(
+        y_true=pred_true,
+        y_pred=pred_pred
+    )
+    print(runtime)
+
+    res = model_perf.runtime_check_full(baseline=bl, latest=runtime)
+    print(res)
+
+
+def test_perf_logisitc_reg_list(y_pred, y_true):
+    l = int(len(y_pred)* 0.7)
+    bl_true = y_true[:l]
+    pred_true = y_true[l:]
+    bl_pred = y_pred[:l]
+    pred_pred = y_pred[l:]
+
+    bl = model_perf.logistic_regression_analysis(
+        y_true=bl_true,
+        y_pred=bl_pred
+    )
+    print(bl)
+
+    runtime = model_perf.logistic_regression_analysis(
+        y_true=pred_true,
+        y_pred=pred_pred
+    )
+    print(runtime)
+
+    res = model_perf.runtime_check_full(baseline=bl, latest=runtime)
+    print(res)
+
+
 def test_mb_list(bl_df, runtime_test):
     bl = model_bias.perform_analysis(
         bl_df["sex"].to_list(),
@@ -290,3 +337,11 @@ if __name__ == "__main__":
     print("TESTING Classification PERF WITH LISTS")
     test_perf_reg_classification_list(bin_pred.tolist(), bin_true.tolist())
 
+    print("\n")
+    print("TESTING logisitc PERF WITH numpy")
+    test_perf_logisitc_reg_numpy(bin_pred, bin_proba)
+
+
+    print("\n")
+    print("TESTING logisitc PERF WITH list")
+    test_perf_logisitc_reg_list(bin_pred.tolist(), bin_proba.tolist())

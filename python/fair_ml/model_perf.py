@@ -35,10 +35,10 @@ def linear_regression_analysis(
     ).model_dump()
 
 
-def logisitc_regression_analysis(
+def logistic_regression_analysis(
     y_true: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
     y_pred: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
-    decision_threshold: Optional[float] = None,
+    decision_threshold: Optional[float] = 0.5,
 ) -> dict:
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
