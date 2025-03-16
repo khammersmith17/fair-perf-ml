@@ -172,7 +172,7 @@ impl GeneralClassificationMetrics {
         let total_pred_positives: f32 = y_pred.iter().sum::<f32>();
         let mut true_positives: f32 = 0_f32;
         for (t, p) in zip!(y_true, y_pred) {
-            if *t == 1_f32 && t == p {
+            if (*t - 1_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
                 true_positives += 1_f32;
             }
         }
@@ -183,7 +183,7 @@ impl GeneralClassificationMetrics {
         let total_pred_negatives: f32 = len - y_pred.iter().sum::<f32>();
         let mut true_negatives: f32 = 0_f32;
         for (t, p) in zip!(y_true, y_pred) {
-            if *t == 0_f32 && t == p {
+            if (*t - 0_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
                 true_negatives += 1_f32;
             }
         }
@@ -194,7 +194,7 @@ impl GeneralClassificationMetrics {
         let total_true_positives: f32 = y_true.iter().sum::<f32>();
         let mut true_positives: f32 = 0_f32;
         for (t, p) in zip!(y_true, y_pred) {
-            if *t == 1_f32 && t == p {
+            if (*t - 1_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
                 true_positives += 1_f32;
             }
         }
@@ -205,7 +205,7 @@ impl GeneralClassificationMetrics {
         let total_true_negatives: f32 = len - y_true.iter().sum::<f32>();
         let mut true_negatives: f32 = 0_f32;
         for (t, p) in zip!(y_true, y_pred) {
-            if *t == 0_f32 && t == p {
+            if (*t - 0_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
                 true_negatives += 1_f32;
             }
         }
@@ -231,7 +231,13 @@ impl GeneralClassificationMetrics {
         for (t, p) in zip!(y_true, y_proba) {
             penalties += t * f32::log10(*p) + (1_f32 - t) * f32::log10(1_f32 - p);
         }
-        -1_f32 * mean_f * penalties
+        let res = -1_f32 * mean_f * penalties;
+
+        if res.is_nan() {
+            0_f32
+        } else {
+            res
+        }
     }
 }
 pub struct PerfEntry;
@@ -290,7 +296,7 @@ impl PerfEntry {
                 .clone()
                 .map(|item| item.unwrap().extract::<f32>().unwrap() as f32)
                 .collect::<Vec<f32>>(),
-            _ => panic!("Wrong PassedType made it through"),
+            _ => panic!("Data of type String is not supported"),
         };
         Ok(res)
     }
@@ -303,9 +309,6 @@ impl PerfEntry {
         true_passed_type: PassedType,
         pred_passed_type: PassedType,
     ) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
-        // if string
-        // applying the threshold label
-
         let y_pred: Vec<f32> = Self::convert_f32(py, y_pred_src, pred_passed_type)?
             .iter()
             .map(|x| if x >= &threshold { 1_f32 } else { 0_f32 })
@@ -704,20 +707,24 @@ impl LogisticRegressionPerf {
         let true_type: PassedType = determine_type(py, y_true_src);
         let y_true: Vec<f32> = PerfEntry::convert_f32(py, y_true_src, true_type)?;
         let pred_type = determine_type(py, y_pred_src);
-        let y_proba: Vec<f32> = PerfEntry::convert_f32(py, y_true_src, pred_type)?;
+        let y_proba: Vec<f32> = PerfEntry::convert_f32(py, y_pred_src, pred_type)?;
 
         if y_true.len() != y_proba.len() {
             return Err("Arrays have different lengths".into());
         }
+
         if y_proba.len() == 0 {
             return Err("Arrays have no data".into());
         }
+
         let y_pred = y_proba
             .clone()
             .iter()
             .map(|x| if *x >= threshold { 1_f32 } else { 0_f32 })
             .collect::<Vec<f32>>();
+
         let len: f32 = y_true.len() as f32;
+
         Ok(LogisticRegressionPerf {
             y_true,
             y_pred,
@@ -963,7 +970,7 @@ impl LinearRegressionPerf {
 
     fn root_mean_squared_error(&self) -> f32 {
         let mut errors = 0_f32;
-        for (t, p) in self.y_true.iter().zip(&self.y_pred) {
+        for (t, p) in zip!(self.y_true, &self.y_pred) {
             errors += (t - p).powi(2);
         }
         (errors * self.mean_f).powf(0.5_f32)
@@ -988,7 +995,7 @@ impl LinearRegressionPerf {
     fn r_squared(&self) -> f32 {
         let y_mean: f32 = self.y_true.iter().sum::<f32>() * self.mean_f;
         let mut ss_regression: f32 = 0_f32;
-        for (t, p) in self.y_true.iter().zip(&self.y_pred) {
+        for (t, p) in zip!(self.y_true, &self.y_pred) {
             ss_regression += (t - p).powi(2);
         }
         let ss_total: f32 = self

@@ -1,3 +1,5 @@
+use super::data_bias::DataBiasMetrics;
+use super::model_bias::ModelBiasMetrics;
 use std::collections::HashMap;
 
 pub struct DataBiasRuntime {
@@ -59,55 +61,74 @@ impl DataBiasRuntime {
         &self,
         baseline: DataBiasRuntime,
         threshold: f32,
+        metrics: &[DataBiasMetrics],
     ) -> HashMap<String, String> {
-        let mut result: HashMap<String, String> = HashMap::new();
-        if self.ci.abs() > baseline.ci.abs() * (1_f32 + threshold) {
-            result.insert(
-                "ClassImbalance".to_string(),
-                format!(
-                    "Exceeded baseline by: {}",
-                    (self.ci.abs() - baseline.ci.abs()).abs()
-                ),
-            );
-        }
-        if self.dpl.abs() > baseline.dpl.abs() * (1_f32 + threshold) {
-            result.insert(
-                "DfferenceInProportionOfLabels".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.dpl.abs() - baseline.dpl.abs()).abs()
-                ),
-            );
-        }
-        if self.kl > baseline.kl * (1_f32 + threshold) {
-            result.insert(
-                "KlDivergence".to_string(),
-                format!("Execeed baseline by: {}", self.kl - baseline.kl),
-            );
-        }
-        if self.js > baseline.js * (1_f32 + threshold) {
-            result.insert(
-                "JsDivergance".to_string(),
-                format!("Execeed baseline by: {}", self.kl - baseline.kl),
-            );
-        }
-        if self.lpnorm > baseline.lpnorm * (1_f32 + threshold) {
-            result.insert(
-                "LpNorm".to_string(),
-                format!("Exceeded baseline by: {}", self.lpnorm - baseline.lpnorm),
-            );
-        }
-        if self.tvd > baseline.tvd * (1_f32 + threshold) {
-            result.insert(
-                "TotalVariationDistance".to_string(),
-                format!("Exceed baseline by: {}", self.tvd - baseline.tvd),
-            );
-        }
-        if self.ks > baseline.ks * (1_f32 + threshold) {
-            result.insert(
-                "KolmorogvSmirnov".to_string(),
-                format!("Exceed baseline by: {}", self.tvd - baseline.tvd),
-            );
+        let mut result: HashMap<String, String> = HashMap::with_capacity(metrics.len());
+        for m in metrics {
+            match m {
+                DataBiasMetrics::ClassImbalance => {
+                    if self.ci.abs() > baseline.ci.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "ClassImbalance".to_string(),
+                            format!(
+                                "Exceeded baseline by: {}",
+                                (self.ci.abs() - baseline.ci.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                DataBiasMetrics::DifferenceInProportionOfLabels => {
+                    if self.dpl.abs() > baseline.dpl.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "DfferenceInProportionOfLabels".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.dpl.abs() - baseline.dpl.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                DataBiasMetrics::KlDivergence => {
+                    if self.kl > baseline.kl * (1_f32 + threshold) {
+                        result.insert(
+                            "KlDivergence".to_string(),
+                            format!("Execeed baseline by: {}", self.kl - baseline.kl),
+                        );
+                    }
+                }
+                DataBiasMetrics::JsDivergence => {
+                    if self.js > baseline.js * (1_f32 + threshold) {
+                        result.insert(
+                            "JsDivergance".to_string(),
+                            format!("Execeed baseline by: {}", self.kl - baseline.kl),
+                        );
+                    }
+                }
+                DataBiasMetrics::LpNorm => {
+                    if self.lpnorm > baseline.lpnorm * (1_f32 + threshold) {
+                        result.insert(
+                            "LpNorm".to_string(),
+                            format!("Exceeded baseline by: {}", self.lpnorm - baseline.lpnorm),
+                        );
+                    }
+                }
+                DataBiasMetrics::TotalVariationDistance => {
+                    if self.tvd > baseline.tvd * (1_f32 + threshold) {
+                        result.insert(
+                            "TotalVariationDistance".to_string(),
+                            format!("Exceed baseline by: {}", self.tvd - baseline.tvd),
+                        );
+                    }
+                }
+                DataBiasMetrics::KolmorogvSmirnov => {
+                    if self.ks > baseline.ks * (1_f32 + threshold) {
+                        result.insert(
+                            "KolmorogvSmirnov".to_string(),
+                            format!("Exceed baseline by: {}", self.tvd - baseline.tvd),
+                        );
+                    }
+                }
+            }
         }
         result
     }
@@ -205,110 +226,138 @@ impl ModelBiasRuntime {
         &self,
         baseline: ModelBiasRuntime,
         threshold: f32,
+        metrics: &[ModelBiasMetrics],
     ) -> HashMap<String, String> {
-        let mut result: HashMap<String, String> = HashMap::new();
-        if self.ddpl.abs() > baseline.ddpl.abs() * (1_f32 + threshold) {
-            result.insert(
-                "DifferenceInPositivePredictedLabels".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.ddpl.abs() - baseline.ddpl.abs()).abs()
-                ),
-            );
-        }
-
-        if self.di > baseline.di * (1_f32 + threshold) {
-            result.insert(
-                "DisparateImpact".to_string(),
-                format!("Exceed baseline by: {}", (self.di - baseline.di).abs()),
-            );
-        }
-        if self.ad.abs() > baseline.ad.abs() * (1_f32 + threshold) {
-            result.insert(
-                "AccuracyDifference".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.ad.abs() - baseline.ad.abs()).abs()
-                ),
-            );
-        }
-        if self.rd.abs() > baseline.rd.abs() * (1_f32 + threshold) {
-            result.insert(
-                "RecallDifference".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.rd.abs() - baseline.rd.abs()).abs()
-                ),
-            );
-        }
-        if self.cdacc.abs() > baseline.cdacc.abs() * (1_f32 + threshold) {
-            result.insert(
-                "DifferenceInConditionalAcceptance".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.cdacc.abs() - baseline.cdacc.abs()).abs()
-                ),
-            );
-        }
-        if self.dar.abs() > baseline.dar.abs() * (1_f32 + threshold) {
-            result.insert(
-                "DifferenceInAcceptanceRate".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.dar.abs() - baseline.dar.abs()).abs()
-                ),
-            );
-        }
-        if self.sd.abs() > baseline.sd.abs() * (1_f32 + threshold) {
-            result.insert(
-                "SpecailityDifference".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.sd.abs() - baseline.sd.abs()).abs()
-                ),
-            );
-        }
-        if self.dcr.abs() > baseline.dcr.abs() * (1_f32 + threshold) {
-            result.insert(
-                "DifferenceInConditionalRejection".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.dcr.abs() - baseline.dcr.abs()).abs()
-                ),
-            );
-        }
-        if self.drr.abs() > baseline.drr.abs() * (1_f32 + threshold) {
-            result.insert(
-                "DifferenceInRejectionRate".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.drr.abs() - baseline.drr.abs()).abs()
-                ),
-            );
-        }
-        if self.te.abs() > baseline.te.abs() * (1_f32 + threshold) {
-            result.insert(
-                "TreatmentEquity".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.te.abs() - baseline.te.abs()).abs()
-                ),
-            );
-        }
-        if self.ccdpl.abs() > baseline.ccdpl.abs() * (1_f32 + threshold) {
-            result.insert(
-                "ConditionalDemographicDesparityPredictedLabels".to_string(),
-                format!(
-                    "Exceed baseline by: {}",
-                    (self.ccdpl.abs() - baseline.ccdpl.abs()).abs()
-                ),
-            );
-        }
-        if self.ge > baseline.ge * (1_f32 + threshold) {
-            result.insert(
-                "GeneralizedEntropy".to_string(),
-                format!("Exceed baseline by: {}", (self.ge - baseline.ge).abs()),
-            );
+        let mut result: HashMap<String, String> = HashMap::with_capacity(metrics.len());
+        for m in metrics {
+            match m {
+                ModelBiasMetrics::DifferenceInPositivePredictedLabels => {
+                    if self.ddpl.abs() > baseline.ddpl.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "DifferenceInPositivePredictedLabels".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.ddpl.abs() - baseline.ddpl.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                ModelBiasMetrics::DisparateImpact => {
+                    if self.di > baseline.di * (1_f32 + threshold) {
+                        result.insert(
+                            "DisparateImpact".to_string(),
+                            format!("Exceed baseline by: {}", (self.di - baseline.di).abs()),
+                        );
+                    }
+                }
+                ModelBiasMetrics::AccuracyDifference => {
+                    if self.ad.abs() > baseline.ad.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "AccuracyDifference".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.ad.abs() - baseline.ad.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                ModelBiasMetrics::RecallDifference => {
+                    if self.rd.abs() > baseline.rd.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "RecallDifference".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.rd.abs() - baseline.rd.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                ModelBiasMetrics::DifferenceInConditionalAcceptance => {
+                    if self.cdacc.abs() > baseline.cdacc.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "DifferenceInConditionalAcceptance".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.cdacc.abs() - baseline.cdacc.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                ModelBiasMetrics::DifferenceInAcceptanceRate => {
+                    if self.dar.abs() > baseline.dar.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "DifferenceInAcceptanceRate".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.dar.abs() - baseline.dar.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                ModelBiasMetrics::SpecailityDifference => {
+                    if self.sd.abs() > baseline.sd.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "SpecailityDifference".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.sd.abs() - baseline.sd.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                ModelBiasMetrics::DifferenceInConditionalRejection => {
+                    if self.dcr.abs() > baseline.dcr.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "DifferenceInConditionalRejection".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.dcr.abs() - baseline.dcr.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                ModelBiasMetrics::DifferenceInRejectionRate => {
+                    if self.drr.abs() > baseline.drr.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "DifferenceInRejectionRate".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.drr.abs() - baseline.drr.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                ModelBiasMetrics::TreatmentEquity => {
+                    if self.te.abs() > baseline.te.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "TreatmentEquity".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.te.abs() - baseline.te.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                ModelBiasMetrics::ConditionalDemographicDesparityPredictedLabels => {
+                    if self.ccdpl.abs() > baseline.ccdpl.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            "ConditionalDemographicDesparityPredictedLabels".to_string(),
+                            format!(
+                                "Exceed baseline by: {}",
+                                (self.ccdpl.abs() - baseline.ccdpl.abs()).abs()
+                            ),
+                        );
+                    }
+                }
+                ModelBiasMetrics::GeneralizedEntropy => {
+                    if self.ge > baseline.ge * (1_f32 + threshold) {
+                        result.insert(
+                            "GeneralizedEntropy".to_string(),
+                            format!("Exceed baseline by: {}", (self.ge - baseline.ge).abs()),
+                        );
+                    }
+                }
+            }
         }
 
         result

@@ -1,4 +1,69 @@
 use std::collections::HashMap;
+use std::error::Error;
+
+pub enum ModelBiasMetrics {
+    DifferenceInPositivePredictedLabels,
+    DisparateImpact,
+    AccuracyDifference,
+    RecallDifference,
+    DifferenceInConditionalAcceptance,
+    DifferenceInAcceptanceRate,
+    SpecailityDifference,
+    DifferenceInConditionalRejection,
+    DifferenceInRejectionRate,
+    TreatmentEquity,
+    ConditionalDemographicDesparityPredictedLabels,
+    GeneralizedEntropy,
+}
+
+pub const FULL_MODEL_BIAS_METRICS: [ModelBiasMetrics; 12] = [
+    ModelBiasMetrics::DifferenceInPositivePredictedLabels,
+    ModelBiasMetrics::DisparateImpact,
+    ModelBiasMetrics::AccuracyDifference,
+    ModelBiasMetrics::RecallDifference,
+    ModelBiasMetrics::DifferenceInConditionalAcceptance,
+    ModelBiasMetrics::DifferenceInAcceptanceRate,
+    ModelBiasMetrics::SpecailityDifference,
+    ModelBiasMetrics::DifferenceInConditionalRejection,
+    ModelBiasMetrics::DifferenceInRejectionRate,
+    ModelBiasMetrics::TreatmentEquity,
+    ModelBiasMetrics::ConditionalDemographicDesparityPredictedLabels,
+    ModelBiasMetrics::GeneralizedEntropy,
+];
+
+pub fn map_string_to_metrics(
+    metrics: Vec<String>,
+) -> Result<Vec<ModelBiasMetrics>, Box<dyn Error>> {
+    let mut tms: Vec<ModelBiasMetrics> = Vec::with_capacity(metrics.len());
+    for str_m in metrics.into_iter() {
+        let m = ModelBiasMetrics::try_from(str_m.as_str())?;
+        tms.push(m)
+    }
+    Ok(tms)
+}
+
+impl TryFrom<&str> for ModelBiasMetrics {
+    type Error = String;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "DifferenceInPositivePredictedLabels" => Ok(Self::DifferenceInPositivePredictedLabels),
+            "DisparateImpact" => Ok(Self::DisparateImpact),
+            "AccuracyDifference" => Ok(Self::AccuracyDifference),
+            "RecallDifference" => Ok(Self::RecallDifference),
+            "DifferenceInConditionalAcceptance" => Ok(Self::DifferenceInConditionalAcceptance),
+            "DifferenceInAcceptanceRate" => Ok(Self::DifferenceInAcceptanceRate),
+            "SpecailityDifference" => Ok(Self::SpecailityDifference),
+            "DifferenceInConditionalRejection" => Ok(Self::DifferenceInConditionalRejection),
+            "DifferenceInRejectionRate" => Ok(Self::DifferenceInRejectionRate),
+            "TreatmentEquity" => Ok(Self::TreatmentEquity),
+            "ConditionalDemographicDesparityPredictedLabels" => {
+                Ok(Self::ConditionalDemographicDesparityPredictedLabels)
+            }
+            "GeneralizedEntropy" => Ok(Self::GeneralizedEntropy),
+            _ => Err("Invalid metric passed".into()),
+        }
+    }
+}
 
 pub struct PostTrainingData {
     pub facet_a_scores: Vec<i16>,

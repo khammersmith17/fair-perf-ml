@@ -3,9 +3,9 @@ use pyo3::exceptions::{PySystemError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use std::collections::HashMap;
 mod data_bias;
-use data_bias::{pre_training_bias, PreTraining};
+use data_bias::{pre_training_bias, PreTraining, FULL_DATA_BIAS_METRICS};
 mod model_bias;
-use model_bias::{post_training_bias, PostTrainingData};
+use model_bias::{post_training_bias, PostTrainingData, FULL_MODEL_BIAS_METRICS};
 mod data_handler;
 use data_handler::{apply_label, perform_segmentation_data_bias, perform_segmentation_model_bias};
 mod runtime;
@@ -43,7 +43,74 @@ pub fn data_bias_runtime_check<'py>(
         Ok(obj) => obj,
         Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
     };
-    let failure_report: HashMap<String, String> = current.runtime_check(baseline, threshold);
+    let failure_report: HashMap<String, String> =
+        current.runtime_check(baseline, threshold, &FULL_DATA_BIAS_METRICS);
+
+    process_failure_report(failure_report)
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    baseline,
+    latest,
+    metrics,
+    threshold=0.10
+)
+)]
+pub fn data_bias_partial_check<'py>(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    metrics: Vec<String>,
+    threshold: f32,
+) -> PyResult<String> {
+    let metrics = match data_bias::map_string_to_metric(metrics) {
+        Ok(m) => m,
+        Err(_) => return Err(PyValueError::new_err("Invalid DataBias metric passed")),
+    };
+    let current = match DataBiasRuntime::try_from(latest) {
+        Ok(obj) => obj,
+        Err(_) => return Err(PyValueError::new_err("Invalid metrics body passed")),
+    };
+
+    let baseline = match DataBiasRuntime::try_from(baseline) {
+        Ok(obj) => obj,
+        Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
+    };
+    let failure_report: HashMap<String, String> =
+        current.runtime_check(baseline, threshold, &metrics);
+
+    process_failure_report(failure_report)
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    baseline,
+    latest,
+    metrics,
+    threshold=0.10
+)
+)]
+fn model_bias_partial_check(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    metrics: Vec<String>,
+    threshold: f32,
+) -> PyResult<String> {
+    let metrics = match model_bias::map_string_to_metrics(metrics) {
+        Ok(m) => m,
+        Err(_) => return Err(PyValueError::new_err("Invalid ModelBias metric passed")),
+    };
+
+    let current = match ModelBiasRuntime::try_from(latest) {
+        Ok(obj) => obj,
+        Err(_) => return Err(PyValueError::new_err("Invalid metrics body passed")),
+    };
+    let baseline = match ModelBiasRuntime::try_from(baseline) {
+        Ok(obj) => obj,
+        Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
+    };
+    let failure_report: HashMap<String, String> =
+        current.runtime_check(baseline, threshold, &metrics);
 
     process_failure_report(failure_report)
 }
@@ -68,7 +135,8 @@ pub fn model_bias_runtime_check<'py>(
         Ok(obj) => obj,
         Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
     };
-    let failure_report: HashMap<String, String> = current.runtime_check(baseline, threshold);
+    let failure_report: HashMap<String, String> =
+        current.runtime_check(baseline, threshold, &FULL_MODEL_BIAS_METRICS);
 
     process_failure_report(failure_report)
 }
@@ -422,7 +490,9 @@ fn fair_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(model_bias_analyzer, m)?)?;
     m.add_function(wrap_pyfunction!(data_bias_analyzer, m)?)?;
     m.add_function(wrap_pyfunction!(data_bias_runtime_check, m)?)?;
+    m.add_function(wrap_pyfunction!(data_bias_partial_check, m)?)?;
     m.add_function(wrap_pyfunction!(model_bias_runtime_check, m)?)?;
+    m.add_function(wrap_pyfunction!(model_bias_partial_check, m)?)?;
     m.add_function(wrap_pyfunction!(model_performance_regression, m)?)?;
     m.add_function(wrap_pyfunction!(model_performance_classification, m)?)?;
     m.add_function(wrap_pyfunction!(model_performance_logisitic_regression, m)?)?;

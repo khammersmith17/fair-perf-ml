@@ -1,7 +1,11 @@
-from ._fair_ml import data_bias_analyzer, data_bias_runtime_check
+from ._fair_ml import (
+    data_bias_analyzer,
+    data_bias_runtime_check,
+    data_bias_partial_check,
+)
 from typing import Union, Optional, List
 from numpy.typing import NDArray
-import orjson
+from orjson import loads
 from .models import DataBiasBaseline
 from ._internal import check_and_convert_type
 
@@ -58,9 +62,30 @@ def runtime_comparison(
     res: str = (
         data_bias_runtime_check(baseline=baseline, latest=latest, threshold=threshold)
         if threshold
-        else data_bias_runtime_check(
-            baseline=baseline, latest=latest
-        )
+        else data_bias_runtime_check(baseline=baseline, latest=latest)
     )
     # for nicer formatting on the return
-    return orjson.loads(res)
+    return loads(res)
+
+
+def partial_runtime_comparison(
+    baseline: dict[str, float],
+    latest: dict[str, float],
+    metrics: List[str],
+    threshold: Optional[float] = 0.10,
+) -> dict[str, str]:
+    """
+    interface into rust module
+    serves to nicely formats the return as dicts are ordered and hashmaps are not
+    Args:
+        baseline: dict -> the result from calling perform_analysis on the baseline data
+        latest: dict -> the current data for comparison from calling perform_analysis
+        threshold: Optionl[float]=None -> the comparison threshold, defaults to 0.10 in rust mod
+    Returns:
+        dict
+    """
+    res: str = data_bias_partial_check(
+        baseline=baseline, latest=latest, metrics=metrics, threshold=threshold
+    )
+    # for nicer formatting on the return
+    return loads(res)

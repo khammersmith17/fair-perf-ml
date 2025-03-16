@@ -4,7 +4,9 @@ build-backend = "maturin"
 
 [project]
 name = "fair_ml"
-description = "A package for evalutating machine learning models for pre training and post training bias"
+description = """A package for evalutating machine learning models for pre training and post training bias\
+in addition to evaluting the model for performance at training time and runtime.
+"""
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Rust",

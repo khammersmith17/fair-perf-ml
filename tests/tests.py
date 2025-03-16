@@ -10,10 +10,11 @@ from typing import Tuple
 
 
 def generate_binary_data(len: int) -> Tuple[NDArray, NDArray, NDArray]:
-    pred = np.where(np.random.rand(len) >= 0.5, 1.0, 0.0)
+    np.random.seed(1)
     proba = np.random.rand(len)
-    true = np.where(proba >= 0.5, 1.0, 0.0)
-    print(pred.size, proba.size, true.size)
+    pred = np.where(proba >= 0.5, 1.0, 0.0)
+    np.random.seed(57)
+    true = np.where(np.random.rand(len) >= 0.5, 1.0, 0.0)
     return true, pred, proba
 
 def get_data() -> pd.DataFrame:
@@ -132,9 +133,9 @@ def test_mb_numpy(bl_df, runtime_test):
 def test_perf_reg_numpy(y_pred, y_true):
     l = int(y_pred.size * 0.7)
     bl_true = y_true[:l]
-    pred_true = y_true[l:]
+    rt_true = y_true[l:]
     bl_pred = y_pred[:l]
-    pred_pred = y_pred[l:]
+    rt_pred = y_pred[l:]
 
     bl = model_perf.linear_regression_analysis(
         y_true=bl_true,
@@ -142,9 +143,21 @@ def test_perf_reg_numpy(y_pred, y_true):
     )
 
     runtime = model_perf.linear_regression_analysis(
-        y_true=pred_true,
-        y_pred=pred_pred
+        y_true=rt_true,
+        y_pred=rt_pred
     )
+
+    partial = model_perf.partial_runtime_check(
+        baseline=bl,
+        latest=runtime,
+        metrics=[
+            "RootMeanSquaredError",
+            "MeanSquaredError",
+            "MeanAbsoluteError",
+            "RSquared"
+        ]
+    )
+
 
     res = model_perf.runtime_check_full(baseline=bl, latest=runtime)
     print(res)
@@ -152,9 +165,9 @@ def test_perf_reg_numpy(y_pred, y_true):
 def test_perf_reg_list(y_pred, y_true):
     l = int(len(y_pred) * 0.7)
     bl_true = y_true[:l]
-    pred_true = y_true[l:]
+    rt_true = y_true[l:]
     bl_pred = y_pred[:l]
-    pred_pred = y_pred[l:]
+    rt_pred = y_pred[l:]
 
     bl = model_perf.linear_regression_analysis(
         y_true=bl_true,
@@ -163,8 +176,8 @@ def test_perf_reg_list(y_pred, y_true):
     print(bl)
 
     runtime = model_perf.linear_regression_analysis(
-        y_true=pred_true,
-        y_pred=pred_pred
+        y_true=rt_true,
+        y_pred=rt_pred
     )
     print(runtime)
 
@@ -197,9 +210,9 @@ def test_perf_reg_classification_numpy(y_pred, y_true):
 def test_perf_reg_classification_list(y_pred, y_true):
     l = int(len(y_pred)* 0.7)
     bl_true = y_true[:l]
-    pred_true = y_true[l:]
+    rt_true = y_true[l:]
     bl_pred = y_pred[:l]
-    pred_pred = y_pred[l:]
+    rt_pred = y_pred[l:]
 
     bl = model_perf.binary_classification_analysis(
         y_true=bl_true,
@@ -208,8 +221,8 @@ def test_perf_reg_classification_list(y_pred, y_true):
     print(bl)
 
     runtime = model_perf.binary_classification_analysis(
-        y_true=pred_true,
-        y_pred=pred_pred
+        y_true=rt_true,
+        y_pred=rt_pred
     )
     print(runtime)
 
@@ -220,9 +233,9 @@ def test_perf_reg_classification_list(y_pred, y_true):
 def test_perf_logisitc_reg_numpy(y_pred, y_true):
     l = int(y_pred.size* 0.7)
     bl_true = y_true[:l]
-    pred_true = y_true[l:]
+    rt_true = y_true[l:]
     bl_pred = y_pred[:l]
-    pred_pred = y_pred[l:]
+    rt_pred = y_pred[l:]
 
     bl = model_perf.logistic_regression_analysis(
         y_true=bl_true,
@@ -231,8 +244,8 @@ def test_perf_logisitc_reg_numpy(y_pred, y_true):
     print(bl)
 
     runtime = model_perf.logistic_regression_analysis(
-        y_true=pred_true,
-        y_pred=pred_pred
+        y_true=rt_true,
+        y_pred=rt_pred
     )
     print(runtime)
 
@@ -243,9 +256,9 @@ def test_perf_logisitc_reg_numpy(y_pred, y_true):
 def test_perf_logisitc_reg_list(y_pred, y_true):
     l = int(len(y_pred)* 0.7)
     bl_true = y_true[:l]
-    pred_true = y_true[l:]
+    rt_true = y_true[l:]
     bl_pred = y_pred[:l]
-    pred_pred = y_pred[l:]
+    rt_pred = y_pred[l:]
 
     bl = model_perf.logistic_regression_analysis(
         y_true=bl_true,
@@ -254,8 +267,8 @@ def test_perf_logisitc_reg_list(y_pred, y_true):
     print(bl)
 
     runtime = model_perf.logistic_regression_analysis(
-        y_true=pred_true,
-        y_pred=pred_pred
+        y_true=rt_true,
+        y_pred=rt_pred
     )
     print(runtime)
 
@@ -339,9 +352,9 @@ if __name__ == "__main__":
 
     print("\n")
     print("TESTING logisitc PERF WITH numpy")
-    test_perf_logisitc_reg_numpy(bin_pred, bin_proba)
+    test_perf_logisitc_reg_numpy(bin_proba, bin_true)
 
 
     print("\n")
     print("TESTING logisitc PERF WITH list")
-    test_perf_logisitc_reg_list(bin_pred.tolist(), bin_proba.tolist())
+    test_perf_logisitc_reg_list(bin_proba.tolist(), bin_true.tolist())

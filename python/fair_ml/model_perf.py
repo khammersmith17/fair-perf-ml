@@ -18,6 +18,10 @@ from typing import Union, List, Optional
 import orjson
 
 
+class DifferentModelTypes(Exception):
+    pass
+
+
 class InvalidMetricsBody(Exception):
     pass
 
@@ -68,12 +72,17 @@ def runtime_check_full(
     latest: dict, baseline: dict, threshold: Optional[float] = 0.10
 ) -> dict:
     model_type = baseline.get("modelType")
+    if model_type != latest.get("modelType"):
+        raise DifferentModelTypes("Models types do not match")
     latest_perf = latest.get("performanceData")
     baseline_perf = baseline.get("performanceData")
     if any([model_type is None, latest_perf is None, baseline_perf is None]):
         raise InvalidMetricsBody("Invalid metrics body")
     perf = model_performance_runtime_entry_full(
-        model_type=model_type, latest=latest_perf, baseline=baseline_perf, threshold=threshold
+        model_type=model_type,
+        latest=latest_perf,
+        baseline=baseline_perf,
+        threshold=threshold,
     )
     return orjson.loads(perf)
 

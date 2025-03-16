@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict
 from enum import Enum
 from typing import Union
 
+
 class ModelType(str, Enum):
     LinearRegression = "LinearRegression"
     LogisticRegression = "LogisticRegression"
@@ -10,10 +11,8 @@ class ModelType(str, Enum):
 
 class ModelBiasBaseline(BaseModel):
     """data model for consistently formatted returns to users"""
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True
-    )
+
+    model_config = ConfigDict(extra="forbid", strict=True)
     DifferenceInPositivePredictedLabels: float
     DisparateImpact: float
     AccuracyDifference: float
@@ -27,12 +26,11 @@ class ModelBiasBaseline(BaseModel):
     ConditionalDemographicDesparityPredictedLabels: float
     GeneralizedEntropy: float
 
+
 class DataBiasBaseline(BaseModel):
     """data model for consistently formatted returns to users"""
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True
-    )
+
+    model_config = ConfigDict(extra="forbid", strict=True)
     ClassImbalance: float
     DifferenceInProportionOfLabels: float
     KlDivergence: float
@@ -53,6 +51,7 @@ class LinearRegressionReport(BaseModel):
     RootMeanSquaredLogError: float
     MeanAbsolutePercentageError: float
 
+
 class LogisticRegressionReport(BaseModel):
     BalancedAccuracy: float
     PrecisionPositive: float
@@ -63,6 +62,7 @@ class LogisticRegressionReport(BaseModel):
     F1Score: float
     LogLoss: float
 
+
 class BinaryClassificationReport(BaseModel):
     BalancedAccuracy: float
     PrecisionPositive: float
@@ -72,13 +72,10 @@ class BinaryClassificationReport(BaseModel):
     Accuracy: float
     F1Score: float
 
+
 class ModelPerformance(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True,
-        use_enum_values=True
-    )
+    model_config = ConfigDict(extra="forbid", strict=True, use_enum_values=True)
     modelType: ModelType
-    performanceData: Union[LinearRegressionReport, LogisticRegressionReport, BinaryClassificationReport]
-
-
+    performanceData: Union[
+        LinearRegressionReport, LogisticRegressionReport, BinaryClassificationReport
+    ]

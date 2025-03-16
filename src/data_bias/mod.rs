@@ -1,4 +1,51 @@
 use std::collections::HashMap;
+use std::error::Error;
+
+pub enum DataBiasMetrics {
+    ClassImbalance,
+    DifferenceInProportionOfLabels,
+    KlDivergence,
+    JsDivergence,
+    LpNorm,
+    TotalVariationDistance,
+    KolmorogvSmirnov,
+}
+
+pub const FULL_DATA_BIAS_METRICS: [DataBiasMetrics; 7] = [
+    DataBiasMetrics::ClassImbalance,
+    DataBiasMetrics::DifferenceInProportionOfLabels,
+    DataBiasMetrics::KlDivergence,
+    DataBiasMetrics::JsDivergence,
+    DataBiasMetrics::LpNorm,
+    DataBiasMetrics::TotalVariationDistance,
+    DataBiasMetrics::KolmorogvSmirnov,
+];
+
+impl TryFrom<&str> for DataBiasMetrics {
+    type Error = String;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "ClassImbalance" => Ok(Self::ClassImbalance),
+            "DifferenceInProportionOfLabels" => Ok(Self::DifferenceInProportionOfLabels),
+            "KlDivergence" => Ok(Self::KlDivergence),
+            "JsDivergence" => Ok(Self::JsDivergence),
+            "LpNorm" => Ok(Self::LpNorm),
+            "TotalVariationDistance" => Ok(Self::TotalVariationDistance),
+            "KolmorogvSmirnov" => Ok(Self::KolmorogvSmirnov),
+            _ => Err("Invalid metric name".into()),
+        }
+    }
+}
+
+pub fn map_string_to_metric(metrics: Vec<String>) -> Result<Vec<DataBiasMetrics>, Box<dyn Error>> {
+    let mut map: Vec<DataBiasMetrics> = Vec::with_capacity(metrics.len());
+    for m_str in metrics.iter() {
+        let m = DataBiasMetrics::try_from(m_str.as_str())?;
+        map.push(m);
+    }
+
+    Ok(map)
+}
 
 pub struct PreTraining {
     pub facet_a: Vec<i16>,
@@ -22,7 +69,7 @@ pub struct PreTrainingComputations {
 }
 
 pub fn class_imbalance(data: &PreTraining) -> f32 {
-    return (data.facet_a.len() as i32 - data.facet_d.len() as i32).abs() as f32
+    return (data.facet_a.len() as f32 - data.facet_d.len() as f32).abs() as f32
         / (data.facet_a.len() + data.facet_d.len()) as f32;
 }
 
