@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-if [[ -n "$VIRTUAL_ENV"]]; then
+if [[ -n "$VIRTUAL_ENV" ]]; then
 	source ~/Documents/fair-ml/.venv/bin/activate
 fi
 
@@ -9,4 +9,4 @@ fi
 cd ~/Documents/fair-ml
 maturin develop
 cd tests
-python3 tests.py
+python3 tests.py | tee test_results

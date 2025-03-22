@@ -285,7 +285,7 @@ And for the Model Bias evaluations:
     'RecallDifference': float,
     'DifferenceInConditionalAcceptance': float,
     'DifferenceInAcceptanceRate': float,
-    'SpecailityDifference': float,
+    'SpecialityDifference': float,
     'DifferenceInConditionalRejection': float,
     'DifferenceInRejectionRate': float,
     'TreatmentEquity': float,

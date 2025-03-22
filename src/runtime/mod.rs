@@ -176,9 +176,9 @@ impl TryFrom<HashMap<String, f32>> for ModelBiasRuntime {
             Some(val) => *val,
             None => return Err("DifferenceInAcceptanceRates is not present".to_string()),
         };
-        let sd = match data.get("SpecailityDifference") {
+        let sd = match data.get("SpecialityDifference") {
             Some(val) => *val,
-            None => return Err("SpecailityDifference not present".to_string()),
+            None => return Err("SpecialityDifference not present".to_string()),
         };
         let dcr = match data.get("DifferenceInConditionalRejection") {
             Some(val) => *val,
@@ -294,10 +294,10 @@ impl ModelBiasRuntime {
                         );
                     }
                 }
-                ModelBiasMetrics::SpecailityDifference => {
+                ModelBiasMetrics::SpecialityDifference => {
                     if self.sd.abs() > baseline.sd.abs() * (1_f32 + threshold) {
                         result.insert(
-                            "SpecailityDifference".to_string(),
+                            "SpecialityDifference".to_string(),
                             format!(
                                 "Exceed baseline by: {}",
                                 (self.sd.abs() - baseline.sd.abs()).abs()

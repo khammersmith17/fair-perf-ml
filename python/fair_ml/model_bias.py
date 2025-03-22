@@ -70,7 +70,7 @@ def runtime_comparison(
     return orjson.loads(res)
 
 
-def parital_runtime_comparison(
+def partial_runtime_comparison(
     baseline: dict,
     comparison: dict,
     metrics: List[str],
@@ -78,10 +78,12 @@ def parital_runtime_comparison(
 ) -> dict[str, str]:
     """
     interface into rust module
+    data body validation will happen within the rust logic
     serves to nicely formats the return as dicts are ordered and hashmaps are not
     Args:
         baseline: dict -> the result from calling perform_analysis on the baseline data
         latest: dict -> the current data for comparison from calling perform_analysis
+        metrics: List[str] -> the list of metrics we want to evaluate on
         threshold: Optionl[float]=None -> the comparison threshold, defaults to 0.10 in rust mod
     Returns:
         dict

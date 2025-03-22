@@ -19,7 +19,7 @@ class ModelBiasBaseline(BaseModel):
     RecallDifference: float
     DifferenceInConditionalAcceptance: float
     DifferenceInAcceptanceRate: float
-    SpecailityDifference: float
+    SpecialityDifference: float
     DifferenceInConditionalRejection: float
     DifferenceInRejectionRate: float
     TreatmentEquity: float

@@ -80,6 +80,7 @@ def partial_runtime_comparison(
     Args:
         baseline: dict -> the result from calling perform_analysis on the baseline data
         latest: dict -> the current data for comparison from calling perform_analysis
+        metrics: List[str] -> the list of metrics we want to evaluate on
         threshold: Optionl[float]=None -> the comparison threshold, defaults to 0.10 in rust mod
     Returns:
         dict

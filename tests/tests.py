@@ -69,6 +69,44 @@ def test_db_numpy(bl_df, runtime_test) -> None:
     print(f"runtime check:\n{runtime_check}")
 
 
+def test_db_numpy_partial(bl_df, runtime_test) -> None:
+    """
+    testing using a numpy array with the db methods
+    """
+    db_bl = data_bias.perform_analysis(
+        bl_df["sex"].to_numpy(),
+        bl_df["rings"].to_numpy(),
+        "M",
+        15
+    )
+
+    db_runtime = data_bias.perform_analysis(
+        runtime_test["sex"].to_numpy(),
+        runtime_test["rings"].to_numpy(),
+        "M",
+        15
+    )
+
+    runtime_check = data_bias.partial_runtime_comparison(
+        db_bl,
+        db_runtime,
+        [
+            "ClassImbalance",
+            "DifferenceInProportionOfLabels",
+            "KlDivergence",
+            "JsDivergence"
+        ],
+        0.15
+    )
+
+    print(f"baseline:\n{db_bl}")
+    print("\n")
+    print(f"runtime:\n{db_runtime}")
+    print("\n")
+    print(f"runtime check:\n{runtime_check}")
+
+
+
 def test_db_list(bl_df, runtime_test) -> None:
     """
     testing using a numpy array with the db methods
@@ -128,6 +166,47 @@ def test_mb_numpy(bl_df, runtime_test):
     print(f"runtime:\n{runtime}")
     print("\n")
     print(f"check:\n{runtime_check}")
+
+
+def test_mb_numpy_partial(bl_df, runtime_test):
+    bl = model_bias.perform_analysis(
+        bl_df["sex"].to_numpy(),
+        bl_df["rings"].to_numpy(),
+        bl_df["preds"].to_numpy(),
+        "M",
+        15,
+        15.0
+    )
+
+    runtime = model_bias.perform_analysis(
+        runtime_test["sex"].to_numpy(),
+        runtime_test["rings"].to_numpy(),
+        runtime_test["preds"].to_numpy(),
+        "M",
+        15,
+        15.0
+    )
+
+    runtime_check = model_bias.partial_runtime_comparison(
+        bl,
+        runtime,
+        [
+            "DifferenceInPositivePredictedLabels",
+            "DisparateImpact",
+            "AccuracyDifference",
+            "RecallDifference",
+            "DifferenceInConditionalAcceptance"
+        ],
+        0.15
+    )
+
+    print(f"bl:\n{bl}" )
+    print("\n")
+    print(f"runtime:\n{runtime}")
+    print("\n")
+    print(f"check:\n{runtime_check}")
+
+
 
 
 def test_perf_reg_numpy(y_pred, y_true):
@@ -323,12 +402,21 @@ if __name__ == "__main__":
     test_db_numpy(bl_df, runtime_test)
     print("\n")
 
+
+    print("TESTING DATA BIAS WITH NUMPY ARRAYS partial...")
+    test_db_numpy_partial(bl_df, runtime_test)
+    print("\n")
+
     print("TESTING DATA BIAS WITH LIST ARRAYS...")
     test_db_list(bl_df, runtime_test)
 
     print("\n")
     print("TESTING MB with numpy...")
     test_mb_numpy(bl_df, runtime_test)
+
+    print("\n")
+    print("TESTING MB with numpy PARTIAL...")
+    test_mb_numpy_partial(bl_df, runtime_test)
 
     print("\n")
     print("TESTING MB with lists...")
@@ -353,7 +441,6 @@ if __name__ == "__main__":
     print("\n")
     print("TESTING logisitc PERF WITH numpy")
     test_perf_logisitc_reg_numpy(bin_proba, bin_true)
-
 
     print("\n")
     print("TESTING logisitc PERF WITH list")

@@ -8,7 +8,7 @@ pub enum ModelBiasMetrics {
     RecallDifference,
     DifferenceInConditionalAcceptance,
     DifferenceInAcceptanceRate,
-    SpecailityDifference,
+    SpecialityDifference,
     DifferenceInConditionalRejection,
     DifferenceInRejectionRate,
     TreatmentEquity,
@@ -23,7 +23,7 @@ pub const FULL_MODEL_BIAS_METRICS: [ModelBiasMetrics; 12] = [
     ModelBiasMetrics::RecallDifference,
     ModelBiasMetrics::DifferenceInConditionalAcceptance,
     ModelBiasMetrics::DifferenceInAcceptanceRate,
-    ModelBiasMetrics::SpecailityDifference,
+    ModelBiasMetrics::SpecialityDifference,
     ModelBiasMetrics::DifferenceInConditionalRejection,
     ModelBiasMetrics::DifferenceInRejectionRate,
     ModelBiasMetrics::TreatmentEquity,
@@ -52,7 +52,7 @@ impl TryFrom<&str> for ModelBiasMetrics {
             "RecallDifference" => Ok(Self::RecallDifference),
             "DifferenceInConditionalAcceptance" => Ok(Self::DifferenceInConditionalAcceptance),
             "DifferenceInAcceptanceRate" => Ok(Self::DifferenceInAcceptanceRate),
-            "SpecailityDifference" => Ok(Self::SpecailityDifference),
+            "SpecialityDifference" => Ok(Self::SpecialityDifference),
             "DifferenceInConditionalRejection" => Ok(Self::DifferenceInConditionalRejection),
             "DifferenceInRejectionRate" => Ok(Self::DifferenceInRejectionRate),
             "TreatmentEquity" => Ok(Self::TreatmentEquity),
@@ -419,7 +419,7 @@ pub fn post_training_bias(data: PostTrainingData) -> Result<HashMap<String, f32>
         diff_in_acceptance_rate(&pre_computed_data),
     );
     result.insert(
-        "SpecailityDifference".into(),
+        "SpecialityDifference".into(),
         specailty_difference(&pre_computed_data),
     );
     result.insert(
