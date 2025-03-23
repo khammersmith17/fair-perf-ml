@@ -1,3 +1,6 @@
 .venv/*
 tests/abalone.*
 target/*
+tests/perf_data.csv
+tests/test_data.csv
+tests/test_results
