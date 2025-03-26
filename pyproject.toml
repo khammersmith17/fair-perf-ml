@@ -3,7 +3,7 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "fair_ml"
+name = "fair_perf_ml"
 description = """A package for evalutating machine learning models for pre training and post training bias\
 in addition to evaluting the model for performance at training time and runtime.
 """
@@ -29,4 +29,4 @@ keywords = ["machine learning", "bias", "py03", "rust"]
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
-module-name = "fair_ml._fair_ml"
+module-name = "fair_perf_ml._fair_perf_ml"

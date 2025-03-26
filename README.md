@@ -193,7 +193,7 @@ Additionally, some pre work is required to determine first, the features to be e
 
 At runtime something may look like this:
 ```python
-from fair_ml import data_bias, model_bias
+from fair_perf_ml import data_bias, model_bias
 
 """baseline"""
 data_bias_baseline = data_bias.perform_analysis(
@@ -301,7 +301,7 @@ When the results fail a check, this indicates we may need to retrain the model d
 
 
 ```python
-from fair_ml import model_perf
+from fair_perf_ml import model_perf
 
 # depending on your model type
 # one of the following

@@ -485,8 +485,8 @@ fn process_failure_report(comp_results: HashMap<String, String>) -> Result<Strin
 
 /// A Python module implemented in Rust.
 #[pymodule]
-#[pyo3(name = "_fair_ml")]
-fn fair_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+#[pyo3(name = "_fair_perf_ml")]
+fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(model_bias_analyzer, m)?)?;
     m.add_function(wrap_pyfunction!(data_bias_analyzer, m)?)?;
     m.add_function(wrap_pyfunction!(data_bias_runtime_check, m)?)?;

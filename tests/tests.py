@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from fair_ml import data_bias, model_bias, model_perf
+from fair_perf_ml import data_bias, model_bias, model_perf
 from numpy.typing import NDArray
 from typing import Tuple
 import argparse

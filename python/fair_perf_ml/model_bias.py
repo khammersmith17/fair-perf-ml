@@ -1,20 +1,22 @@
-from ._fair_ml import (
-    data_bias_analyzer,
-    data_bias_runtime_check,
-    data_bias_partial_check,
+from ._fair_perf_ml import (
+    model_bias_analyzer,
+    model_bias_runtime_check,
+    model_bias_partial_check,
 )
-from typing import Union, Optional, List
-from numpy.typing import NDArray
-from orjson import loads
-from .models import DataBiasBaseline
 from ._internal import check_and_convert_type
+from .models import ModelBiasBaseline
+from numpy.typing import NDArray
+from typing import List, Union, Optional
+import orjson
 
 
 def perform_analysis(
     feature: Union[List[Union[str, float, int]], NDArray],  # pyright: ignore
     ground_truth: Union[List[Union[str, float, int]], NDArray],  # pyright: ignore
+    predictions: Union[List[Union[str, float, int]], NDArray],  # pyright: ignore
     feature_label_or_threshold: Union[str, float, int],
     ground_truth_label_or_threshold: Union[str, float, int],
+    prediction_label_or_threshold: Union[str, float, int],
 ) -> dict[str, float]:
     """
     interface into rust class
@@ -24,30 +26,31 @@ def perform_analysis(
             most efficient to pass as numpy array
         ground_truth: Union[List[Union[str, float, int]], NDArray] -> the ground truth data
             most efficient to pass as numpy array
+        predictions: Union[List[Union[str, float, int]], NDArray] -> the prediction data
+            most efficient to pass as numpy array
         feature_label_or_threshold: Union[str, float, int] -> segmentation parameter for the feature
         ground_truth_label_or_threshold: Union[str, float, int] -> segmenation parameter for ground truth
+        prediction_label_or_threshold: Union[str, float, int] -> segmenation parameter for predictions
     """
-    # want to pass numpy arrays to rust
-    # type resolution in rust mod depends on numpy arrays
-    # ignoring lsp message because we are deliberately changing the type on these values
     feature: NDArray = check_and_convert_type(feature)
     ground_truth: NDArray = check_and_convert_type(ground_truth)
+    predictions: NDArray = check_and_convert_type(predictions)
 
-    res: dict[str, float] = data_bias_analyzer(
+    res: dict[str, float] = model_bias_analyzer(
         feature_array=feature,
         ground_truth_array=ground_truth,
+        prediction_array=predictions,
         feature_label_or_threshold=feature_label_or_threshold,
         ground_truth_label_or_threshold=ground_truth_label_or_threshold,
+        prediction_label_or_threshold=prediction_label_or_threshold,
     )
 
-    # simply for nice formatting
-    return DataBiasBaseline(**res).model_dump()
+    # for nice formatting
+    return ModelBiasBaseline(**res).model_dump()
 
 
 def runtime_comparison(
-    baseline: dict[str, float],
-    latest: dict[str, float],
-    threshold: Optional[float] = None,
+    baseline: dict, comparison: dict, threshold: Optional[float] = None
 ) -> dict[str, str]:
     """
     interface into rust module
@@ -59,23 +62,23 @@ def runtime_comparison(
     Returns:
         dict
     """
-    res: str = (
-        data_bias_runtime_check(baseline=baseline, latest=latest, threshold=threshold)
-        if threshold
-        else data_bias_runtime_check(baseline=baseline, latest=latest)
+    res: str = model_bias_runtime_check(
+        baseline=baseline, latest=comparison, threshold=threshold
     )
-    # for nicer formatting on the return
-    return loads(res)
+
+    # for nice formatting
+    return orjson.loads(res)
 
 
 def partial_runtime_comparison(
-    baseline: dict[str, float],
-    latest: dict[str, float],
+    baseline: dict,
+    comparison: dict,
     metrics: List[str],
-    threshold: Optional[float] = 0.10,
+    threshold: Optional[float] = None,
 ) -> dict[str, str]:
     """
     interface into rust module
+    data body validation will happen within the rust logic
     serves to nicely formats the return as dicts are ordered and hashmaps are not
     Args:
         baseline: dict -> the result from calling perform_analysis on the baseline data
@@ -85,8 +88,9 @@ def partial_runtime_comparison(
     Returns:
         dict
     """
-    res: str = data_bias_partial_check(
-        baseline=baseline, latest=latest, metrics=metrics, threshold=threshold
+    res: str = model_bias_partial_check(
+        baseline=baseline, latest=comparison, metrics=metrics, threshold=threshold
     )
-    # for nicer formatting on the return
-    return loads(res)
+
+    # for nice formatting
+    return orjson.loads(res)

@@ -1,4 +1,4 @@
-from ._fair_ml import (
+from ._fair_perf_ml import (
     model_performance_regression,
     model_performance_classification,
     model_performance_logisitic_regression,
