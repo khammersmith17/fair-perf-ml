@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-if [[ -n "$VIRTUAL_ENV" ]]; then
+if ! [[ -n "$VIRTUAL_ENV" ]]; then
 	source ~/Documents/fair-ml/.venv/bin/activate
 fi
 

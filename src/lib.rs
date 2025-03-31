@@ -162,17 +162,17 @@ pub fn model_bias_analyzer<'py>(
     let labeled_predictions: Vec<i16> =
         match apply_label(py, prediction_array, prediction_label_or_threshold) {
             Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err)),
+            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
         };
     let labeled_ground_truth: Vec<i16> =
         match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
             Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err)),
+            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
         };
     let labeled_features: Vec<i16> =
         match apply_label(py, feature_array, feature_label_or_threshold) {
             Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err)),
+            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
         };
     let post_training_data: PostTrainingData = match perform_segmentation_model_bias(
         labeled_features,
@@ -205,12 +205,12 @@ fn data_bias_analyzer<'py>(
     let labeled_ground_truth =
         match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
             Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err)),
+            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
         };
 
     let labeled_feature = match apply_label(py, feature_array, feature_label_or_threshold) {
         Ok(array) => array,
-        Err(err) => return Err(PyTypeError::new_err(err)),
+        Err(err) => return Err(PyTypeError::new_err(err.to_string())),
     };
 
     let pre_training: PreTraining =

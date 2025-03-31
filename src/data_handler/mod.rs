@@ -1,11 +1,12 @@
 use super::data_bias::PreTraining;
 use super::model_bias::PostTrainingData;
 use crate::zip;
-use numpy::dtype_bound;
+use numpy::dtype;
 use numpy::PyUntypedArrayMethods;
 use numpy::{PyArrayDescrMethods, PyUntypedArray};
 use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyInt, PyString};
+use std::error::Error;
 
 #[derive(PartialEq)]
 pub enum PassedType {
@@ -17,13 +18,11 @@ pub enum PassedType {
 pub fn determine_type(py: Python<'_>, array: &Bound<'_, PyUntypedArray>) -> PassedType {
     let element_type = array.dtype();
 
-    if element_type.is_equiv_to(&dtype_bound::<f64>(py))
-        | element_type.is_equiv_to(&dtype_bound::<f32>(py))
-    {
+    if element_type.is_equiv_to(&dtype::<f64>(py)) | element_type.is_equiv_to(&dtype::<f32>(py)) {
         PassedType::Float
-    } else if element_type.is_equiv_to(&dtype_bound::<i32>(py))
-        | element_type.is_equiv_to(&dtype_bound::<i64>(py))
-        | element_type.is_equiv_to(&dtype_bound::<i16>(py))
+    } else if element_type.is_equiv_to(&dtype::<i32>(py))
+        | element_type.is_equiv_to(&dtype::<i64>(py))
+        | element_type.is_equiv_to(&dtype::<i16>(py))
     {
         PassedType::Integer
     } else {
@@ -35,35 +34,36 @@ pub fn apply_label<'py>(
     py: Python<'_>,
     array: &Bound<'_, PyUntypedArray>,
     label: Bound<'py, PyAny>,
-) -> Result<Vec<i16>, String> {
+) -> Result<Vec<i16>, Box<dyn Error>> {
     let pred_type = determine_type(py, &array);
-    let iter = &array.iter().unwrap();
+    let arr_len = array.len();
+    let iter = &array.try_iter()?;
 
     let labeled_array: Vec<i16> = match pred_type {
         PassedType::String => {
-            let data_vec: Vec<String> = iter
-                .clone()
-                .map(|item| item.unwrap().extract().unwrap())
-                .collect::<Vec<String>>();
-
+            let mut data_vec: Vec<String> = Vec::with_capacity(arr_len);
+            for item in iter {
+                let data = item?.extract::<String>()?;
+                data_vec.push(data);
+            }
             if !label.is_instance_of::<PyString>() {
                 return Err("string".into());
             }
 
-            let data_label: String = label.extract::<String>().unwrap();
+            let data_label: String = label.extract::<String>()?;
             apply_label_discrete(data_vec, data_label)
         }
         PassedType::Float => {
-            let data_vec: Vec<f64> = iter
-                .clone()
-                .map(|item| item.unwrap().extract().unwrap())
-                .collect::<Vec<f64>>();
-
+            let mut data_vec: Vec<f64> = Vec::with_capacity(arr_len);
+            for item in iter {
+                let data = item?.extract::<f64>()?;
+                data_vec.push(data);
+            }
             // handling users passing float vs int as label_or_threshold
             let data_label: f64 = if label.is_instance_of::<PyFloat>() {
-                label.extract::<f64>().unwrap()
+                label.extract::<f64>()?
             } else if label.is_instance_of::<PyInt>() {
-                label.extract::<i64>().unwrap() as f64
+                label.extract::<i64>()? as f64
             } else {
                 return Err("float".into());
             };
@@ -80,10 +80,11 @@ pub fn apply_label<'py>(
             }
         }
         PassedType::Integer => {
-            let data_vec: Vec<i64> = iter
-                .clone()
-                .map(|item| item.unwrap().extract().unwrap())
-                .collect::<Vec<i64>>();
+            let mut data_vec: Vec<i64> = Vec::with_capacity(arr_len);
+            for item in iter {
+                let data = item?.extract::<i64>()?;
+                data_vec.push(data);
+            }
 
             let data_set: std::collections::HashSet<i32> = data_vec
                 .iter()
@@ -92,9 +93,9 @@ pub fn apply_label<'py>(
 
             // handling users passing float vs int as label_or_threshold
             let data_label: i64 = if label.is_instance_of::<PyFloat>() {
-                label.extract::<f64>().unwrap() as i64
+                label.extract::<f64>()? as i64
             } else if label.is_instance_of::<PyInt>() {
-                label.extract::<i64>().unwrap()
+                label.extract::<i64>()?
             } else {
                 return Err("float".into());
             };

@@ -288,11 +288,11 @@ impl PerfEntry {
         // applying labels as usize
         let res: Vec<f32> = match passed_type {
             PassedType::Float => arr
-                .iter()?
+                .try_iter()?
                 .map(|item| item.unwrap().extract::<f64>().unwrap() as f32)
                 .collect::<Vec<f32>>(),
             PassedType::Integer => arr
-                .iter()?
+                .try_iter()?
                 .clone()
                 .map(|item| item.unwrap().extract::<f32>().unwrap() as f32)
                 .collect::<Vec<f32>>(),
