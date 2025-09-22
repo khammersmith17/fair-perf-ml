@@ -30,6 +30,16 @@ def linear_regression_analysis(
     y_true: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
     y_pred: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
 ) -> dict:
+    """
+    Analysis for a linear regression model type.
+    Will apply labels in accordance with the given threshold
+    args:
+        y_true: numpy array/python list
+        y_pred: numpy array/python list
+    returns:
+        dict: analysis output
+    """
+
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
     res: dict = model_performance_regression(y_true=y_true, y_pred=y_pred)
@@ -44,6 +54,16 @@ def logistic_regression_analysis(
     y_pred: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
     decision_threshold: Optional[float] = 0.5,
 ) -> dict:
+    """
+    Analysis for a logistic regression model type.
+    Will apply labels in accordance with the given threshold
+    args:
+        y_true: numpy array/python list
+        y_pred: numpy array/python list
+        decision_threshold: threshold used to apply label
+    returns:
+        dict: analysis output
+    """
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
     res: dict = model_performance_logisitic_regression(
@@ -59,6 +79,15 @@ def binary_classification_analysis(
     y_true: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
     y_pred: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
 ) -> dict:
+    """
+    Analysis for a classification model type.
+    Will apply labels in accordance with the given threshold
+    args:
+        y_true: numpy array/python list
+        y_pred: numpy array/python list
+    returns:
+        dict: analysis output
+    """
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
     res: dict = model_performance_classification(y_true=y_true, y_pred=y_pred)
@@ -71,6 +100,15 @@ def binary_classification_analysis(
 def runtime_check_full(
     latest: dict, baseline: dict, threshold: Optional[float] = 0.10
 ) -> dict:
+    """
+    Method to perform a full runtime performance monitoring job.
+    args:
+        latest: dict - latest analysis output, must match shape
+        baseline: dict - baseline analysis output, must match shape
+        threshold: Optional[float] - the allowable drift
+    returns:
+        dict - output analysis
+    """
     model_type = baseline.get("modelType")
     if model_type != latest.get("modelType"):
         raise DifferentModelTypes("Models types do not match")
@@ -90,6 +128,15 @@ def runtime_check_full(
 def partial_runtime_check(
     latest: dict, baseline: dict, metrics: List[str], threshold: Optional[float] = 0.10
 ) -> dict:
+    """
+    Method to perform a runtime performance monitoring job on only selected metrics.
+    args:
+        latest: dict - latest analysis output, must match shape
+        baseline: dict - baseline analysis output, must match shape
+        threshold: Optional[float] - the allowable drift
+    returns:
+        dict - output analysis
+    """
     model_type = baseline.get("modelType")
     latest_perf = latest.get("performanceData")
     baseline_perf = baseline.get("performanceData")
