@@ -27,6 +27,10 @@ maintainers = [
 ]
 keywords = ["machine learning", "bias", "py03", "rust"]
 
+[project.urls]
+source = "https://github.com/khammersmith17/fair-perf-ml"
+documentation = "https://github.com/khammersmith17/fair-perf-ml"
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"

@@ -57,7 +57,7 @@ def runtime_comparison(
     serves to nicely formats the return as dicts are ordered and hashmaps are not
     Args:
         baseline: dict -> the result from calling perform_analysis on the baseline data
-        latest: dict -> the current data for comparison from calling perform_analysis
+        comparison: dict -> the current data for comparison from calling perform_analysis
         threshold: Optionl[float]=None -> the comparison threshold, defaults to 0.10 in rust mod
     Returns:
         dict

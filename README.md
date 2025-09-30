@@ -163,6 +163,7 @@ There are two modules that have very similar structure.
 ## Usage
 - The intended usage for this package is for monitoring machine learning models for bias. 
     - The high level principle is that users perform bias and performance analysis at training time, preferrably on a holdout set, and this serves as the baseline data.
+    - See usage/usage.py in the repo for a rough example of the what the flow would look like
 - When a model is deployed, users save the data used to score, the predictions, and collect the ground truth as it becomes available. 
 - At some cadence, depending on how quickly ground truth becomes available, analysis is then performed on the features of intereset for bias, the ground truth, and the predictions.
 - The result of the evaluation then can be used for comparison.
