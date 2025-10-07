@@ -4,13 +4,16 @@ Custom implementation of bias analysis for machine learning models. Based on the
 [Background](#background)
 [Modules](#modules)
 [Usage](#usage)
+[Future](#future)
 
 ## Background
-Governance in AI systems is becoming more important. Many large cloud providers and other vendors provide services for these analyses, but they are expensive and sometimes over-engineered. The overall goal of this project is to provide a lightweight monitoring framework for machine learning models, that is hopefully easy to use. 
+Governance in AI systems is becoming more important. Many large cloud providers and other vendors provide services for these analyses, but they are expensive and sometimes over-engineered. The overall goal of this project is to provide a lightweight monitoring framework for machine learning models, that is hopefully easy to use.
+
+The core idea of this project is to provide composable pieces to create you own ML observavility service. The tools available on the market force users into a rather rigid pattern of use, and are built in such a way that they are not "editable" after definition, at least the tools I have used in my experience. For example, once the "schema" is defined for a model, you cannot later add a non model feature to the monitoring set for bias, where logically, this should not be a constraint as long as there is an ability to define a mapping between inference scores, ground truth, and feature values.
 
 Bias analysis works by seperating a feature into two demographic groups, and predictions and outcomes into positive and negative outcomes. The goal in this analysis is to quantify the divergance between how the model and true outcomes favors one demographic.
 
-To do so everything is segmented into two distinct groups representing favored and disfavord groups.
+To do so everything is segmented into two distinct groups representing favored and disfavord groups, though labeling one group as "favored" is a semantic detail. In reality, it does not matter which group is which, only that there is logical segmentation logic to distinctly define 2 groups.
 
 Additionally, there is a module to monitor overall performance at runtime. The nature of ML makes it difficult to have unit tests, and to ensure performance at runtime. ML deployments are different from other software deployments given the inability to ensure accurate results. Our assertions need to be done after the fact. Though, most deploy the model and let it run. There often is not a consistent effort to ensure accuracy in the model predictions over the entire lifetime of the model. There are services available to do this with different vendors (ie AWS SageMaker), but this requires significant cost and compute; they also tend to be slow. 
 
@@ -402,7 +405,7 @@ Evaluation results for LogisticRegression:
         "RecallPositive": float,
         "RecallNegative": float,
         "Accuracy": float,
-        "F1Score":float,
+        "F1Score": float,
         "LogLoss": float
     }
 }
@@ -424,4 +427,9 @@ All evaluation jobs will have the same structure:
 Following the evaluation job, one might have some to handle when a comparison job returns some metric failures. This may be some alerting logic, some automated model retraining logic, or some other remediation.
 
 
-
+## Future
+- Going forward, there are some more things I would like to add
+- These include
+    - multi-dimensional segmenter
+        - This can be done as is, but requires more effort from the user
+    - batteries included methods to perform runtime analysis and do baseline comparison in a single API
