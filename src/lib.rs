@@ -21,6 +21,7 @@ use model_perf::{
     LogisticRegressionReport, FULL_BINARY_CLASSIFICATION_METRICS, FULL_LOGISTIC_REGRESSION_METRICS,
     FULL_REGRESSION_METRICS,
 };
+pub mod drift;
 
 #[pyfunction]
 #[pyo3(signature = (

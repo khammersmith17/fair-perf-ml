@@ -3,6 +3,13 @@ from numpy.typing import NDArray
 from typing import List, Union
 
 
+class InvalidBaseline(Exception):
+    """
+    Exception for runtime utitlies when user passes
+    invalid baseline shape
+    """
+
+
 def check_and_convert_type(
     arr: Union[List[Union[str, float, int]], NDArray]
 ) -> NDArray:

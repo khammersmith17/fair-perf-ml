@@ -430,6 +430,8 @@ Following the evaluation job, one might have some to handle when a comparison jo
 ## Future
 - Going forward, there are some more things I would like to add
 - These include
+    - real time drift proxies
     - multi-dimensional segmenter
         - This can be done as is, but requires more effort from the user
     - batteries included methods to perform runtime analysis and do baseline comparison in a single API
+

@@ -1,0 +1,56 @@
+use numpy::{PyArray1, PyReadonlyArray1};
+use pyo3::prelude::*;
+use pyo3::{exceptions::PyValueError, pyclass, pymethods};
+use std::cmp::Ordering;
+
+fn compute_psi<'py>(bins: &[f64], data: PyReadonlyArray1<'py, f64>) {
+    /*
+     * for each item in data
+     *   1. get an iterator over the bins
+     */
+
+    let data_iter = data.as_slice().unwrap();
+    for v in data_iter {}
+}
+
+#[pyclass]
+pub struct ContinuousPSI {
+    pub bin_edges: Vec<f64>,
+    pub baseline: Vec<f64>,
+}
+
+#[pymethods]
+impl ContinuousPSI {
+    #[new]
+    pub fn new(num_bins: usize) -> ContinuousPSI {
+        let bin_edges: Vec<f64> = Vec::with_capacity(num_bins);
+        let baseline: Vec<f64> = Vec::with_capacity(num_bins);
+
+        ContinuousPSI {
+            bin_edges,
+            baseline,
+        }
+    }
+
+    pub fn compute_baseline<'py>(&mut self, baseline_data: PyReadonlyArray1<'py, f64>) {}
+
+    fn define_bins<'py>(&mut self, data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
+        let mut sorted_baseline: Vec<f64> = data.as_slice().unwrap().to_vec();
+        if sorted_baseline.is_empty() {
+            return Err(PyValueError::new_err("Empty Baseline array"));
+        }
+        sorted_baseline.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(Ordering::Equal));
+
+        self.bin_edges.clear();
+        if sorted_baseline.first() == sorted_baseline.last() {
+            self.bin_edges
+                .extend(vec![sorted_baseline[0], sorted_baseline[0]]);
+            return Ok(());
+        }
+        let n_bins = self.bin_edges.capacity();
+        let bin_size = sorted_baseline.len() / self.bin_edges.len();
+        todo!("Implement initial binning");
+    }
+}
+
+pub struct RealTimePSI {}

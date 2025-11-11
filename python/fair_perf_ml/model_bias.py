@@ -1,13 +1,30 @@
+from typing import List, Union, Optional, Dict
+from numpy.typing import NDArray
+import orjson
 from ._fair_perf_ml import (
     model_bias_analyzer,
     model_bias_runtime_check,
     model_bias_partial_check,
 )
-from ._internal import check_and_convert_type
+from pydantic import ValidationError
+from ._internal import check_and_convert_type, InvalidBaseline
 from .models import ModelBiasBaseline
-from numpy.typing import NDArray
-from typing import List, Union, Optional
-import orjson
+
+
+class ModelBiasRuntimeUtility:
+    """
+    Utility hold data for long running monitoring services
+    """
+    __slots__ = ["baseline"]
+
+    def __init__(self, baseline: Dict[str, float]):
+        try:
+            baseline = ModelBiasBaseline(**baseline) # pyright: ignore
+        except ValidationError as e:
+            raise InvalidBaseline from e
+
+        self.baseline = baseline
+
 
 
 def perform_analysis(
