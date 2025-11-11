@@ -4,9 +4,11 @@ use pyo3::prelude::*;
 use pyo3::{exceptions::PyValueError, pyclass, pymethods};
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
 const MAX_STREAM_SIZE: usize = 1_000_000;
+const STABILITY_EPS: f64 = 1e-12;
 
 #[inline]
 fn process_hist(num_items: usize, hist: &[usize]) -> Result<Vec<f64>, String> {
@@ -28,8 +30,8 @@ fn compute_psi(baseline_hist: &[f64], runtime_hist: &[f64]) -> f64 {
         .iter()
         .zip(runtime_hist)
         .map(|(baseline, runtime)| {
-            let b = (baseline + f64::EPSILON).max(f64::EPSILON);
-            let r = (runtime + f64::EPSILON).max(f64::EPSILON);
+            let b = (baseline + STABILITY_EPS).max(STABILITY_EPS);
+            let r = (runtime + STABILITY_EPS).max(STABILITY_EPS);
             (b - r) * (b / r).ln()
         })
         .sum()
@@ -259,5 +261,118 @@ impl StreamingContinuousPSI {
     }
 }
 
+// using a log scaling heuristic to preallocate
+fn compute_expected_categorical_bins(n: f64) -> usize {
+    n.powf(0.7).ceil() as usize
+}
+
+const OTHER_LABEL: &'static str = "__fairperf_othercat__";
+
 #[pyclass]
-pub struct CategoricalPSI {}
+pub struct CategoricalPSI {
+    baseline_hist: HashMap<String, f64>,
+    other_key: String,
+}
+
+impl CategoricalPSI {
+    fn init_baseline_hist(&mut self, predicted_capacity: usize, bl_data: Vec<String>) {
+        let n = bl_data.len();
+        let mut baseline_bins: HashMap<String, usize> = HashMap::with_capacity(predicted_capacity);
+
+        for cat in bl_data.into_iter() {
+            if let Some(count) = baseline_bins.get_mut(&cat) {
+                *count += 1;
+            } else {
+                baseline_bins.insert(cat.clone(), 1_usize);
+                self.baseline_hist.insert(cat, 0_f64);
+            }
+        }
+
+        self.baseline_hist.insert(self.other_key.clone(), 0_f64);
+
+        for (key, value) in self.baseline_hist.iter_mut() {
+            // safe unwrap, we know this key exists
+            let count = baseline_bins.get(key).unwrap();
+            *value = *count as f64 / n as f64;
+        }
+    }
+
+    fn compute_rt(&self, runtime_data: Vec<String>) -> Option<f64> {
+        let mut runtime_bins: HashMap<String, usize> =
+            HashMap::with_capacity(self.baseline_hist.len());
+        let mut runtime_hist: HashMap<String, f64> =
+            HashMap::with_capacity(self.baseline_hist.len());
+        let n = runtime_data.len();
+
+        for key in self.baseline_hist.keys() {
+            runtime_bins.insert(key.clone(), 0_usize);
+            runtime_hist.insert(key.clone(), 0_f64);
+        }
+
+        for cat in runtime_data.into_iter() {
+            if let Some(seen_bin) = runtime_bins.get_mut(&cat) {
+                *seen_bin += 1;
+            } else {
+                let other_bin = runtime_bins.get_mut(&self.other_key)?;
+                *other_bin += 1;
+            }
+        }
+
+        for (key, value) in runtime_hist.iter_mut() {
+            let count = runtime_bins.get(key)?;
+            *value = *count as f64 / n as f64;
+        }
+
+        let mut psi = 0_f64;
+
+        for (key, mut r) in runtime_hist.into_iter() {
+            let b_ref = self.baseline_hist.get(&key)?;
+            let b = (*b_ref + STABILITY_EPS).max(STABILITY_EPS);
+            r = (r + STABILITY_EPS).max(STABILITY_EPS);
+            psi += (b - r) * (b / r).ln()
+        }
+
+        Some(psi)
+    }
+}
+
+#[pymethods]
+impl CategoricalPSI {
+    #[new]
+    fn new(baseline_data: Vec<String>) -> PyResult<CategoricalPSI> {
+        if baseline_data.is_empty() {
+            return Err(PyValueError::new_err("Baseline data must be non empty"));
+        }
+        let n = baseline_data.len();
+        let predicted_capacity = compute_expected_categorical_bins(n as f64);
+
+        let baseline_hist: HashMap<String, f64> = HashMap::with_capacity(predicted_capacity);
+        let uuid = Uuid::new_v4();
+        let other_key = format!("{}_{}", OTHER_LABEL, uuid);
+        let mut obj = CategoricalPSI {
+            baseline_hist,
+            other_key,
+        };
+        obj.init_baseline_hist(predicted_capacity, baseline_data);
+        Ok(obj)
+    }
+
+    fn compute_psi_drift(&self, runtime_data: Vec<String>) -> PyResult<f64> {
+        if let Some(psi) = self.compute_rt(runtime_data) {
+            Ok(psi)
+        } else {
+            Err(PyValueError::new_err(
+                "Runtime data does match labels in baseline set",
+            ))
+        }
+    }
+}
+
+#[pyclass]
+pub struct StreamCateoricalPSI {
+    baseline: CategoricalPSI,
+    stream_bins: HashMap<String, usize>,
+    total_stream_size: usize,
+    last_flush_ts: i64,
+    flush_rate: i64,
+}
