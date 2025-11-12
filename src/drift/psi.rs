@@ -1,7 +1,10 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
-use pyo3::{exceptions::PyValueError, pyclass, pymethods};
+use pyo3::{
+    exceptions::{PySystemError, PyValueError},
+    pyclass, pymethods,
+};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -9,6 +12,17 @@ use uuid::Uuid;
 const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
 const MAX_STREAM_SIZE: usize = 1_000_000;
 const STABILITY_EPS: f64 = 1e-12;
+
+/*
+* Streaming PSI API
+* trait bounds are not compatible with #[pymethods]
+* 1. new
+* 2. reset baseline stream
+* 3. update stream
+* 4. flush
+* 5. total stream size
+* 6. last flush
+* */
 
 #[inline]
 fn process_hist(num_items: usize, hist: &[usize]) -> Result<Vec<f64>, String> {
@@ -219,6 +233,11 @@ impl StreamingContinuousPSI {
         })
     }
 
+    fn reset_baseline<'py>(&mut self, baseline_data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
+        self.baseline.reset_baseline(baseline_data)?;
+        Ok(())
+    }
+
     fn update_stream<'py>(&mut self, runtime_data: PyReadonlyArray1<'py, f64>) -> PyResult<f64> {
         let runtime_data_slice = runtime_data.as_slice()?;
 
@@ -256,8 +275,13 @@ impl StreamingContinuousPSI {
     }
 
     #[getter]
-    fn last_flush(&self) -> i64 {
-        self.last_flush_ts
+    fn last_flush(&self) -> PyResult<DateTime<Utc>> {
+        let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
+            return Err(PySystemError::new_err(
+                "System failure, unable to create Datetime object",
+            ));
+        };
+        Ok(ts)
     }
 }
 
@@ -267,6 +291,40 @@ fn compute_expected_categorical_bins(n: f64) -> usize {
 }
 
 const OTHER_LABEL: &'static str = "__fairperf_othercat__";
+
+#[inline]
+fn process_categorical_hist(
+    rt_hist: &HashMap<String, usize>,
+    n: usize,
+) -> Result<HashMap<String, f64>, String> {
+    if rt_hist.is_empty() {
+        return Err("Runtime stream is empty".into());
+    }
+    let mut hist_quantiles: HashMap<String, f64> = HashMap::with_capacity(rt_hist.len());
+
+    for (key, value) in rt_hist.iter() {
+        hist_quantiles.insert(key.clone(), *value as f64 / n as f64);
+    }
+    Ok(hist_quantiles)
+}
+
+#[inline]
+fn categorical_normalize(
+    bl_hist: &HashMap<String, f64>,
+    rt_hist: HashMap<String, f64>,
+) -> Option<f64> {
+    let mut psi = 0_f64;
+
+    for (key, mut r) in rt_hist.into_iter() {
+        let b_ref = bl_hist.get(key.as_str())?;
+        let b = (*b_ref + STABILITY_EPS).max(STABILITY_EPS);
+        r = (r + STABILITY_EPS).max(STABILITY_EPS);
+        psi += (b - r) * (b / r).ln()
+    }
+    Some(psi)
+}
+//TODO:
+//create an error type to distinguish between malformed bins and no runtime data in stream
 
 #[pyclass]
 pub struct CategoricalPSI {
@@ -357,6 +415,13 @@ impl CategoricalPSI {
         Ok(obj)
     }
 
+    fn reset_baseline(&mut self, new_baseline: Vec<String>) {
+        self.baseline_hist.clear();
+        let n = new_baseline.len();
+        let predicted_capacity = compute_expected_categorical_bins(n as f64);
+        self.init_baseline_hist(predicted_capacity, new_baseline);
+    }
+
     fn compute_psi_drift(&self, runtime_data: Vec<String>) -> PyResult<f64> {
         if let Some(psi) = self.compute_rt(runtime_data) {
             Ok(psi)
@@ -369,10 +434,118 @@ impl CategoricalPSI {
 }
 
 #[pyclass]
-pub struct StreamCateoricalPSI {
+pub struct StreamingCategoricalPSI {
     baseline: CategoricalPSI,
     stream_bins: HashMap<String, usize>,
     total_stream_size: usize,
     last_flush_ts: i64,
     flush_rate: i64,
+}
+
+impl StreamingCategoricalPSI {
+    fn init_stream_bins(&mut self) {
+        for key in self.baseline.baseline_hist.keys() {
+            self.stream_bins.insert(key.clone(), 0_usize);
+        }
+    }
+
+    fn flush_runtime_stream(&mut self) {
+        for value in self.stream_bins.values_mut() {
+            *value = 0;
+        }
+    }
+
+    fn update_stream_bins(&mut self, runtime_data: Vec<String>) {
+        let n = runtime_data.len();
+        for cat in runtime_data.into_iter() {
+            if let Some(count) = self.stream_bins.get_mut(&cat) {
+                *count += 1
+            } else {
+                let count = self.stream_bins.get_mut(&self.baseline.other_key).unwrap();
+                *count += 1
+            }
+        }
+
+        self.total_stream_size += n;
+    }
+
+    fn normalize(&self) -> Result<f64, String> {
+        let quantile_hist =
+            match process_categorical_hist(&self.stream_bins, self.total_stream_size) {
+                Ok(hist) => hist,
+                Err(e) => return Err(e),
+            };
+        match categorical_normalize(&self.baseline.baseline_hist, quantile_hist) {
+            Some(psi) => Ok(psi),
+            None => Err("Runtime PSI malformed".into()),
+        }
+    }
+}
+
+#[pymethods]
+impl StreamingCategoricalPSI {
+    #[new]
+    fn new(
+        baseline_data: Vec<String>,
+        user_flush_rate: Option<i64>,
+    ) -> PyResult<StreamingCategoricalPSI> {
+        let baseline = CategoricalPSI::new(baseline_data)?;
+        let flush_rate = user_flush_rate.unwrap_or_else(|| DEFAULT_STREAM_FLUSH);
+        let stream_bins: HashMap<String, usize> =
+            HashMap::with_capacity(baseline.baseline_hist.len());
+
+        let last_flush_ts = Utc::now().timestamp();
+        let mut obj = StreamingCategoricalPSI {
+            baseline,
+            stream_bins,
+            last_flush_ts,
+            flush_rate,
+            total_stream_size: 0_usize,
+        };
+        obj.init_stream_bins();
+        Ok(obj)
+    }
+
+    fn reset_baseline(&mut self, new_baseline: Vec<String>) {
+        self.baseline.reset_baseline(new_baseline);
+        self.init_stream_bins();
+    }
+
+    fn update_stream(&mut self, runtime_data: Vec<String>) -> PyResult<f64> {
+        let curr_ts: i64 = Utc::now().timestamp();
+
+        if curr_ts > (self.last_flush_ts + self.flush_rate)
+            || (self.total_stream_size + runtime_data.len()) > MAX_STREAM_SIZE
+        {
+            // reset and flush
+            self.flush_runtime_stream();
+            self.last_flush_ts = curr_ts;
+        }
+        self.update_stream_bins(runtime_data);
+
+        match self.normalize() {
+            Ok(drift) => Ok(drift),
+            Err(e) => Err(PyValueError::new_err(e)),
+        }
+    }
+
+    fn flush(&mut self) {
+        self.flush_runtime_stream();
+        self.last_flush_ts = Utc::now().timestamp();
+    }
+
+    #[getter]
+    fn total_samples(&self) -> usize {
+        self.total_stream_size
+    }
+
+    #[getter]
+    fn last_flush(&self) -> PyResult<DateTime<Utc>> {
+        let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
+            return Err(PySystemError::new_err(
+                "System failure, unable to create Datetime object",
+            ));
+        };
+        Ok(ts)
+    }
 }
