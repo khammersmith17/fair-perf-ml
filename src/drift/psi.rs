@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use numpy::PyReadonlyArray1;
+use once_cell::sync::Lazy;
 use pyo3::prelude::*;
 use pyo3::{
     exceptions::{PySystemError, PyValueError},
@@ -12,7 +13,14 @@ use uuid::Uuid;
 
 const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
 const MAX_STREAM_SIZE: usize = 1_000_000;
-const STABILITY_EPS: f64 = 1e-12;
+const STABILITY_EPS: Lazy<f64> = Lazy::new(|| {
+    let fallback = 1e-8;
+    let Ok(var) = std::env::var("FAIR_PERF_STABILITY_EPS") else {
+        return fallback;
+    };
+
+    var.parse::<f64>().unwrap_or_else(|_| fallback)
+});
 
 /*
 * Streaming PSI API
@@ -70,8 +78,8 @@ fn compute_psi(baseline_hist: &[f64], runtime_hist: &[f64]) -> f64 {
         .iter()
         .zip(runtime_hist)
         .map(|(baseline, runtime)| {
-            let b = (baseline + STABILITY_EPS).max(STABILITY_EPS);
-            let r = (runtime + STABILITY_EPS).max(STABILITY_EPS);
+            let b = (baseline + *STABILITY_EPS).max(*STABILITY_EPS);
+            let r = (runtime + *STABILITY_EPS).max(*STABILITY_EPS);
             (b - r) * (b / r).ln()
         })
         .sum()
@@ -379,8 +387,8 @@ fn categorical_normalize(
 
     for (key, mut r) in rt_hist.into_iter() {
         let b_ref = bl_hist.get(key.as_str())?;
-        let b = (*b_ref + STABILITY_EPS).max(STABILITY_EPS);
-        r = (r + STABILITY_EPS).max(STABILITY_EPS);
+        let b = (*b_ref + *STABILITY_EPS).max(*STABILITY_EPS);
+        r = (r + *STABILITY_EPS).max(*STABILITY_EPS);
         psi += (b - r) * (b / r).ln()
     }
     Some(psi)
@@ -447,8 +455,8 @@ impl CategoricalPSI {
 
         for (key, mut r) in runtime_hist.into_iter() {
             let b_ref = self.baseline_hist.get(&key)?;
-            let b = (*b_ref + STABILITY_EPS).max(STABILITY_EPS);
-            r = (r + STABILITY_EPS).max(STABILITY_EPS);
+            let b = (*b_ref + *STABILITY_EPS).max(*STABILITY_EPS);
+            r = (r + *STABILITY_EPS).max(*STABILITY_EPS);
             psi += (b - r) * (b / r).ln()
         }
 

@@ -65,6 +65,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "numpy",
+ "once_cell",
  "pyo3",
  "rust-numpy",
  "serde",
