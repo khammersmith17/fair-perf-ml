@@ -7,6 +7,7 @@ use pyo3::{
 };
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use thiserror::Error;
 use uuid::Uuid;
 
 const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
@@ -23,12 +24,37 @@ const STABILITY_EPS: f64 = 1e-12;
 * 5. total stream size
 * 6. last flush
 * */
+#[derive(Debug, Error)]
+pub enum PSIError {
+    #[error("Data used for runtime drift analysis must be non empty")]
+    EmptyRuntimeData,
+    #[error("Unable to convert internal timestamp into DateTime object")]
+    DateTimeError,
+    #[error("Internal runtime bins are malformed")]
+    MalformedRuntimeData,
+    #[error("Baseline data must be non empty")]
+    EmptyBaselineData,
+    #[error("NaN values are not supported")]
+    NaNValueError,
+}
+
+impl Into<PyErr> for PSIError {
+    fn into(self) -> PyErr {
+        let err_message = self.to_string();
+        match self {
+            Self::EmptyRuntimeData | Self::EmptyBaselineData | Self::NaNValueError => {
+                PyValueError::new_err(err_message)
+            }
+            Self::DateTimeError | Self::MalformedRuntimeData => PySystemError::new_err(err_message),
+        }
+    }
+}
 
 #[inline]
-fn process_hist(num_items: usize, hist: &[usize]) -> Result<Vec<f64>, String> {
+fn process_hist(num_items: usize, hist: &[usize]) -> Result<Vec<f64>, PSIError> {
     let total_n = num_items as f64;
     if total_n == 0_f64 {
-        return Err("Empty hist".to_string());
+        return Err(PSIError::EmptyRuntimeData);
     }
     let bl_hist = hist
         .iter()
@@ -53,10 +79,16 @@ fn compute_psi(baseline_hist: &[f64], runtime_hist: &[f64]) -> f64 {
 
 #[pyclass]
 pub struct ContinuousPSI {
-    pub bin_edges: Vec<f64>,
-    pub baseline_hist: Vec<f64>,
+    bin_edges: Vec<f64>,
+    baseline_hist: Vec<f64>,
+    rt_bins: Vec<usize>,
     n_bins: usize,
 }
+
+// TODO:
+// 1. preallocate runtime Vec for hist scores and zero out all entries every runtime run
+// 2. Add doc comments
+// 3. add python feature so this can also be used in rust context
 
 impl ContinuousPSI {
     fn init_baseline_hist<'py>(
@@ -65,31 +97,49 @@ impl ContinuousPSI {
     ) -> PyResult<()> {
         let baseline_slice = baseline_data.as_slice()?;
         self.define_bins(baseline_slice)?;
-        let (bl_count, bl_hist) = self.build_hist(baseline_slice);
-        if let Ok(bl_hist) = process_hist(bl_count, &bl_hist) {
-            self.baseline_hist = bl_hist
-        } else {
-            return Err(PyValueError::new_err("Baseline data must not be empty"));
+        let (bl_count, bl_hist) = self.build_bl_hist(baseline_slice);
+        match process_hist(bl_count, &bl_hist) {
+            Ok(processed_bl_hist) => {
+                self.baseline_hist = processed_bl_hist;
+                Ok(())
+            }
+            Err(_) => Err(PSIError::EmptyBaselineData.into()),
         }
-        Ok(())
     }
 
-    fn build_hist<'py>(&self, data_slice: &[f64]) -> (usize, Vec<usize>) {
+    fn build_bl_hist<'py>(&self, data_slice: &[f64]) -> (usize, Vec<usize>) {
         let bl_count = data_slice.len();
         let mut hist = vec![0_usize; self.bin_edges.len() - 1];
         let n_bins = self.bin_edges.len() - 1;
         for item in data_slice {
-            let mut idx: usize = n_bins - 1;
-            for i in 0..n_bins {
-                if *item < self.bin_edges[i + 1] {
-                    idx = i;
-                    break;
-                }
-            }
+            let i = self.bin_edges.partition_point(|edge| *item >= *edge);
+            let idx = i.saturating_sub(1).min(n_bins - 1);
             hist[idx] += 1;
         }
 
         (bl_count, hist)
+    }
+
+    fn clear_rt_hist(&mut self) {
+        for bin in self.rt_bins.iter_mut() {
+            *bin = 0_usize;
+        }
+    }
+
+    fn build_rt_hist(&mut self, data_slice: &[f64]) {
+        let n_bins = self.bin_edges.len() - 1;
+        for item in data_slice {
+            let i = self.bin_edges.partition_point(|edge| *item >= *edge);
+            let idx = i.saturating_sub(1).min(n_bins - 1);
+            self.rt_bins[idx] += 1;
+        }
+    }
+
+    fn init_runtime_container(&mut self) {
+        let mut rt_bins: Vec<f64> = Vec::with_capacity(self.baseline_hist.len());
+        for _ in 0..self.baseline_hist.len() {
+            rt_bins.push(0_f64)
+        }
     }
 
     fn define_bins<'py>(&mut self, data: &[f64]) -> PyResult<()> {
@@ -97,6 +147,11 @@ impl ContinuousPSI {
         if sorted_baseline.len() <= 1 {
             return Err(PyValueError::new_err("Baseline array requires > 1 value"));
         }
+
+        if sorted_baseline.iter().any(|value| value.is_nan()) {
+            return Err(PSIError::NaNValueError.into());
+        }
+
         sorted_baseline.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(Ordering::Equal));
 
         self.bin_edges.clear();
@@ -137,27 +192,36 @@ impl ContinuousPSI {
         let mut obj = ContinuousPSI {
             bin_edges,
             baseline_hist: Vec::new(),
+            rt_bins: Vec::new(),
             n_bins,
         };
         obj.init_baseline_hist(baseline_data)?;
+        obj.init_runtime_container();
         Ok(obj)
     }
 
     fn reset_baseline<'py>(&mut self, baseline_data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
         self.baseline_hist.clear();
         self.init_baseline_hist(baseline_data)?;
+        self.init_runtime_container();
         Ok(())
     }
 
-    fn compute_psi_drift<'py>(&self, runtime_data: PyReadonlyArray1<'py, f64>) -> PyResult<f64> {
+    fn compute_psi_drift<'py>(
+        &mut self,
+        runtime_data: PyReadonlyArray1<'py, f64>,
+    ) -> PyResult<f64> {
         let runtime_data_slice = runtime_data.as_slice()?;
-        let (n, base_runtime_hist) = self.build_hist(&runtime_data_slice);
-        let Ok(runtime_hist) = process_hist(n, &base_runtime_hist) else {
-            return Err(PyValueError::new_err(
-                "Runtime data array must not be empty",
-            ));
+        let n = runtime_data_slice.len();
+        self.build_rt_hist(&runtime_data_slice);
+        let runtime_hist = match process_hist(n, &self.rt_bins) {
+            Ok(hist) => hist,
+            Err(e) => return Err(e.into()),
         };
-        Ok(compute_psi(&self.baseline_hist, &runtime_hist))
+
+        let psi = compute_psi(&self.baseline_hist, &runtime_hist);
+        self.clear_rt_hist();
+        Ok(psi)
     }
 }
 
@@ -172,7 +236,7 @@ pub struct StreamingContinuousPSI {
 
 impl StreamingContinuousPSI {
     fn init_runtime_stream(&mut self, runtime_slice: &[f64]) {
-        let (n_bins, stream_bins) = self.baseline.build_hist(&runtime_slice);
+        let (n_bins, stream_bins) = self.baseline.build_bl_hist(&runtime_slice);
         self.total_stream_size = n_bins;
         self.stream_bins = stream_bins;
     }
@@ -202,7 +266,7 @@ impl StreamingContinuousPSI {
     }
 
     #[inline]
-    fn normalize(&self) -> Result<f64, String> {
+    fn normalize(&self) -> Result<f64, PSIError> {
         match process_hist(self.total_stream_size, &self.stream_bins) {
             Ok(snapshot) => Ok(compute_psi(&self.baseline.baseline_hist, &snapshot)),
             Err(e) => Err(e),
@@ -260,7 +324,7 @@ impl StreamingContinuousPSI {
 
         match self.normalize() {
             Ok(drift) => Ok(drift),
-            Err(e) => Err(PyValueError::new_err(e)),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -277,9 +341,7 @@ impl StreamingContinuousPSI {
     #[getter]
     fn last_flush(&self) -> PyResult<DateTime<Utc>> {
         let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
-            return Err(PySystemError::new_err(
-                "System failure, unable to create Datetime object",
-            ));
+            return Err(PSIError::DateTimeError.into());
         };
         Ok(ts)
     }
@@ -296,9 +358,9 @@ const OTHER_LABEL: &'static str = "__fairperf_othercat__";
 fn process_categorical_hist(
     rt_hist: &HashMap<String, usize>,
     n: usize,
-) -> Result<HashMap<String, f64>, String> {
+) -> Result<HashMap<String, f64>, PSIError> {
     if rt_hist.is_empty() {
-        return Err("Runtime stream is empty".into());
+        return Err(PSIError::EmptyRuntimeData);
     }
     let mut hist_quantiles: HashMap<String, f64> = HashMap::with_capacity(rt_hist.len());
 
@@ -426,10 +488,13 @@ impl CategoricalPSI {
         if let Some(psi) = self.compute_rt(runtime_data) {
             Ok(psi)
         } else {
-            Err(PyValueError::new_err(
-                "Runtime data does match labels in baseline set",
-            ))
+            Err(PSIError::MalformedRuntimeData.into())
         }
+    }
+
+    #[getter]
+    fn other_bucket_label(&self) -> String {
+        self.other_key.clone()
     }
 }
 
@@ -453,6 +518,7 @@ impl StreamingCategoricalPSI {
         for value in self.stream_bins.values_mut() {
             *value = 0;
         }
+        self.total_stream_size = 0;
     }
 
     fn update_stream_bins(&mut self, runtime_data: Vec<String>) {
@@ -469,7 +535,7 @@ impl StreamingCategoricalPSI {
         self.total_stream_size += n;
     }
 
-    fn normalize(&self) -> Result<f64, String> {
+    fn normalize(&self) -> Result<f64, PSIError> {
         let quantile_hist =
             match process_categorical_hist(&self.stream_bins, self.total_stream_size) {
                 Ok(hist) => hist,
@@ -477,7 +543,7 @@ impl StreamingCategoricalPSI {
             };
         match categorical_normalize(&self.baseline.baseline_hist, quantile_hist) {
             Some(psi) => Ok(psi),
-            None => Err("Runtime PSI malformed".into()),
+            None => Err(PSIError::MalformedRuntimeData),
         }
     }
 }
@@ -525,7 +591,7 @@ impl StreamingCategoricalPSI {
 
         match self.normalize() {
             Ok(drift) => Ok(drift),
-            Err(e) => Err(PyValueError::new_err(e)),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -542,10 +608,13 @@ impl StreamingCategoricalPSI {
     #[getter]
     fn last_flush(&self) -> PyResult<DateTime<Utc>> {
         let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
-            return Err(PySystemError::new_err(
-                "System failure, unable to create Datetime object",
-            ));
+            return Err(PSIError::DateTimeError.into());
         };
         Ok(ts)
+    }
+
+    #[getter]
+    fn other_bucket_label(&self) -> String {
+        self.baseline.other_key.clone()
     }
 }

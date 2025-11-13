@@ -15,4 +15,5 @@ pyo3 = {version = "0.24.0", features = ["extension-module", "chrono"]}
 rust-numpy = "0.1.0"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.134"
+thiserror = "2.0.17"
 uuid = {version = "1.18.1", features = ["v4"]}
