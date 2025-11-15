@@ -14,7 +14,7 @@ use uuid::Uuid;
 const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
 const MAX_STREAM_SIZE: usize = 1_000_000;
 const STABILITY_EPS: Lazy<f64> = Lazy::new(|| {
-    let fallback = 1e-8;
+    let fallback = 1e-12;
     let Ok(var) = std::env::var("FAIR_PERF_STABILITY_EPS") else {
         return fallback;
     };
@@ -72,17 +72,128 @@ fn process_hist(num_items: usize, hist: &[usize]) -> Result<Vec<f64>, PSIError> 
 }
 
 #[inline]
+fn process_hist_in_place(
+    num_items: usize,
+    hist: &[usize],
+    rt_buffer: &mut [f64],
+) -> Result<(), PSIError> {
+    debug_assert!(hist.len() == rt_buffer.len());
+    let total_n = num_items as f64;
+    if total_n == 0_f64 {
+        return Err(PSIError::EmptyRuntimeData);
+    }
+
+    for (i, bin_count) in hist.iter().enumerate() {
+        rt_buffer[i] = *bin_count as f64 / total_n;
+    }
+
+    Ok(())
+}
+
+#[inline]
 fn compute_psi(baseline_hist: &[f64], runtime_hist: &[f64]) -> f64 {
     debug_assert_eq!(runtime_hist.len(), baseline_hist.len());
-    baseline_hist
-        .iter()
-        .zip(runtime_hist)
-        .map(|(baseline, runtime)| {
-            let b = (baseline + *STABILITY_EPS).max(*STABILITY_EPS);
-            let r = (runtime + *STABILITY_EPS).max(*STABILITY_EPS);
-            (b - r) * (b / r).ln()
-        })
-        .sum()
+    let mut psi: f64 = 0_f64;
+    let eps = *STABILITY_EPS;
+    for i in 0..baseline_hist.len() {
+        let mut b = unsafe { *baseline_hist.get_unchecked(i) };
+        b = (b + eps).max(eps);
+        let mut r = unsafe { *runtime_hist.get_unchecked(i) };
+        r = (r + eps).max(eps);
+        psi += (b - r) * (b / r).ln();
+    }
+
+    psi
+}
+
+// break out baseline to have shared logic between the discrete and the streaming variants of PSI
+// allows for more elegant composition of different usage
+struct BaselineContinuousPSI {
+    n_bins: usize,
+    bin_edges: Vec<f64>,
+    baseline_hist: Vec<f64>,
+}
+
+// TODO:
+// move all baseline logic internal to this struct
+impl BaselineContinuousPSI {
+    fn new(n_bins: usize, baseline_data: &[f64]) -> Result<BaselineContinuousPSI, PSIError> {
+        let bin_edges: Vec<f64> = Vec::with_capacity(n_bins + 1);
+        let mut obj = BaselineContinuousPSI {
+            n_bins,
+            bin_edges,
+            baseline_hist: Vec::new(),
+        };
+
+        obj.init_baseline_hist(baseline_data)?;
+        Ok(obj)
+    }
+
+    fn init_baseline_hist(&mut self, baseline_data: &[f64]) -> Result<(), PSIError> {
+        self.define_bins(baseline_data)?;
+        let (bl_count, bl_hist) = self.build_bl_hist(baseline_data);
+        match process_hist(bl_count, &bl_hist) {
+            Ok(processed_bl_hist) => {
+                self.baseline_hist = processed_bl_hist;
+                Ok(())
+            }
+            Err(_) => Err(PSIError::EmptyBaselineData.into()),
+        }
+    }
+
+    fn build_bl_hist(&self, data_slice: &[f64]) -> (usize, Vec<usize>) {
+        let bl_count = data_slice.len();
+        let mut hist = vec![0_usize; self.bin_edges.len() - 1];
+        let n_bins = self.bin_edges.len() - 1;
+        for item in data_slice {
+            let i = self.bin_edges.partition_point(|edge| *item >= *edge);
+            let idx = i.saturating_sub(1).min(n_bins - 1);
+            hist[idx] += 1;
+        }
+
+        (bl_count, hist)
+    }
+
+    fn define_bins(&mut self, data: &[f64]) -> Result<(), PSIError> {
+        let mut sorted_baseline: Vec<f64> = data.to_vec();
+        if sorted_baseline.len() <= 1 {
+            return Err(PSIError::EmptyBaselineData);
+        }
+
+        if sorted_baseline.iter().any(|value| value.is_nan()) {
+            return Err(PSIError::NaNValueError);
+        }
+
+        sorted_baseline.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(Ordering::Equal));
+
+        self.bin_edges.clear();
+
+        // safe unwrap because we know there are items in the array
+        if sorted_baseline.first().unwrap() == sorted_baseline.last().unwrap() {
+            self.bin_edges
+                .extend(vec![sorted_baseline[0], sorted_baseline[0]]);
+            return Ok(());
+        }
+
+        let n_bl_samples = sorted_baseline.len();
+        let n_bins = self.n_bins.min(n_bl_samples - 1).max(1);
+        let bin_size = sorted_baseline.len() / n_bins;
+
+        self.bin_edges.push(sorted_baseline[0]);
+        for i in 1..(n_bins) {
+            let idx = i * bin_size;
+            if idx < n_bl_samples {
+                self.bin_edges.push(sorted_baseline[idx - 1]);
+            }
+        }
+        self.bin_edges.push(sorted_baseline[n_bl_samples - 1]);
+        self.n_bins = n_bins;
+        Ok(())
+    }
+
+    fn reset(&mut self) {
+        todo!()
+    }
 }
 
 #[pyclass]
@@ -90,13 +201,13 @@ pub struct ContinuousPSI {
     bin_edges: Vec<f64>,
     baseline_hist: Vec<f64>,
     rt_bins: Vec<usize>,
+    rt_buffer: Vec<f64>,
     n_bins: usize,
 }
 
 // TODO:
-// 1. preallocate runtime Vec for hist scores and zero out all entries every runtime run
-// 2. Add doc comments
-// 3. add python feature so this can also be used in rust context
+// 1. Add doc comments
+// 2. add python feature so this can also be used in rust context
 
 impl ContinuousPSI {
     fn init_baseline_hist<'py>(
@@ -109,6 +220,7 @@ impl ContinuousPSI {
         match process_hist(bl_count, &bl_hist) {
             Ok(processed_bl_hist) => {
                 self.baseline_hist = processed_bl_hist;
+                self.init_runtime_container();
                 Ok(())
             }
             Err(_) => Err(PSIError::EmptyBaselineData.into()),
@@ -128,10 +240,9 @@ impl ContinuousPSI {
         (bl_count, hist)
     }
 
-    fn clear_rt_hist(&mut self) {
-        for bin in self.rt_bins.iter_mut() {
-            *bin = 0_usize;
-        }
+    fn clear_rt(&mut self) {
+        self.rt_bins.fill(0_usize);
+        self.rt_buffer.fill(0_f64);
     }
 
     fn build_rt_hist(&mut self, data_slice: &[f64]) {
@@ -144,10 +255,9 @@ impl ContinuousPSI {
     }
 
     fn init_runtime_container(&mut self) {
-        let mut rt_bins: Vec<f64> = Vec::with_capacity(self.baseline_hist.len());
-        for _ in 0..self.baseline_hist.len() {
-            rt_bins.push(0_f64)
-        }
+        let len = self.baseline_hist.len();
+        self.rt_bins = vec![0_usize; len];
+        self.rt_buffer = vec![0_f64; len];
     }
 
     fn define_bins<'py>(&mut self, data: &[f64]) -> PyResult<()> {
@@ -201,17 +311,16 @@ impl ContinuousPSI {
             bin_edges,
             baseline_hist: Vec::new(),
             rt_bins: Vec::new(),
+            rt_buffer: Vec::new(),
             n_bins,
         };
         obj.init_baseline_hist(baseline_data)?;
-        obj.init_runtime_container();
         Ok(obj)
     }
 
     fn reset_baseline<'py>(&mut self, baseline_data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
         self.baseline_hist.clear();
         self.init_baseline_hist(baseline_data)?;
-        self.init_runtime_container();
         Ok(())
     }
 
@@ -222,13 +331,13 @@ impl ContinuousPSI {
         let runtime_data_slice = runtime_data.as_slice()?;
         let n = runtime_data_slice.len();
         self.build_rt_hist(&runtime_data_slice);
-        let runtime_hist = match process_hist(n, &self.rt_bins) {
-            Ok(hist) => hist,
-            Err(e) => return Err(e.into()),
-        };
 
-        let psi = compute_psi(&self.baseline_hist, &runtime_hist);
-        self.clear_rt_hist();
+        if let Err(e) = process_hist_in_place(n, &self.rt_bins, &mut self.rt_buffer) {
+            return Err(e.into());
+        }
+
+        let psi = compute_psi(&self.baseline_hist, &self.rt_buffer);
+        self.clear_rt();
         Ok(psi)
     }
 }
