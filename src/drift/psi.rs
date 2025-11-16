@@ -191,18 +191,18 @@ impl BaselineContinuousPSI {
         Ok(())
     }
 
-    fn reset(&mut self) {
-        todo!()
+    // TODO: implement reset baseline logic
+    fn reset(&mut self, baseline_data: &[f64]) -> Result<(), PSIError> {
+        self.init_baseline_hist(baseline_data)?;
+        Ok(())
     }
 }
 
 #[pyclass]
 pub struct ContinuousPSI {
-    bin_edges: Vec<f64>,
-    baseline_hist: Vec<f64>,
+    baseline: BaselineContinuousPSI,
     rt_bins: Vec<usize>,
     rt_buffer: Vec<f64>,
-    n_bins: usize,
 }
 
 // TODO:
@@ -210,91 +210,27 @@ pub struct ContinuousPSI {
 // 2. add python feature so this can also be used in rust context
 
 impl ContinuousPSI {
-    fn init_baseline_hist<'py>(
-        &mut self,
-        baseline_data: PyReadonlyArray1<'py, f64>,
-    ) -> PyResult<()> {
-        let baseline_slice = baseline_data.as_slice()?;
-        self.define_bins(baseline_slice)?;
-        let (bl_count, bl_hist) = self.build_bl_hist(baseline_slice);
-        match process_hist(bl_count, &bl_hist) {
-            Ok(processed_bl_hist) => {
-                self.baseline_hist = processed_bl_hist;
-                self.init_runtime_container();
-                Ok(())
-            }
-            Err(_) => Err(PSIError::EmptyBaselineData.into()),
-        }
-    }
-
-    fn build_bl_hist<'py>(&self, data_slice: &[f64]) -> (usize, Vec<usize>) {
-        let bl_count = data_slice.len();
-        let mut hist = vec![0_usize; self.bin_edges.len() - 1];
-        let n_bins = self.bin_edges.len() - 1;
-        for item in data_slice {
-            let i = self.bin_edges.partition_point(|edge| *item >= *edge);
-            let idx = i.saturating_sub(1).min(n_bins - 1);
-            hist[idx] += 1;
-        }
-
-        (bl_count, hist)
-    }
-
     fn clear_rt(&mut self) {
         self.rt_bins.fill(0_usize);
         self.rt_buffer.fill(0_f64);
     }
 
     fn build_rt_hist(&mut self, data_slice: &[f64]) {
-        let n_bins = self.bin_edges.len() - 1;
+        let n_bins = self.baseline.bin_edges.len() - 1;
         for item in data_slice {
-            let i = self.bin_edges.partition_point(|edge| *item >= *edge);
+            let i = self
+                .baseline
+                .bin_edges
+                .partition_point(|edge| *item >= *edge);
             let idx = i.saturating_sub(1).min(n_bins - 1);
             self.rt_bins[idx] += 1;
         }
     }
 
-    fn init_runtime_container(&mut self) {
-        let len = self.baseline_hist.len();
+    fn init_runtime_containers(&mut self) {
+        let len = self.baseline.baseline_hist.len();
         self.rt_bins = vec![0_usize; len];
         self.rt_buffer = vec![0_f64; len];
-    }
-
-    fn define_bins<'py>(&mut self, data: &[f64]) -> PyResult<()> {
-        let mut sorted_baseline: Vec<f64> = data.to_vec();
-        if sorted_baseline.len() <= 1 {
-            return Err(PyValueError::new_err("Baseline array requires > 1 value"));
-        }
-
-        if sorted_baseline.iter().any(|value| value.is_nan()) {
-            return Err(PSIError::NaNValueError.into());
-        }
-
-        sorted_baseline.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(Ordering::Equal));
-
-        self.bin_edges.clear();
-
-        // safe unwrap because we know there are items in the array
-        if sorted_baseline.first().unwrap() == sorted_baseline.last().unwrap() {
-            self.bin_edges
-                .extend(vec![sorted_baseline[0], sorted_baseline[0]]);
-            return Ok(());
-        }
-
-        let n_bl_samples = sorted_baseline.len();
-        let n_bins = self.n_bins.min(n_bl_samples - 1).max(1);
-        let bin_size = sorted_baseline.len() / n_bins;
-
-        self.bin_edges.push(sorted_baseline[0]);
-        for i in 1..(n_bins) {
-            let idx = i * bin_size;
-            if idx < n_bl_samples {
-                self.bin_edges.push(sorted_baseline[idx - 1]);
-            }
-        }
-        self.bin_edges.push(sorted_baseline[n_bl_samples - 1]);
-        self.n_bins = n_bins;
-        Ok(())
     }
 }
 
@@ -305,22 +241,26 @@ impl ContinuousPSI {
         n_bins: usize,
         baseline_data: PyReadonlyArray1<'py, f64>,
     ) -> PyResult<ContinuousPSI> {
-        let bin_edges: Vec<f64> = Vec::with_capacity(n_bins + 1);
-
+        let bl_slice = baseline_data.as_slice()?;
+        let baseline = match BaselineContinuousPSI::new(n_bins, &bl_slice) {
+            Ok(bl) => bl,
+            Err(e) => return Err(e.into()),
+        };
         let mut obj = ContinuousPSI {
-            bin_edges,
-            baseline_hist: Vec::new(),
+            baseline,
             rt_bins: Vec::new(),
             rt_buffer: Vec::new(),
-            n_bins,
         };
-        obj.init_baseline_hist(baseline_data)?;
+        obj.init_runtime_containers();
         Ok(obj)
     }
 
     fn reset_baseline<'py>(&mut self, baseline_data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
-        self.baseline_hist.clear();
-        self.init_baseline_hist(baseline_data)?;
+        let baseline_slice = baseline_data.as_slice()?;
+        if let Err(e) = self.baseline.reset(baseline_slice) {
+            return Err(e.into());
+        };
+        self.init_runtime_containers();
         Ok(())
     }
 
@@ -336,16 +276,18 @@ impl ContinuousPSI {
             return Err(e.into());
         }
 
-        let psi = compute_psi(&self.baseline_hist, &self.rt_buffer);
+        let psi = compute_psi(&self.baseline.baseline_hist, &self.rt_buffer);
         self.clear_rt();
         Ok(psi)
     }
 }
 
+//TODO: update type to hold BaselineContinuousPSI
 #[pyclass]
 pub struct StreamingContinuousPSI {
-    baseline: ContinuousPSI,
+    baseline: BaselineContinuousPSI,
     stream_bins: Vec<usize>,
+    rt_buffer: Vec<f64>,
     total_stream_size: usize,
     last_flush_ts: i64,
     flush_rate: i64,
@@ -360,9 +302,8 @@ impl StreamingContinuousPSI {
 
     // zero out all bins
     fn flush_runtime_stream(&mut self) {
-        for bin in &mut self.stream_bins {
-            *bin = 0;
-        }
+        self.stream_bins.fill(0_usize);
+        self.rt_buffer.fill(0_f64);
         self.total_stream_size = 0;
     }
 
@@ -383,11 +324,15 @@ impl StreamingContinuousPSI {
     }
 
     #[inline]
-    fn normalize(&self) -> Result<f64, PSIError> {
-        match process_hist(self.total_stream_size, &self.stream_bins) {
-            Ok(snapshot) => Ok(compute_psi(&self.baseline.baseline_hist, &snapshot)),
-            Err(e) => Err(e),
-        }
+    fn normalize(&mut self) -> Result<f64, PSIError> {
+        process_hist_in_place(
+            self.total_stream_size,
+            &self.stream_bins,
+            &mut self.rt_buffer,
+        )?;
+        let psi = compute_psi(&self.baseline.baseline_hist, &self.rt_buffer);
+        self.rt_buffer.fill(0_f64);
+        Ok(psi)
     }
 }
 
@@ -400,14 +345,22 @@ impl StreamingContinuousPSI {
         flush_cadence: Option<i64>,
     ) -> PyResult<StreamingContinuousPSI> {
         let flush_rate = flush_cadence.unwrap_or_else(|| DEFAULT_STREAM_FLUSH);
-        let baseline = ContinuousPSI::new(n_bins, baseline_data)?;
+        let baseline_slice = baseline_data.as_slice()?;
+        let baseline = match BaselineContinuousPSI::new(n_bins, baseline_slice) {
+            Ok(bl) => bl,
+            Err(e) => return Err(e.into()),
+        };
         let total_stream_size = 0_usize;
         let last_flush_ts: i64 = Utc::now().timestamp().into();
-        let stream_bins: Vec<usize> = Vec::new();
+
+        let bl_hist_len = baseline.baseline_hist.len();
+        let stream_bins: Vec<usize> = vec![0_usize; bl_hist_len];
+        let rt_buffer: Vec<f64> = vec![0_f64; bl_hist_len];
 
         Ok(StreamingContinuousPSI {
             stream_bins,
             baseline,
+            rt_buffer,
             total_stream_size,
             last_flush_ts,
             flush_rate,
@@ -415,13 +368,14 @@ impl StreamingContinuousPSI {
     }
 
     fn reset_baseline<'py>(&mut self, baseline_data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
-        self.baseline.reset_baseline(baseline_data)?;
+        if let Err(e) = self.baseline.reset(baseline_data.as_slice()?) {
+            return Err(e.into());
+        };
         Ok(())
     }
 
     fn update_stream<'py>(&mut self, runtime_data: PyReadonlyArray1<'py, f64>) -> PyResult<f64> {
         let runtime_data_slice = runtime_data.as_slice()?;
-
         let curr_ts: i64 = Utc::now().timestamp();
 
         if self.stream_bins.is_empty() {
@@ -485,6 +439,23 @@ fn process_categorical_hist(
         hist_quantiles.insert(key.clone(), *value as f64 / n as f64);
     }
     Ok(hist_quantiles)
+}
+
+#[inline]
+fn process_categorical_hist_in_place(
+    rt_hist: &HashMap<String, usize>,
+    n: usize,
+    rt_buffer: &mut HashMap<String, f64>,
+) -> Result<(), PSIError> {
+    debug_assert!(rt_hist.len() == rt_buffer.len());
+    if rt_hist.is_empty() {
+        return Err(PSIError::EmptyRuntimeData);
+    }
+
+    for (key, value) in rt_hist.iter() {
+        rt_buffer.insert(key.clone(), *value as f64 / n as f64);
+    }
+    Ok(())
 }
 
 #[inline]
