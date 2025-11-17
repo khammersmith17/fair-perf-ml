@@ -60,7 +60,7 @@ impl Into<PyErr> for PSIError {
 }
 
 #[inline]
-fn process_hist(num_items: usize, hist: &[f64]) -> Result<Vec<f64>, PSIError> {
+fn compute_new_hist_prob(num_items: usize, hist: &[f64]) -> Result<Vec<f64>, PSIError> {
     let total_n = num_items as f64;
     if total_n == 0_f64 {
         return Err(PSIError::EmptyRuntimeData);
@@ -78,9 +78,9 @@ fn compute_psi(baseline_hist: &[f64], runtime_bins: &[f64], n: f64) -> f64 {
     let eps = *STABILITY_EPS;
     for i in 0..baseline_hist.len() {
         // cheap clone, unsafe to skip bounds checks
-        let mut b = unsafe { baseline_hist.get_unchecked(i).clone() };
+        let mut b = unsafe { *baseline_hist.get_unchecked(i) };
         b = (b + eps).max(eps);
-        let mut r = unsafe { runtime_bins.get_unchecked(i).clone() };
+        let mut r = unsafe { *runtime_bins.get_unchecked(i) };
         r = r / n;
         r = (r + eps).max(eps);
         psi += (b - r) * (b / r).ln();
@@ -114,7 +114,7 @@ impl BaselineContinuousPSI {
     fn init_baseline_hist(&mut self, baseline_data: &[f64]) -> Result<(), PSIError> {
         self.define_bins(baseline_data)?;
         let (bl_count, bl_hist) = self.build_bl_hist(baseline_data);
-        match process_hist(bl_count, &bl_hist) {
+        match compute_new_hist_prob(bl_count, &bl_hist) {
             Ok(processed_bl_hist) => {
                 self.baseline_hist = processed_bl_hist;
                 Ok(())
@@ -189,7 +189,8 @@ impl BaselineContinuousPSI {
     fn resolve_bin(&self, sample: f64) -> usize {
         // find "pivot" point
         // ie the bin where value >= left and < right
-        self.bin_edges.partition_point(|edge| sample >= *edge)
+        let i = self.bin_edges.partition_point(|edge| sample >= *edge);
+        i.clamp(0, self.n_bins - 1)
     }
 
     // call into init method
@@ -265,6 +266,10 @@ impl ContinuousPSI {
     ) -> PyResult<f64> {
         let runtime_data_slice = runtime_data.as_slice()?;
         let n = runtime_data_slice.len() as f64;
+        if n == 0_f64 {
+            return Err(PSIError::EmptyRuntimeData.into());
+        }
+
         self.build_rt_hist(runtime_data_slice);
 
         let psi = compute_psi(&self.baseline.baseline_hist, &self.rt_bins, n);
@@ -284,12 +289,6 @@ pub struct StreamingContinuousPSI {
 }
 
 impl StreamingContinuousPSI {
-    fn init_runtime_stream(&mut self, runtime_slice: &[f64]) {
-        let (n_bins, stream_bins) = self.baseline.build_bl_hist(&runtime_slice);
-        self.total_stream_size = n_bins;
-        self.stream_bins = stream_bins;
-    }
-
     // zero out all bins
     fn flush_runtime_stream(&mut self) {
         self.stream_bins.fill(0_f64);
@@ -320,6 +319,7 @@ impl StreamingContinuousPSI {
 #[pymethods]
 impl StreamingContinuousPSI {
     #[new]
+    #[pyo3(signature = (n_bins, baseline_data, flush_cadence))]
     fn new<'py>(
         n_bins: usize,
         baseline_data: PyReadonlyArray1<'py, f64>,
@@ -346,31 +346,33 @@ impl StreamingContinuousPSI {
         })
     }
 
+    #[pyo3(signature = (baseline_data))]
     fn reset_baseline<'py>(&mut self, baseline_data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
         if let Err(e) = self.baseline.reset(baseline_data.as_slice()?) {
             return Err(e.into());
         };
+        self.stream_bins = vec![0_f64; self.baseline.baseline_hist.len()];
+        self.total_stream_size = 0;
         Ok(())
     }
 
+    #[pyo3(signature = (runtime_data))]
     fn update_stream<'py>(&mut self, runtime_data: PyReadonlyArray1<'py, f64>) -> PyResult<f64> {
         let runtime_data_slice = runtime_data.as_slice()?;
+        if runtime_data_slice.len() == 0 {
+            return Err(PSIError::EmptyRuntimeData.into());
+        }
+
         let curr_ts: i64 = Utc::now().timestamp();
 
-        if self.stream_bins.is_empty() {
-            // need to init stream
-            self.init_runtime_stream(&runtime_data_slice);
+        if curr_ts > (self.last_flush_ts + self.flush_rate)
+            || (self.total_stream_size + runtime_data_slice.len()) > MAX_STREAM_SIZE
+        {
+            // reset and flush
+            self.flush_runtime_stream();
             self.last_flush_ts = curr_ts;
-        } else {
-            if curr_ts > (self.last_flush_ts + self.flush_rate)
-                || (self.total_stream_size + runtime_data_slice.len()) > MAX_STREAM_SIZE
-            {
-                // reset and flush
-                self.flush_runtime_stream();
-                self.last_flush_ts = curr_ts;
-            }
-            self.update_stream_bins(&runtime_data_slice);
         }
+        self.update_stream_bins(&runtime_data_slice);
 
         match self.normalize() {
             Ok(drift) => Ok(drift),
@@ -539,6 +541,9 @@ impl CategoricalPSI {
     }
 
     fn compute_psi_drift(&mut self, runtime_data: Vec<String>) -> PyResult<f64> {
+        if runtime_data.is_empty() {
+            return Err(PSIError::EmptyRuntimeData.into());
+        }
         let psi = match self.compute_rt(runtime_data) {
             Some(res) => Ok(res),
             None => Err(PSIError::MalformedRuntimeData.into()),
