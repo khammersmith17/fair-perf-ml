@@ -218,10 +218,8 @@ impl ContinuousPSI {
 
     #[inline]
     fn build_rt_hist(&mut self, data_slice: &[f64]) {
-        let n_bins = self.baseline.bin_edges.len() - 1;
         for item in data_slice {
-            let i = self.baseline.resolve_bin(*item);
-            let idx = i.saturating_sub(1).min(n_bins - 1);
+            let idx = self.baseline.resolve_bin(*item);
             self.rt_bins[idx] += 1_f64;
         }
     }
@@ -351,7 +349,7 @@ impl StreamingContinuousPSI {
         Ok(())
     }
 
-    fn update_stream<'py>(&mut self, runtime_slice: &[f64]) -> Result<f64, PSIError> {
+    fn update_stream(&mut self, runtime_slice: &[f64]) -> Result<f64, PSIError> {
         if runtime_slice.len() == 0 {
             return Err(PSIError::EmptyRuntimeData);
         }
@@ -367,10 +365,7 @@ impl StreamingContinuousPSI {
         }
         self.update_stream_bins(runtime_slice);
 
-        match self.normalize() {
-            Ok(drift) => Ok(drift),
-            Err(e) => Err(e.into()),
-        }
+        Ok(self.normalize()?)
     }
 
     fn flush(&mut self) {
