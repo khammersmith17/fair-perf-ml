@@ -9,10 +9,10 @@ from typing import Tuple, Union, List, Iterable, Any
 import numpy as np
 from numpy.typing import NDArray
 from ._fair_perf_ml import (
-    StreamingContinuousPSI,
-    ContinuousPSI,
-    StreamingCategoricalPSI,
-    CategoricalPSI,
+    PyStreamingContinuousPSI as StreamingContinuousPSI,
+    PyContinuousPSI as ContinuousPSI,
+    PyStreamingCategoricalPSI as StreamingCategoricalPSI,
+    PyCategoricalPSI as CategoricalPSI,
 )
 
 

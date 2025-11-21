@@ -1,6 +1,25 @@
 use super::data_bias::DataBiasMetrics;
 use super::model_bias::ModelBiasMetrics;
 use std::collections::HashMap;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum DataBiasRuntimeError {
+    #[error("ClassImbalance not present")]
+    ClassImbalance,
+    #[error("DifferenceInProportionOfLabels not present")]
+    DifferenceInProportionOfLabels,
+    #[error("KlDivergence not present")]
+    KlDivergence,
+    #[error("JsDivergence not present")]
+    JsDivergence,
+    #[error("TotalVariationDistance not present")]
+    TotalVariationDistance,
+    #[error("KolmorogvSmirnov not present")]
+    KolmorogvSmirnov,
+    #[error("LpNorm not present")]
+    LpNorm,
+}
 
 pub struct DataBiasRuntime {
     ci: f32,
@@ -13,35 +32,35 @@ pub struct DataBiasRuntime {
 }
 
 impl TryFrom<HashMap<String, f32>> for DataBiasRuntime {
-    type Error = String;
+    type Error = DataBiasRuntimeError;
     fn try_from(data: HashMap<String, f32>) -> Result<Self, Self::Error> {
         let ci = match data.get("ClassImbalance") {
             Some(val) => *val,
-            None => return Err("ClassImbalance not present".to_string()),
+            None => return Err(DataBiasRuntimeError::ClassImbalance),
         };
         let dpl = match data.get("DifferenceInProportionOfLabels") {
             Some(val) => *val,
-            None => return Err("DifferenceInProportionOfLabels not present".to_string()),
+            None => return Err(DataBiasRuntimeError::DifferenceInProportionOfLabels),
         };
         let kl = match data.get("KlDivergence") {
             Some(val) => *val,
-            None => return Err("KlDivergence not present".to_string()),
+            None => return Err(DataBiasRuntimeError::KlDivergence),
         };
         let js = match data.get("JsDivergence") {
             Some(val) => *val,
-            None => return Err("JsDivergence not present".to_string()),
+            None => return Err(DataBiasRuntimeError::JsDivergence),
         };
         let lpnorm = match data.get("LpNorm") {
             Some(val) => *val,
-            None => return Err("LpNorm not present".to_string()),
+            None => return Err(DataBiasRuntimeError::LpNorm),
         };
         let tvd = match data.get("TotalVarationDistance") {
             Some(val) => *val,
-            None => return Err("TotalVariationDifference not present".to_string()),
+            None => return Err(DataBiasRuntimeError::TotalVariationDistance),
         };
         let ks = match data.get("KolmorogvSmirnov") {
             Some(val) => *val,
-            None => return Err("KolmogorvSmirnov is not present".to_string()),
+            None => return Err(DataBiasRuntimeError::KolmorogvSmirnov),
         };
 
         Ok(DataBiasRuntime {
@@ -134,6 +153,34 @@ impl DataBiasRuntime {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum ModelBiasRuntimeError {
+    #[error("DifferenceInPositivePredictedLabels not present")]
+    DifferenceInPositivePredictedLabels,
+    #[error("DisparateImpact not present")]
+    DisparateImpact,
+    #[error("AccuracyDifference not present")]
+    AccuracyDifference,
+    #[error("RecallDifference not present")]
+    RecallDifference,
+    #[error("DifferenceInConditionalAcceptance not present")]
+    DifferenceInConditionalAcceptance,
+    #[error("DifferenceInAcceptanceRate not present")]
+    DifferenceInAcceptanceRate,
+    #[error("SpecialityDifference not present")]
+    SpecialityDifference,
+    #[error("DifferenceInConditionalRejection not present")]
+    DifferenceInConditionalRejection,
+    #[error("TreatmentEquity not present")]
+    TreatmentEquity,
+    #[error("ConditionalDemographicDesparityPredictedLabels not present")]
+    ConditionalDemographicDesparityPredictedLabels,
+    #[error("DifferenceInRejectionRate not present")]
+    DifferenceInRejectionRate,
+    #[error("GeneralizedEntropy not present")]
+    GeneralizedEntropy,
+}
+
 pub struct ModelBiasRuntime {
     ddpl: f32,
     di: f32,
@@ -150,59 +197,57 @@ pub struct ModelBiasRuntime {
 }
 
 impl TryFrom<HashMap<String, f32>> for ModelBiasRuntime {
-    type Error = String;
+    type Error = ModelBiasRuntimeError;
     fn try_from(data: HashMap<String, f32>) -> Result<Self, Self::Error> {
         let ddpl = match data.get("DifferenceInPositivePredictedLabels") {
             Some(val) => *val,
-            None => return Err("DifferenceInPositivePredictedLabels is not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::DifferenceInPositivePredictedLabels),
         };
         let di = match data.get("DisparateImpact") {
             Some(val) => *val,
-            None => return Err("DisparateImpact is not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::DisparateImpact),
         };
         let ad = match data.get("AccuracyDifference") {
             Some(val) => *val,
-            None => return Err("AccuracyDifference is not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::AccuracyDifference),
         };
         let rd = match data.get("RecallDifference") {
             Some(val) => *val,
-            None => return Err("RecallDifference is not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::RecallDifference),
         };
         let cdacc = match data.get("DifferenceInConditionalAcceptance") {
             Some(val) => *val,
-            None => return Err("DifferenceInConditionalAcceptance is not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::DifferenceInConditionalAcceptance),
         };
         let dar = match data.get("DifferenceInAcceptanceRate") {
             Some(val) => *val,
-            None => return Err("DifferenceInAcceptanceRates is not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::DifferenceInAcceptanceRate),
         };
         let sd = match data.get("SpecialityDifference") {
             Some(val) => *val,
-            None => return Err("SpecialityDifference not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::SpecialityDifference),
         };
         let dcr = match data.get("DifferenceInConditionalRejection") {
             Some(val) => *val,
-            None => return Err("DifferenceInConditionalRejection not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::DifferenceInConditionalRejection),
         };
         let drr = match data.get("DifferenceInRejectionRate") {
             Some(val) => *val,
-            None => return Err("DifferenceInRejectionRate is not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::DifferenceInRejectionRate),
         };
         let te = match data.get("TreatmentEquity") {
             Some(val) => *val,
-            None => return Err("TreatmentEquity is not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::TreatmentEquity),
         };
         let ccdpl = match data.get("ConditionalDemographicDesparityPredictedLabels") {
             Some(val) => *val,
             None => {
-                return Err(
-                    "ConditionalDemographicDesparityPredictedLabels is not present".to_string(),
-                )
+                return Err(ModelBiasRuntimeError::ConditionalDemographicDesparityPredictedLabels)
             }
         };
         let ge = match data.get("GeneralizedEntropy") {
             Some(val) => *val,
-            None => return Err("GeneralizedEntropy is not present".to_string()),
+            None => return Err(ModelBiasRuntimeError::GeneralizedEntropy),
         };
         Ok(ModelBiasRuntime {
             ddpl,

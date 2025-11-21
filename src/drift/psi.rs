@@ -8,12 +8,14 @@ use pyo3::{
     pyclass, pymethods,
 };
 use std::cmp::Ordering;
+use std::hash::Hash;
 use thiserror::Error;
 use uuid::Uuid;
 
 const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
 const MAX_STREAM_SIZE: usize = 1_000_000;
 // read in from user defined env var or set to default epsilon
+// optional user config
 const STABILITY_EPS: Lazy<f64> = Lazy::new(|| {
     let default = 1e-12;
     let Ok(var) = std::env::var("FAIR_PERF_STABILITY_EPS") else {
@@ -23,16 +25,6 @@ const STABILITY_EPS: Lazy<f64> = Lazy::new(|| {
     var.parse::<f64>().unwrap_or_else(|_| default)
 });
 
-/*
-* Streaming PSI API
-* trait bounds are not compatible with #[pymethods]
-* 1. new
-* 2. reset baseline stream
-* 3. update stream
-* 4. flush
-* 5. total stream size
-* 6. last flush
-* */
 #[derive(Debug, Error)]
 pub enum PSIError {
     #[error("Data used for runtime drift analysis must be non empty")]
@@ -190,7 +182,7 @@ impl BaselineContinuousPSI {
         // find "pivot" point
         // ie the bin where value >= left and < right
         let i = self.bin_edges.partition_point(|edge| sample >= *edge);
-        i.clamp(0, self.n_bins - 1)
+        i.saturating_sub(1).clamp(0, self.n_bins - 1)
     }
 
     // call into init method
@@ -200,7 +192,6 @@ impl BaselineContinuousPSI {
     }
 }
 
-#[pyclass]
 pub struct ContinuousPSI {
     baseline: BaselineContinuousPSI,
     rt_bins: Vec<f64>,
@@ -210,7 +201,17 @@ pub struct ContinuousPSI {
 // 1. Add doc comments
 // 2. add python feature so this can also be used in rust context
 
+// Impl block defines the core logic of the type
 impl ContinuousPSI {
+    pub fn new_from_baseline(n_bins: usize, bl_slice: &[f64]) -> Result<ContinuousPSI, PSIError> {
+        let baseline = BaselineContinuousPSI::new(n_bins, &bl_slice)?;
+        let mut obj = ContinuousPSI {
+            baseline,
+            rt_bins: Vec::new(),
+        };
+        obj.init_runtime_containers();
+        Ok(obj)
+    }
     fn clear_rt(&mut self) {
         self.rt_bins.fill(0_f64);
     }
@@ -229,34 +230,62 @@ impl ContinuousPSI {
         let len = self.baseline.baseline_hist.len();
         self.rt_bins = vec![0_f64; len];
     }
-}
 
-#[pymethods]
-impl ContinuousPSI {
-    #[new]
-    pub fn new<'py>(
-        n_bins: usize,
-        baseline_data: PyReadonlyArray1<'py, f64>,
-    ) -> PyResult<ContinuousPSI> {
-        let bl_slice = baseline_data.as_slice()?;
-        let baseline = match BaselineContinuousPSI::new(n_bins, &bl_slice) {
-            Ok(bl) => bl,
-            Err(e) => return Err(e.into()),
-        };
-        let mut obj = ContinuousPSI {
-            baseline,
-            rt_bins: Vec::new(),
-        };
-        obj.init_runtime_containers();
-        Ok(obj)
-    }
-
-    fn reset_baseline<'py>(&mut self, baseline_data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
-        let baseline_slice = baseline_data.as_slice()?;
+    fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), PSIError> {
         if let Err(e) = self.baseline.reset(baseline_slice) {
             return Err(e.into());
         };
         self.init_runtime_containers();
+        Ok(())
+    }
+
+    fn compute_psi_drift(&mut self, runtime_slice: &[f64]) -> PyResult<f64> {
+        let n = runtime_slice.len() as f64;
+        if n == 0_f64 {
+            return Err(PSIError::EmptyRuntimeData.into());
+        }
+
+        self.build_rt_hist(runtime_slice);
+
+        let psi = compute_psi(&self.baseline.baseline_hist, &self.rt_bins, n);
+        // reset runtime state after every discrete computation
+        self.clear_rt();
+        Ok(psi)
+    }
+
+    fn n_bins(&self) -> usize {
+        self.baseline.n_bins
+    }
+}
+
+#[pyclass]
+struct PyContinuousPSI {
+    inner: ContinuousPSI,
+}
+
+// exposes python APIs to the python type
+// encapsulates all rust logic
+#[pymethods]
+impl PyContinuousPSI {
+    #[new]
+    pub fn new<'py>(
+        n_bins: usize,
+        baseline_data: PyReadonlyArray1<'py, f64>,
+    ) -> PyResult<PyContinuousPSI> {
+        let bl_slice = baseline_data.as_slice()?;
+        let inner = match ContinuousPSI::new_from_baseline(n_bins, bl_slice) {
+            Ok(psi) => psi,
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(Self { inner })
+    }
+
+    fn reset_baseline<'py>(&mut self, baseline_data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
+        let bl_slice = baseline_data.as_slice()?;
+        if let Err(e) = self.inner.reset_baseline(bl_slice) {
+            return Err(e.into());
+        }
         Ok(())
     }
 
@@ -265,21 +294,19 @@ impl ContinuousPSI {
         runtime_data: PyReadonlyArray1<'py, f64>,
     ) -> PyResult<f64> {
         let runtime_data_slice = runtime_data.as_slice()?;
-        let n = runtime_data_slice.len() as f64;
-        if n == 0_f64 {
-            return Err(PSIError::EmptyRuntimeData.into());
-        }
+        let drift = match self.inner.compute_psi_drift(runtime_data_slice) {
+            Ok(psi_drift) => psi_drift,
+            Err(e) => return Err(e.into()),
+        };
+        Ok(drift)
+    }
 
-        self.build_rt_hist(runtime_data_slice);
-
-        let psi = compute_psi(&self.baseline.baseline_hist, &self.rt_bins, n);
-        // reset runtime state after every discrete computation
-        self.clear_rt();
-        Ok(psi)
+    #[getter]
+    fn num_bins(&self) -> usize {
+        self.inner.n_bins()
     }
 }
 
-#[pyclass]
 pub struct StreamingContinuousPSI {
     baseline: BaselineContinuousPSI,
     stream_bins: Vec<f64>,
@@ -289,6 +316,92 @@ pub struct StreamingContinuousPSI {
 }
 
 impl StreamingContinuousPSI {
+    fn new(
+        n_bins: usize,
+        baseline_slice: &[f64],
+        flush_cadence: Option<i64>,
+    ) -> Result<StreamingContinuousPSI, PSIError> {
+        let flush_rate = flush_cadence.unwrap_or_else(|| DEFAULT_STREAM_FLUSH);
+        let baseline = match BaselineContinuousPSI::new(n_bins, baseline_slice) {
+            Ok(bl) => bl,
+            Err(e) => return Err(e.into()),
+        };
+        let total_stream_size = 0_usize;
+        let last_flush_ts: i64 = Utc::now().timestamp().into();
+
+        let bl_hist_len = baseline.baseline_hist.len();
+        let stream_bins: Vec<f64> = vec![0_f64; bl_hist_len];
+
+        Ok(StreamingContinuousPSI {
+            stream_bins,
+            baseline,
+            total_stream_size,
+            last_flush_ts,
+            flush_rate,
+        })
+    }
+
+    fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), PSIError> {
+        if let Err(e) = self.baseline.reset(baseline_slice) {
+            return Err(e.into());
+        };
+        self.stream_bins = vec![0_f64; self.baseline.baseline_hist.len()];
+        self.total_stream_size = 0;
+        self.last_flush_ts = Utc::now().timestamp();
+        Ok(())
+    }
+
+    fn update_stream<'py>(&mut self, runtime_slice: &[f64]) -> Result<f64, PSIError> {
+        if runtime_slice.len() == 0 {
+            return Err(PSIError::EmptyRuntimeData);
+        }
+
+        let curr_ts: i64 = Utc::now().timestamp();
+
+        if curr_ts > (self.last_flush_ts + self.flush_rate)
+            || (self.total_stream_size + runtime_slice.len()) > MAX_STREAM_SIZE
+        {
+            // reset and flush
+            self.flush_runtime_stream();
+            self.last_flush_ts = curr_ts;
+        }
+        self.update_stream_bins(runtime_slice);
+
+        match self.normalize() {
+            Ok(drift) => Ok(drift),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn flush(&mut self) {
+        self.flush_runtime_stream();
+        self.last_flush_ts = Utc::now().timestamp();
+    }
+
+    fn total_samples(&self) -> usize {
+        self.total_stream_size
+    }
+
+    fn last_flush(&self) -> PyResult<DateTime<Utc>> {
+        let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
+            return Err(PSIError::DateTimeError.into());
+        };
+        Ok(ts)
+    }
+
+    fn n_bins(&self) -> usize {
+        self.baseline.n_bins
+    }
+
+    fn export_snapshot(&self) -> HashMap<String, Vec<f64>> {
+        // determine snapshot shape
+        let mut table: HashMap<String, Vec<f64>> = HashMap::with_capacity(3);
+        table.insert("binEdges".into(), self.baseline.bin_edges.clone());
+        table.insert("baselineBins".into(), self.baseline.baseline_hist.clone());
+        table.insert("streamBins".into(), self.stream_bins.clone());
+        table
+    }
+
     // zero out all bins
     fn flush_runtime_stream(&mut self) {
         self.stream_bins.fill(0_f64);
@@ -316,86 +429,73 @@ impl StreamingContinuousPSI {
     }
 }
 
+#[pyclass]
+struct PyStreamingContinuousPSI {
+    inner: StreamingContinuousPSI,
+}
+
 #[pymethods]
-impl StreamingContinuousPSI {
+impl PyStreamingContinuousPSI {
     #[new]
     #[pyo3(signature = (n_bins, baseline_data, flush_cadence))]
     fn new<'py>(
         n_bins: usize,
         baseline_data: PyReadonlyArray1<'py, f64>,
         flush_cadence: Option<i64>,
-    ) -> PyResult<StreamingContinuousPSI> {
-        let flush_rate = flush_cadence.unwrap_or_else(|| DEFAULT_STREAM_FLUSH);
+    ) -> PyResult<PyStreamingContinuousPSI> {
         let baseline_slice = baseline_data.as_slice()?;
-        let baseline = match BaselineContinuousPSI::new(n_bins, baseline_slice) {
-            Ok(bl) => bl,
+        let inner = match StreamingContinuousPSI::new(n_bins, baseline_slice, flush_cadence) {
+            Ok(psi) => psi,
             Err(e) => return Err(e.into()),
         };
-        let total_stream_size = 0_usize;
-        let last_flush_ts: i64 = Utc::now().timestamp().into();
 
-        let bl_hist_len = baseline.baseline_hist.len();
-        let stream_bins: Vec<f64> = vec![0_f64; bl_hist_len];
-
-        Ok(StreamingContinuousPSI {
-            stream_bins,
-            baseline,
-            total_stream_size,
-            last_flush_ts,
-            flush_rate,
-        })
+        Ok(Self { inner })
     }
 
     #[pyo3(signature = (baseline_data))]
     fn reset_baseline<'py>(&mut self, baseline_data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
-        if let Err(e) = self.baseline.reset(baseline_data.as_slice()?) {
+        let baseline_slice = baseline_data.as_slice()?;
+        if let Err(e) = self.inner.reset_baseline(baseline_slice) {
             return Err(e.into());
         };
-        self.stream_bins = vec![0_f64; self.baseline.baseline_hist.len()];
-        self.total_stream_size = 0;
+
         Ok(())
     }
 
     #[pyo3(signature = (runtime_data))]
     fn update_stream<'py>(&mut self, runtime_data: PyReadonlyArray1<'py, f64>) -> PyResult<f64> {
         let runtime_data_slice = runtime_data.as_slice()?;
-        if runtime_data_slice.len() == 0 {
-            return Err(PSIError::EmptyRuntimeData.into());
-        }
-
-        let curr_ts: i64 = Utc::now().timestamp();
-
-        if curr_ts > (self.last_flush_ts + self.flush_rate)
-            || (self.total_stream_size + runtime_data_slice.len()) > MAX_STREAM_SIZE
-        {
-            // reset and flush
-            self.flush_runtime_stream();
-            self.last_flush_ts = curr_ts;
-        }
-        self.update_stream_bins(&runtime_data_slice);
-
-        match self.normalize() {
+        match self.inner.update_stream(runtime_data_slice) {
             Ok(drift) => Ok(drift),
             Err(e) => Err(e.into()),
         }
     }
 
     fn flush(&mut self) {
-        self.flush_runtime_stream();
-        self.last_flush_ts = Utc::now().timestamp();
+        self.inner.flush();
     }
 
     #[getter]
     fn total_samples(&self) -> usize {
-        self.total_stream_size
+        self.inner.total_samples()
     }
 
     #[getter]
     fn last_flush(&self) -> PyResult<DateTime<Utc>> {
-        let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
+        let Ok(ts) = self.inner.last_flush() else {
             return Err(PSIError::DateTimeError.into());
         };
         Ok(ts)
+    }
+
+    #[getter]
+    fn n_bins(&self) -> usize {
+        self.inner.n_bins()
+    }
+
+    fn export_snapshot(&self) -> HashMap<String, Vec<f64>> {
+        // determine snapshot shape
+        self.inner.export_snapshot()
     }
 }
 
@@ -415,9 +515,6 @@ const OTHER_LABEL: Lazy<String> = Lazy::new(|| {
     var
 });
 
-//TODO:
-//create an error type to distinguish between malformed bins and no runtime data in stream
-
 // store bins as vec for better performance on psi computation and bin accumulation
 // store cat label to index in map
 struct BaselineCategoricalPSI {
@@ -426,17 +523,20 @@ struct BaselineCategoricalPSI {
 }
 
 impl BaselineCategoricalPSI {
-    fn new(baseline_data: Vec<String>) -> BaselineCategoricalPSI {
+    fn new<S>(baseline_data: &[S]) -> BaselineCategoricalPSI
+    where
+        S: AsRef<str> + Eq + Hash + ToString,
+    {
         let n = baseline_data.len() as f64;
 
         let predicted_capacity = compute_expected_categorical_bins(n);
         let mut initial_bins: HashMap<String, f64> = HashMap::with_capacity(predicted_capacity);
 
-        for cat in baseline_data.into_iter() {
-            if let Some(count) = initial_bins.get_mut(&cat) {
+        for cat in baseline_data.iter() {
+            if let Some(count) = initial_bins.get_mut(cat.as_ref()) {
                 *count += 1_f64;
             } else {
-                initial_bins.insert(cat.clone(), 1_f64);
+                initial_bins.insert(cat.to_string(), 1_f64);
             }
         }
         initial_bins.insert(OTHER_LABEL.clone(), 0_f64);
@@ -457,18 +557,28 @@ impl BaselineCategoricalPSI {
         }
     }
 
-    fn reset(&mut self, baseline_data: Vec<String>) {
+    fn export_baseline(&self) -> HashMap<String, f64> {
+        self.idx_map
+            .iter()
+            .map(|(feat_name, i)| (feat_name.clone(), self.baseline_bins[*i]))
+            .collect()
+    }
+
+    fn reset<S>(&mut self, baseline_data: &[S])
+    where
+        S: AsRef<str> + Eq + Hash + ToString,
+    {
         let n = baseline_data.len() as f64;
         let new_predicted_capacity = compute_expected_categorical_bins(n);
 
         self.idx_map.clear();
 
         let mut initial_bins: HashMap<String, f64> = HashMap::with_capacity(new_predicted_capacity);
-        for cat in baseline_data.into_iter() {
-            if let Some(count) = initial_bins.get_mut(&cat) {
+        for cat in baseline_data.iter() {
+            if let Some(count) = initial_bins.get_mut(cat.as_ref()) {
                 *count += 1_f64;
             } else {
-                initial_bins.insert(cat.clone(), 1_f64);
+                initial_bins.insert(cat.to_string(), 1_f64);
             }
         }
         initial_bins.insert(OTHER_LABEL.clone(), 0_f64);
@@ -488,22 +598,39 @@ impl BaselineCategoricalPSI {
     }
 }
 
-#[pyclass]
 pub struct CategoricalPSI {
     baseline: BaselineCategoricalPSI,
     rt_bins: Vec<f64>,
 }
 
 impl CategoricalPSI {
-    fn compute_rt(&mut self, runtime_data: Vec<String>) -> Option<f64> {
+    pub fn new<S>(baseline_data: &[S]) -> Result<CategoricalPSI, PSIError>
+    where
+        S: AsRef<str> + Eq + Hash + ToString,
+    {
+        if baseline_data.is_empty() {
+            return Err(PSIError::EmptyBaselineData);
+        }
+
+        let baseline = BaselineCategoricalPSI::new(baseline_data);
+        let num_bins = baseline.baseline_bins.len();
+        let rt_bins: Vec<f64> = vec![0_f64; num_bins];
+
+        Ok(CategoricalPSI { baseline, rt_bins })
+    }
+
+    fn compute_rt<S>(&mut self, runtime_data: &[S]) -> Option<f64>
+    where
+        S: AsRef<str> + Eq + Hash,
+    {
         let n = runtime_data.len() as f64;
 
         let other_idx = self.baseline.idx_map[OTHER_LABEL.as_str()];
-        for cat in runtime_data.into_iter() {
+        for cat in runtime_data.iter() {
             let i = *self
                 .baseline
                 .idx_map
-                .get(&cat)
+                .get(cat.as_ref())
                 .unwrap_or_else(|| &other_idx);
 
             self.rt_bins[i] += 1_f64;
@@ -515,32 +642,21 @@ impl CategoricalPSI {
     fn clear_rt(&mut self) {
         self.rt_bins.fill(0_f64);
     }
-}
-
-#[pymethods]
-impl CategoricalPSI {
-    #[new]
-    fn new(baseline_data: Vec<String>) -> PyResult<CategoricalPSI> {
-        if baseline_data.is_empty() {
-            return Err(PyValueError::new_err("Baseline data must be non empty"));
-        }
-
-        let baseline = BaselineCategoricalPSI::new(baseline_data);
-        let num_bins = baseline.baseline_bins.len();
-        let rt_bins: Vec<f64> = vec![0_f64; num_bins];
-
-        Ok(CategoricalPSI { baseline, rt_bins })
-    }
 
     fn reset_baseline(&mut self, new_baseline: Vec<String>) {
-        self.baseline.reset(new_baseline);
+        self.baseline.reset(&new_baseline);
         let num_bins = self.baseline.baseline_bins.len();
 
         // pay the cost to reallocate bins in order to have correct size
+        // not common path
         self.rt_bins = vec![0_f64; num_bins];
     }
 
-    fn compute_psi_drift(&mut self, runtime_data: Vec<String>) -> PyResult<f64> {
+    pub fn compute_psi_drift<S>(&mut self, runtime_data: &[S]) -> Result<f64, PSIError>
+    where
+        S: AsRef<str> + Eq + Hash + ToString,
+    {
+        // will not compute on empty data
         if runtime_data.is_empty() {
             return Err(PSIError::EmptyRuntimeData.into());
         }
@@ -553,13 +669,56 @@ impl CategoricalPSI {
         psi
     }
 
-    #[getter]
-    fn other_bucket_label(&self) -> String {
+    pub fn other_bucket_label(&self) -> String {
         OTHER_LABEL.clone()
+    }
+
+    pub fn export_baseline(&self) -> HashMap<String, f64> {
+        self.baseline.export_baseline()
     }
 }
 
 #[pyclass]
+struct PyCategoricalPSI {
+    inner: CategoricalPSI,
+}
+
+#[pymethods]
+impl PyCategoricalPSI {
+    #[new]
+    #[pyo3(signature = (baseline_data))]
+    fn new(baseline_data: Vec<String>) -> PyResult<PyCategoricalPSI> {
+        let inner = match CategoricalPSI::new(&baseline_data) {
+            Ok(psi) => psi,
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(Self { inner })
+    }
+
+    #[pyo3(signature = (new_baseline))]
+    fn reset_baseline(&mut self, new_baseline: Vec<String>) {
+        self.inner.reset_baseline(new_baseline);
+    }
+
+    #[pyo3(signature = (runtime_data))]
+    fn compute_psi_drift(&mut self, runtime_data: Vec<String>) -> PyResult<f64> {
+        match self.inner.compute_psi_drift(&runtime_data) {
+            Ok(psi) => Ok(psi),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    #[getter]
+    fn other_bucket_label(&self) -> String {
+        OTHER_LABEL.clone()
+    }
+
+    fn export_baseline(&self) -> HashMap<String, f64> {
+        self.inner.baseline.export_baseline()
+    }
+}
+
 pub struct StreamingCategoricalPSI {
     baseline: BaselineCategoricalPSI,
     stream_bins: Vec<f64>,
@@ -569,43 +728,13 @@ pub struct StreamingCategoricalPSI {
 }
 
 impl StreamingCategoricalPSI {
-    fn init_stream_bins(&mut self) {
-        self.stream_bins = vec![0_f64; self.baseline.baseline_bins.len()]
-    }
-
-    fn flush_runtime_stream(&mut self) {
-        self.stream_bins.fill(0_f64);
-        self.total_stream_size = 0;
-    }
-
-    fn update_stream_bins(&mut self, runtime_data: Vec<String>) {
-        let n = runtime_data.len();
-        let other_idx = self.baseline.idx_map[OTHER_LABEL.as_str()];
-        for cat in runtime_data.into_iter() {
-            let idx = *self
-                .baseline
-                .idx_map
-                .get(&cat)
-                .unwrap_or_else(|| &other_idx);
-            self.stream_bins[idx] += 1_f64;
-        }
-
-        self.total_stream_size += n;
-    }
-
-    fn normalize(&self) -> f64 {
-        self.baseline
-            .normalize(&self.stream_bins, self.total_stream_size as f64)
-    }
-}
-
-#[pymethods]
-impl StreamingCategoricalPSI {
-    #[new]
-    fn new(
-        baseline_data: Vec<String>,
+    pub fn new<S>(
+        baseline_data: &[S],
         user_flush_rate: Option<i64>,
-    ) -> PyResult<StreamingCategoricalPSI> {
+    ) -> Result<StreamingCategoricalPSI, PSIError>
+    where
+        S: AsRef<str> + Eq + Hash + ToString,
+    {
         let baseline = BaselineCategoricalPSI::new(baseline_data);
         let flush_rate = user_flush_rate.unwrap_or_else(|| DEFAULT_STREAM_FLUSH);
         let n_bins = baseline.baseline_bins.len();
@@ -623,12 +752,18 @@ impl StreamingCategoricalPSI {
         Ok(obj)
     }
 
-    fn reset_baseline(&mut self, new_baseline: Vec<String>) {
+    pub fn reset_baseline<S>(&mut self, new_baseline: &[S])
+    where
+        S: AsRef<str> + Eq + Hash + ToString,
+    {
         self.baseline.reset(new_baseline);
         self.init_stream_bins();
     }
 
-    fn update_stream(&mut self, runtime_data: Vec<String>) -> f64 {
+    pub fn update_stream<S>(&mut self, runtime_data: &[S]) -> f64
+    where
+        S: AsRef<str> + Eq + Hash + ToString,
+    {
         let curr_ts: i64 = Utc::now().timestamp();
 
         if curr_ts > (self.last_flush_ts + self.flush_rate)
@@ -643,19 +778,113 @@ impl StreamingCategoricalPSI {
         self.normalize()
     }
 
-    fn flush(&mut self) {
+    pub fn flush(&mut self) {
         self.flush_runtime_stream();
         self.last_flush_ts = Utc::now().timestamp();
     }
 
+    pub fn total_samples(&self) -> usize {
+        self.total_stream_size
+    }
+
+    pub fn last_flush(&self) -> PyResult<DateTime<Utc>> {
+        let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
+            return Err(PSIError::DateTimeError.into());
+        };
+        Ok(ts)
+    }
+
+    pub fn other_bucket_label(&self) -> String {
+        OTHER_LABEL.clone()
+    }
+
+    pub fn export_snapshot(&self) -> HashMap<String, f64> {
+        self.baseline
+            .idx_map
+            .iter()
+            .map(|(feat_name, i)| (feat_name.clone(), self.stream_bins[*i]))
+            .collect()
+    }
+
+    pub fn export_baseline(&self) -> HashMap<String, f64> {
+        self.baseline.export_baseline()
+    }
+
+    fn init_stream_bins(&mut self) {
+        self.stream_bins = vec![0_f64; self.baseline.baseline_bins.len()]
+    }
+
+    pub fn flush_runtime_stream(&mut self) {
+        self.stream_bins.fill(0_f64);
+        self.total_stream_size = 0;
+    }
+
+    fn update_stream_bins<S>(&mut self, runtime_data: &[S])
+    where
+        S: AsRef<str> + Eq + Hash + ToString,
+    {
+        let n = runtime_data.len();
+        let other_idx = self.baseline.idx_map[OTHER_LABEL.as_str()];
+        for cat in runtime_data.into_iter() {
+            let idx = *self
+                .baseline
+                .idx_map
+                .get(cat.as_ref())
+                .unwrap_or_else(|| &other_idx);
+            self.stream_bins[idx] += 1_f64;
+        }
+
+        self.total_stream_size += n;
+    }
+
+    fn normalize(&self) -> f64 {
+        self.baseline
+            .normalize(&self.stream_bins, self.total_stream_size as f64)
+    }
+}
+
+#[pyclass]
+struct PyStreamingCategoricalPSI {
+    inner: StreamingCategoricalPSI,
+}
+
+#[pymethods]
+impl PyStreamingCategoricalPSI {
+    #[new]
+    fn new(
+        baseline_data: Vec<String>,
+        flush_rate: Option<i64>,
+    ) -> PyResult<PyStreamingCategoricalPSI> {
+        let inner = match StreamingCategoricalPSI::new(&baseline_data, flush_rate) {
+            Ok(psi) => psi,
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(Self { inner })
+    }
+
+    #[pyo3(signature = (new_baseline))]
+    fn reset_baseline(&mut self, new_baseline: Vec<String>) {
+        self.inner.reset_baseline(&new_baseline);
+    }
+
+    #[pyo3(signature = (runtime_data))]
+    fn update_stream(&mut self, runtime_data: Vec<String>) -> f64 {
+        self.inner.update_stream(&runtime_data)
+    }
+
+    fn flush(&mut self) {
+        self.inner.flush()
+    }
+
     #[getter]
     fn total_samples(&self) -> usize {
-        self.total_stream_size
+        self.inner.total_samples()
     }
 
     #[getter]
     fn last_flush(&self) -> PyResult<DateTime<Utc>> {
-        let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
+        let Ok(ts) = self.inner.last_flush() else {
             return Err(PSIError::DateTimeError.into());
         };
         Ok(ts)
@@ -665,4 +894,21 @@ impl StreamingCategoricalPSI {
     fn other_bucket_label(&self) -> String {
         OTHER_LABEL.clone()
     }
+
+    fn export_snapshot(&self) -> HashMap<String, f64> {
+        self.inner.export_snapshot()
+    }
+
+    fn export_baseline(&self) -> HashMap<String, f64> {
+        self.inner.export_baseline()
+    }
+}
+
+#[cfg(test)]
+mod continuous_test {
+    use super::*;
+    use numpy::{PyArray, PyArrayMethods, PyReadonlyArray1, PyReadwriteArray};
+
+    #[test]
+    fn baseline_bin_generation() {}
 }
