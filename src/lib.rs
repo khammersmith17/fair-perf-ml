@@ -1,28 +1,62 @@
 use numpy::PyUntypedArray;
-use pyo3::exceptions::{PySystemError, PyTypeError, PyValueError};
-use pyo3::prelude::*;
+use pyo3::{
+    exceptions::{PySystemError, PyTypeError, PyValueError},
+    prelude::*,
+    types::{IntoPyDict, PyDict},
+};
 use std::collections::HashMap;
 mod data_bias;
-use data_bias::{pre_training_bias, PreTraining, FULL_DATA_BIAS_METRICS};
+use data_bias::core::data_bias_analysis_core;
 mod model_bias;
-use model_bias::{post_training_bias, PostTrainingData, FULL_MODEL_BIAS_METRICS};
-mod data_handler;
-use data_handler::{apply_label, perform_segmentation_data_bias, perform_segmentation_model_bias};
+use model_bias::core::model_bias_analysis_core;
+pub(crate) mod data_handler;
+use data_handler::apply_label;
 mod runtime;
 use runtime::{DataBiasRuntime, ModelBiasRuntime};
 mod models;
-use models::{FailureRuntimeReturn, ModelType, PassedRuntimeReturn};
+use models::ModelType;
 mod macros;
 mod model_perf;
 use model_perf::{
-    map_string_to_bin_metric, map_string_to_linear_metric, model_perf_classification,
-    model_perf_logistic_regression, model_perf_regression, BinaryClassificationReport,
-    ClassificationEvaluationMetrics, LinearRegressionEvaluationMetrics, LinearRegressionReport,
-    LogisticRegressionReport, FULL_BINARY_CLASSIFICATION_METRICS, FULL_LOGISTIC_REGRESSION_METRICS,
-    FULL_REGRESSION_METRICS,
+    model_perf_classification, model_perf_logistic_regression, model_perf_regression,
+    BinaryClassificationReport, LinearRegressionReport, LogisticRegressionReport,
 };
 pub mod drift;
+pub mod metrics;
+use metrics::{
+    ClassificationEvaluationMetric, ClassificationMetricVec, DataBiasMetric, DataBiasMetricVec,
+    LinearRegressionEvaluationMetric, LinearRegressionMetricVec, LogisticRegressionMetricVec,
+    ModelBiasMetricVec, FULL_BINARY_CLASSIFICATION_METRICS, FULL_DATA_BIAS_METRICS,
+    FULL_LOGISTIC_REGRESSION_METRICS, FULL_MODEL_BIAS_METRICS, FULL_REGRESSION_METRICS,
+};
 
+pub mod reporting;
+use reporting::DriftReport;
+
+/*
+* TODO:
+* for runtime checks
+*   1. write python wrapper functions around all core logic
+*       the python wrapper will perform type serialization and coerce to correct types
+*   2. Refactor analysis logic to also have python wrappers
+*       type corecion is performed in the python wrapper
+*       core logic uses native rust types
+*   3. All python specific logic needs to be wrapped around python feature
+*   4. For things that accept strings, accept Vec<String>/String in python wrapper
+*   5. In core rust, accpet Into<Type> where Type is the enum that represents the string value
+*      being passed
+*   6. The goal is to extend the idea of having the crate useable in Rust and Python contexts
+* */
+
+pub fn data_bias_runtime_check(
+    baseline: DataBiasRuntime,
+    current: DataBiasRuntime,
+    threshold: f32,
+) -> HashMap<DataBiasMetric, f32> {
+    current.runtime_check(baseline, threshold, &FULL_DATA_BIAS_METRICS)
+}
+
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (
     baseline,
@@ -30,26 +64,37 @@ pub mod drift;
     threshold=0.10
 )
 )]
-pub fn data_bias_runtime_check<'py>(
+pub fn py_data_bias_runtime_check<'py>(
+    py: Python<'py>,
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
     threshold: f32,
-) -> PyResult<String> {
+) -> PyResult<Bound<'py, PyDict>> {
     let current = match DataBiasRuntime::try_from(latest) {
         Ok(obj) => obj,
-        Err(_) => return Err(PyValueError::new_err("Invalid metrics body passed")),
+        Err(e) => return Err(e.into()),
     };
 
     let baseline = match DataBiasRuntime::try_from(baseline) {
         Ok(obj) => obj,
-        Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
+        Err(e) => return Err(e.into()),
     };
-    let failure_report: HashMap<String, String> =
-        current.runtime_check(baseline, threshold, &FULL_DATA_BIAS_METRICS);
+    let failure_report = data_bias_runtime_check(baseline, current, threshold);
+    let drift_report: DriftReport<DataBiasMetric> = DriftReport::from_runtime(failure_report);
 
-    process_failure_report(failure_report)
+    Ok(drift_report.into_py_dict(py)?)
 }
 
+pub fn data_bias_partial_check(
+    baseline: DataBiasRuntime,
+    latest: DataBiasRuntime,
+    metrics: Vec<DataBiasMetric>,
+    threshold: f32,
+) -> HashMap<DataBiasMetric, f32> {
+    latest.runtime_check(baseline, threshold, &metrics)
+}
+
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (
     baseline,
@@ -58,31 +103,34 @@ pub fn data_bias_runtime_check<'py>(
     threshold=0.10
 )
 )]
-pub fn data_bias_partial_check<'py>(
+pub fn py_data_bias_partial_check<'py>(
+    py: Python<'py>,
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
     metrics: Vec<String>,
     threshold: f32,
-) -> PyResult<String> {
-    let metrics = match data_bias::map_string_to_metric(metrics) {
+) -> PyResult<Bound<'py, PyDict>> {
+    let metrics = match DataBiasMetricVec::try_from(metrics.as_slice()) {
         Ok(m) => m,
-        Err(_) => return Err(PyValueError::new_err("Invalid DataBias metric passed")),
+        Err(e) => return Err(e.into()),
     };
     let current = match DataBiasRuntime::try_from(latest) {
         Ok(obj) => obj,
-        Err(_) => return Err(PyValueError::new_err("Invalid metrics body passed")),
+        Err(e) => return Err(e.into()),
     };
 
     let baseline = match DataBiasRuntime::try_from(baseline) {
         Ok(obj) => obj,
-        Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
+        Err(e) => return Err(e.into()),
     };
-    let failure_report: HashMap<String, String> =
-        current.runtime_check(baseline, threshold, &metrics);
+    let failure_report: HashMap<DataBiasMetric, f32> =
+        current.runtime_check(baseline, threshold, metrics.as_ref());
 
-    process_failure_report(failure_report)
+    let drift_report: DriftReport<DataBiasMetric> = DriftReport::from_runtime(failure_report);
+    Ok(drift_report.into_py_dict(py)?)
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (
     baseline,
@@ -91,13 +139,14 @@ pub fn data_bias_partial_check<'py>(
     threshold=0.10
 )
 )]
-fn model_bias_partial_check(
+fn model_bias_partial_check<'py>(
+    py: Python<'py>,
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
     metrics: Vec<String>,
     threshold: f32,
-) -> PyResult<String> {
-    let metrics = match model_bias::map_string_to_metrics(metrics) {
+) -> PyResult<Bound<'py, PyDict>> {
+    let metrics = match ModelBiasMetricVec::try_from(metrics.as_slice()) {
         Ok(m) => m,
         Err(_) => return Err(PyValueError::new_err("Invalid ModelBias metric passed")),
     };
@@ -110,12 +159,18 @@ fn model_bias_partial_check(
         Ok(obj) => obj,
         Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
     };
-    let failure_report: HashMap<String, String> =
-        current.runtime_check(baseline, threshold, &metrics);
+    let failure_report: HashMap<metrics::ModelBiasMetric, f32> =
+        current.runtime_check(baseline, threshold, metrics.as_ref());
 
-    process_failure_report(failure_report)
+    let drift_report: DriftReport<metrics::ModelBiasMetric> =
+        DriftReport::from_runtime(failure_report);
+
+    let py_dict = drift_report.into_py_dict(py)?;
+
+    Ok(py_dict)
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (
     baseline,
@@ -124,10 +179,11 @@ fn model_bias_partial_check(
 )
 )]
 pub fn model_bias_runtime_check<'py>(
+    py: Python<'py>,
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
     threshold: f32,
-) -> PyResult<String> {
+) -> PyResult<Bound<'py, PyDict>> {
     let current = match ModelBiasRuntime::try_from(latest) {
         Ok(obj) => obj,
         Err(_) => return Err(PyValueError::new_err("Invalid metrics body passed")),
@@ -136,12 +192,18 @@ pub fn model_bias_runtime_check<'py>(
         Ok(obj) => obj,
         Err(_) => return Err(PyValueError::new_err("Invalid baseline body passed")),
     };
-    let failure_report: HashMap<String, String> =
+    let failure_report: HashMap<metrics::ModelBiasMetric, f32> =
         current.runtime_check(baseline, threshold, &FULL_MODEL_BIAS_METRICS);
 
-    process_failure_report(failure_report)
+    let drift_report: DriftReport<metrics::ModelBiasMetric> =
+        DriftReport::from_runtime(failure_report);
+
+    let py_dict = drift_report.into_py_dict(py)?;
+
+    Ok(py_dict)
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (
     feature_array,
@@ -152,43 +214,37 @@ pub fn model_bias_runtime_check<'py>(
     prediction_label_or_threshold)
 )]
 pub fn model_bias_analyzer<'py>(
-    py: Python<'_>,
-    feature_array: &Bound<'_, PyUntypedArray>,
-    ground_truth_array: &Bound<'_, PyUntypedArray>,
-    prediction_array: &Bound<'_, PyUntypedArray>,
-    feature_label_or_threshold: Bound<'py, PyAny>, //fix
-    ground_truth_label_or_threshold: Bound<'py, PyAny>, //fix
-    prediction_label_or_threshold: Bound<'py, PyAny>, // fix
-) -> PyResult<HashMap<String, f32>> {
-    let labeled_predictions: Vec<i16> =
-        match apply_label(py, prediction_array, prediction_label_or_threshold) {
-            Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
-        };
-    let labeled_ground_truth: Vec<i16> =
-        match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
-            Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
-        };
-    let labeled_features: Vec<i16> =
-        match apply_label(py, feature_array, feature_label_or_threshold) {
-            Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
-        };
-    let post_training_data: PostTrainingData = match perform_segmentation_model_bias(
-        labeled_features,
-        labeled_predictions,
-        labeled_ground_truth,
-    ) {
-        Ok(res) => res,
-        Err(err) => return Err(PyTypeError::new_err(err)),
+    py: Python<'py>,
+    feature_array: &Bound<'py, PyUntypedArray>,
+    ground_truth_array: &Bound<'py, PyUntypedArray>,
+    prediction_array: &Bound<'py, PyUntypedArray>,
+    feature_label_or_threshold: Bound<'py, PyAny>,
+    ground_truth_label_or_threshold: Bound<'py, PyAny>,
+    prediction_label_or_threshold: Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let preds: Vec<i16> = match apply_label(py, prediction_array, prediction_label_or_threshold) {
+        Ok(array) => array,
+        Err(err) => return Err(PyTypeError::new_err(err.to_string())),
     };
-    match post_training_bias(post_training_data) {
-        Ok(value) => Ok(value),
-        Err(err) => Err(PyTypeError::new_err(err)),
-    }
+    let gt: Vec<i16> = match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
+        Ok(array) => array,
+        Err(err) => return Err(PyTypeError::new_err(err.to_string())),
+    };
+    let feats: Vec<i16> = match apply_label(py, feature_array, feature_label_or_threshold) {
+        Ok(array) => array,
+        Err(err) => return Err(PyTypeError::new_err(err.to_string())),
+    };
+
+    let analysis_res = match model_bias_analysis_core(feats, preds, gt) {
+        Ok(res) => res,
+        Err(e) => return Err(PyValueError::new_err(e)),
+    };
+
+    let py_dict = analysis_res.into_py_dict(py)?;
+    Ok(py_dict)
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (
     feature_array,
@@ -196,34 +252,30 @@ pub fn model_bias_analyzer<'py>(
     feature_label_or_threshold,
     ground_truth_label_or_threshold)
 )]
-fn data_bias_analyzer<'py>(
-    py: Python<'_>,
-    feature_array: &Bound<'_, PyUntypedArray>,
-    ground_truth_array: &Bound<'_, PyUntypedArray>,
+fn py_data_bias_analyzer<'py>(
+    py: Python<'py>,
+    feature_array: &Bound<'py, PyUntypedArray>,
+    ground_truth_array: &Bound<'py, PyUntypedArray>,
     feature_label_or_threshold: Bound<'py, PyAny>, //fix
     ground_truth_label_or_threshold: Bound<'py, PyAny>, //fix
-) -> PyResult<HashMap<String, f32>> {
-    let labeled_ground_truth =
-        match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
-            Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
-        };
-
-    let labeled_feature = match apply_label(py, feature_array, feature_label_or_threshold) {
+) -> PyResult<Bound<'py, PyDict>> {
+    let gt = match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
         Ok(array) => array,
         Err(err) => return Err(PyTypeError::new_err(err.to_string())),
     };
 
-    let pre_training: PreTraining =
-        match perform_segmentation_data_bias(labeled_feature, labeled_ground_truth) {
-            Ok(values) => values,
-            Err(err) => return Err(PyTypeError::new_err(err)),
-        };
+    let feats = match apply_label(py, feature_array, feature_label_or_threshold) {
+        Ok(array) => array,
+        Err(err) => return Err(PyTypeError::new_err(err.to_string())),
+    };
 
-    match pre_training_bias(pre_training) {
-        Ok(result) => Ok(result),
-        Err(err) => Err(PyTypeError::new_err(err)),
-    }
+    let res = match data_bias_analysis_core(gt, feats) {
+        Ok(r) => r,
+        Err(e) => return Err(PyValueError::new_err(e)),
+    };
+
+    let py_dict = res.into_py_dict(py)?;
+    Ok(py_dict)
 }
 
 #[pyfunction]
@@ -286,6 +338,7 @@ fn model_performance_logisitic_regression<'py>(
     }
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (
     model_type,
@@ -296,12 +349,13 @@ fn model_performance_logisitic_regression<'py>(
 )
 )]
 fn model_performance_runtime_entry_partial<'py>(
+    py: Python<'py>,
     model_type: String,
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
     evaluation_metrics: Vec<String>,
     threshold: f32,
-) -> PyResult<String> {
+) -> PyResult<Bound<'py, PyDict>> {
     let model_type: ModelType = match ModelType::try_from(model_type.as_str()) {
         Ok(t) => t,
         Err(_) => return Err(PyValueError::new_err("Invalid model type")),
@@ -309,32 +363,52 @@ fn model_performance_runtime_entry_partial<'py>(
 
     match model_type {
         ModelType::LinearRegression => {
-            let metrics_to_eval: Vec<LinearRegressionEvaluationMetrics> =
-                match map_string_to_linear_metric(evaluation_metrics) {
+            let metrics_to_eval: LinearRegressionMetricVec =
+                match LinearRegressionMetricVec::try_from(evaluation_metrics.as_slice()) {
                     Ok(m) => m,
-                    Err(_) => return Err(PyValueError::new_err("Invalid metric name passed")),
+                    Err(e) => return Err(e.into()),
                 };
-            regression_performance_runtime(baseline, latest, &metrics_to_eval, threshold)
+            let drift_report = regression_performance_runtime(
+                baseline,
+                latest,
+                metrics_to_eval.as_ref(),
+                threshold,
+            )
+            .unwrap();
+            Ok(drift_report.into_py_dict(py)?)
         }
         ModelType::LogisticRegression => {
-            let metrics_to_eval: Vec<ClassificationEvaluationMetrics> =
-                match map_string_to_bin_metric(evaluation_metrics) {
+            let metrics_to_eval: LogisticRegressionMetricVec =
+                match LogisticRegressionMetricVec::try_from(evaluation_metrics.as_slice()) {
                     Ok(m) => m,
-                    Err(_) => return Err(PyValueError::new_err("Invalid metric name passed")),
+                    Err(e) => return Err(e.into()),
                 };
-            logistic_performance_runtime(baseline, latest, &metrics_to_eval, threshold)
+            let drift_report =
+                logistic_performance_runtime(baseline, latest, metrics_to_eval.as_ref(), threshold)
+                    .unwrap();
+            Ok(drift_report.into_py_dict(py)?)
         }
         ModelType::BinaryClassification => {
-            let metrics_to_eval: Vec<ClassificationEvaluationMetrics> =
-                match map_string_to_bin_metric(evaluation_metrics) {
+            let metrics_to_eval: ClassificationMetricVec =
+                match ClassificationMetricVec::try_from(evaluation_metrics.as_slice()) {
                     Ok(m) => m,
                     Err(_) => return Err(PyValueError::new_err("Invalid metric name passed")),
                 };
-            classification_performance_runtime(baseline, latest, &metrics_to_eval, threshold)
+            let drift_report = classification_performance_runtime(
+                baseline,
+                latest,
+                metrics_to_eval.as_ref(),
+                threshold,
+            )
+            .unwrap();
+
+            Ok(drift_report.into_py_dict(py)?)
         }
     }
 }
 
+//TODO: fix unwraps here, create erorr type
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (
     model_type,
@@ -344,11 +418,12 @@ fn model_performance_runtime_entry_partial<'py>(
 )
 )]
 fn model_performance_runtime_entry_full<'py>(
+    py: Python<'py>,
     model_type: String,
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
     threshold: f32,
-) -> PyResult<String> {
+) -> PyResult<Bound<'py, PyDict>> {
     let model_type: ModelType = match ModelType::try_from(model_type.as_str()) {
         Ok(t) => t,
         Err(_) => return Err(PyValueError::new_err("Invalid model type")),
@@ -356,142 +431,103 @@ fn model_performance_runtime_entry_full<'py>(
 
     match model_type {
         ModelType::LinearRegression => {
-            regression_performance_runtime(baseline, latest, &FULL_REGRESSION_METRICS, threshold)
+            let drift_report = regression_performance_runtime(
+                baseline,
+                latest,
+                &FULL_REGRESSION_METRICS,
+                threshold,
+            )
+            .unwrap();
+            Ok(drift_report.into_py_dict(py)?)
         }
-        ModelType::LogisticRegression => logistic_performance_runtime(
-            baseline,
-            latest,
-            &FULL_LOGISTIC_REGRESSION_METRICS,
-            threshold,
-        ),
-        ModelType::BinaryClassification => classification_performance_runtime(
-            baseline,
-            latest,
-            &FULL_BINARY_CLASSIFICATION_METRICS,
-            threshold,
-        ),
+        ModelType::LogisticRegression => {
+            let drift_report = logistic_performance_runtime(
+                baseline,
+                latest,
+                &FULL_LOGISTIC_REGRESSION_METRICS,
+                threshold,
+            )
+            .unwrap();
+            Ok(drift_report.into_py_dict(py)?)
+        }
+        ModelType::BinaryClassification => {
+            let report = classification_performance_runtime(
+                baseline,
+                latest,
+                &FULL_BINARY_CLASSIFICATION_METRICS,
+                threshold,
+            )
+            .unwrap();
+
+            Ok(report.into_py_dict(py)?)
+        }
     }
 }
 
 fn classification_performance_runtime(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
-    metrics: &[ClassificationEvaluationMetrics],
+    metrics: &[ClassificationEvaluationMetric],
     threshold: f32,
-) -> PyResult<String> {
+) -> Result<DriftReport<metrics::ClassificationEvaluationMetric>, String> {
     let baseline = match BinaryClassificationReport::try_from(baseline) {
         Ok(v) => v,
-        Err(e) => {
-            return Err(PyValueError::new_err(format!(
-                "Invalid baseline report: {}",
-                e
-            )))
-        }
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
     };
     let latest = match BinaryClassificationReport::try_from(latest) {
         Ok(v) => v,
-        Err(e) => {
-            return Err(PyValueError::new_err(format!(
-                "Invalid baseline report: {}",
-                e
-            )))
-        }
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
     };
-    let res = match latest.compare_to_baseline(metrics, &baseline, threshold) {
-        Ok(valid) => valid,
-        Err(e) => {
-            return Err(PyValueError::new_err(format!(
-                "Invalid metric name passed: {}",
-                e
-            )))
-        }
-    };
+    let res = latest.compare_to_baseline(metrics, &baseline, threshold);
 
-    process_failure_report(res)
+    Ok(DriftReport::from_runtime(res))
 }
 
 fn logistic_performance_runtime(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
-    metrics: &[ClassificationEvaluationMetrics],
+    metrics: &[ClassificationEvaluationMetric],
     threshold: f32,
-) -> PyResult<String> {
+) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
     let baseline = match LogisticRegressionReport::try_from(baseline) {
         Ok(v) => v,
-        Err(e) => {
-            return Err(PyValueError::new_err(format!(
-                "Invalid baseline report: {}",
-                e
-            )))
-        }
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
     };
     let latest = match LogisticRegressionReport::try_from(latest) {
         Ok(v) => v,
-        Err(e) => {
-            return Err(PyValueError::new_err(format!(
-                "Invalid baseline report: {}",
-                e
-            )))
-        }
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
     };
     let res = latest.compare_to_baseline(metrics, &baseline, threshold);
-    process_failure_report(res)
+    Ok(DriftReport::from_runtime(res))
 }
 
 fn regression_performance_runtime(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
-    evaluation_metrics: &[LinearRegressionEvaluationMetrics],
+    evaluation_metrics: &[LinearRegressionEvaluationMetric],
     threshold: f32,
-) -> PyResult<String> {
+) -> Result<DriftReport<metrics::LinearRegressionEvaluationMetric>, String> {
     let baseline: LinearRegressionReport = match LinearRegressionReport::try_from(baseline) {
         Ok(val) => val,
-        Err(e) => {
-            return Err(PyValueError::new_err(format!(
-                "Invalid baseline report: {}",
-                e
-            )))
-        }
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
     };
     let latest: LinearRegressionReport = match LinearRegressionReport::try_from(latest) {
         Ok(val) => val,
-        Err(e) => {
-            return Err(PyValueError::new_err(format!(
-                "Invalid latest report: {}",
-                e
-            )))
-        }
+        Err(e) => return Err(format!("Invalid latest report: {}", e)),
     };
 
     let results = latest.compare_to_baseline(&evaluation_metrics, &baseline, threshold);
-    process_failure_report(results)
+    Ok(DriftReport::from_runtime(results))
 }
 
-fn process_failure_report(comp_results: HashMap<String, String>) -> Result<String, PyErr> {
-    if comp_results.len() > 0 {
-        match serde_json::to_string(&FailureRuntimeReturn {
-            passed: false,
-            fail_report: Some(comp_results),
-        }) {
-            Ok(val) => Ok(val),
-            Err(_) => Err(PySystemError::new_err("Internal error")),
-        }
-    } else {
-        match serde_json::to_string(&PassedRuntimeReturn { passed: true }) {
-            Ok(val) => Ok(val),
-            Err(_) => Err(PySystemError::new_err("Internal error")),
-        }
-    }
-}
-
-/// A Python module implemented in Rust.
+#[cfg(feature = "python")]
 #[pymodule]
 #[pyo3(name = "_fair_perf_ml")]
 fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(model_bias_analyzer, m)?)?;
-    m.add_function(wrap_pyfunction!(data_bias_analyzer, m)?)?;
-    m.add_function(wrap_pyfunction!(data_bias_runtime_check, m)?)?;
-    m.add_function(wrap_pyfunction!(data_bias_partial_check, m)?)?;
+    m.add_function(wrap_pyfunction!(py_data_bias_analyzer, m)?)?;
+    m.add_function(wrap_pyfunction!(py_data_bias_runtime_check, m)?)?;
+    m.add_function(wrap_pyfunction!(py_data_bias_partial_check, m)?)?;
     m.add_function(wrap_pyfunction!(model_bias_runtime_check, m)?)?;
     m.add_function(wrap_pyfunction!(model_bias_partial_check, m)?)?;
     m.add_function(wrap_pyfunction!(model_performance_regression, m)?)?;

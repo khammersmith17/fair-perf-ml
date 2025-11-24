@@ -1,50 +1,42 @@
+use crate::metrics::DataBiasMetric;
 use std::collections::HashMap;
-use std::error::Error;
 
-pub enum DataBiasMetrics {
-    ClassImbalance,
-    DifferenceInProportionOfLabels,
-    KlDivergence,
-    JsDivergence,
-    LpNorm,
-    TotalVariationDistance,
-    KolmorogvSmirnov,
-}
+#[cfg(feature = "python")]
+use pyo3::{
+    exceptions::{PySystemError, PyValueError},
+    types::{IntoPyDict, PyDict},
+    Bound, PyErr, PyResult, Python,
+};
 
-pub const FULL_DATA_BIAS_METRICS: [DataBiasMetrics; 7] = [
-    DataBiasMetrics::ClassImbalance,
-    DataBiasMetrics::DifferenceInProportionOfLabels,
-    DataBiasMetrics::KlDivergence,
-    DataBiasMetrics::JsDivergence,
-    DataBiasMetrics::LpNorm,
-    DataBiasMetrics::TotalVariationDistance,
-    DataBiasMetrics::KolmorogvSmirnov,
-];
+pub(crate) mod core;
 
-impl TryFrom<&str> for DataBiasMetrics {
-    type Error = String;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "ClassImbalance" => Ok(Self::ClassImbalance),
-            "DifferenceInProportionOfLabels" => Ok(Self::DifferenceInProportionOfLabels),
-            "KlDivergence" => Ok(Self::KlDivergence),
-            "JsDivergence" => Ok(Self::JsDivergence),
-            "LpNorm" => Ok(Self::LpNorm),
-            "TotalVariationDistance" => Ok(Self::TotalVariationDistance),
-            "KolmorogvSmirnov" => Ok(Self::KolmorogvSmirnov),
-            _ => Err("Invalid metric name".into()),
+pub struct DataBiasAnalysisReport(HashMap<DataBiasMetric, f32>);
+
+impl DataBiasAnalysisReport {
+    fn new(cap: usize) -> DataBiasAnalysisReport {
+        let inner: HashMap<DataBiasMetric, f32> = HashMap::with_capacity(cap);
+        Self(inner)
+    }
+
+    fn insert(&mut self, metric: DataBiasMetric, val: f32) {
+        self.0.insert(metric, val);
+    }
+
+    #[cfg(feature = "python")]
+    pub fn into_py_dict(self, py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+        let map = self
+            .0
+            .into_iter()
+            .map(|(m, v)| (m.to_string(), v))
+            .collect::<HashMap<String, f32>>();
+        match map.into_py_dict(py) {
+            Ok(py_dict) => Ok(py_dict),
+            Err(e) => Err(PySystemError::new_err(format!(
+                "Unable to convert HashMap into dict: {:?}",
+                e
+            ))),
         }
     }
-}
-
-pub fn map_string_to_metric(metrics: Vec<String>) -> Result<Vec<DataBiasMetrics>, Box<dyn Error>> {
-    let mut map: Vec<DataBiasMetrics> = Vec::with_capacity(metrics.len());
-    for m_str in metrics.iter() {
-        let m = DataBiasMetrics::try_from(m_str.as_str())?;
-        map.push(m);
-    }
-
-    Ok(map)
 }
 
 pub struct PreTraining {
@@ -149,22 +141,23 @@ pub fn kolmorogv_smirnov(data: &PreTraining) -> f32 {
     }
 }
 
-pub fn pre_training_bias(data: PreTraining) -> Result<HashMap<String, f32>, String> {
+pub fn pre_training_bias(data: PreTraining) -> DataBiasAnalysisReport {
+    use DataBiasMetric as M;
     let computed_data: PreTrainingComputations = data.generate();
-    let mut result: HashMap<String, f32> = HashMap::with_capacity(7);
-    result.insert("ClassImbalance".into(), class_imbalance(&data));
+    let mut result = DataBiasAnalysisReport::new(7);
+    result.insert(M::ClassImbalance, class_imbalance(&data));
     result.insert(
-        "DifferenceInProportionOfLabels".into(),
+        M::DifferenceInProportionOfLabels,
         diff_in_proportion_of_labels(&data),
     );
-    result.insert("KlDivergence".into(), kl_divergence(&computed_data));
-    result.insert("JsDivergence".into(), jensen_shannon(&data, &computed_data));
-    result.insert("LpNorm".into(), lp_norm(&computed_data));
+    result.insert(M::KlDivergence, kl_divergence(&computed_data));
+    result.insert(M::JsDivergence, jensen_shannon(&data, &computed_data));
+    result.insert(M::LpNorm, lp_norm(&computed_data));
     result.insert(
-        "TotalVarationDistance".into(),
+        M::TotalVariationDistance,
         total_variation_distance(&computed_data),
     );
-    result.insert("KolmorogvSmirnov".into(), kolmorogv_smirnov(&data));
+    result.insert(M::KolmorogvSmirnov, kolmorogv_smirnov(&data));
 
-    Ok(result)
+    result
 }

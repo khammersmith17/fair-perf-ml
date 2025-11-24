@@ -1,16 +1,29 @@
 use ahash::{HashMap, HashMapExt};
 use chrono::{DateTime, Utc};
-use numpy::PyReadonlyArray1;
 use once_cell::sync::Lazy;
-use pyo3::prelude::*;
-use pyo3::{
-    exceptions::{PySystemError, PyValueError},
-    pyclass, pymethods,
-};
 use std::cmp::Ordering;
 use std::hash::Hash;
 use thiserror::Error;
 use uuid::Uuid;
+
+// python only dependencies
+#[cfg(feature = "python")]
+use numpy::PyReadonlyArray1;
+#[cfg(feature = "python")]
+use pyo3::{
+    exceptions::{PySystemError, PyValueError},
+    prelude::*,
+    pyclass, pymethods,
+};
+
+/*
+* All types in this module provide core logic implementation in rust and expose
+* an api to Python contexts via a pyclass wrapper
+* */
+
+pub(crate) trait StringLike: AsRef<str> + Eq + Hash + ToString {}
+
+impl<T> StringLike for T where T: AsRef<str> + Eq + Hash + ToString {}
 
 const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
 const MAX_STREAM_SIZE: usize = 1_000_000;
@@ -39,6 +52,7 @@ pub enum PSIError {
     NaNValueError,
 }
 
+#[cfg(feature = "python")]
 impl Into<PyErr> for PSIError {
     fn into(self) -> PyErr {
         let err_message = self.to_string();
@@ -197,11 +211,6 @@ pub struct ContinuousPSI {
     rt_bins: Vec<f64>,
 }
 
-// TODO:
-// 1. Add doc comments
-// 2. add python feature so this can also be used in rust context
-
-// Impl block defines the core logic of the type
 impl ContinuousPSI {
     pub fn new_from_baseline(n_bins: usize, bl_slice: &[f64]) -> Result<ContinuousPSI, PSIError> {
         let baseline = BaselineContinuousPSI::new(n_bins, &bl_slice)?;
@@ -212,6 +221,7 @@ impl ContinuousPSI {
         obj.init_runtime_containers();
         Ok(obj)
     }
+
     fn clear_rt(&mut self) {
         self.rt_bins.fill(0_f64);
     }
@@ -229,7 +239,7 @@ impl ContinuousPSI {
         self.rt_bins = vec![0_f64; len];
     }
 
-    fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), PSIError> {
+    pub fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), PSIError> {
         if let Err(e) = self.baseline.reset(baseline_slice) {
             return Err(e.into());
         };
@@ -237,10 +247,10 @@ impl ContinuousPSI {
         Ok(())
     }
 
-    fn compute_psi_drift(&mut self, runtime_slice: &[f64]) -> PyResult<f64> {
+    pub fn compute_psi_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, PSIError> {
         let n = runtime_slice.len() as f64;
         if n == 0_f64 {
-            return Err(PSIError::EmptyRuntimeData.into());
+            return Err(PSIError::EmptyRuntimeData);
         }
 
         self.build_rt_hist(runtime_slice);
@@ -251,11 +261,12 @@ impl ContinuousPSI {
         Ok(psi)
     }
 
-    fn n_bins(&self) -> usize {
+    pub fn n_bins(&self) -> usize {
         self.baseline.n_bins
     }
 }
 
+#[cfg(feature = "python")]
 #[pyclass]
 struct PyContinuousPSI {
     inner: ContinuousPSI,
@@ -263,6 +274,7 @@ struct PyContinuousPSI {
 
 // exposes python APIs to the python type
 // encapsulates all rust logic
+#[cfg(feature = "python")]
 #[pymethods]
 impl PyContinuousPSI {
     #[new]
@@ -314,7 +326,7 @@ pub struct StreamingContinuousPSI {
 }
 
 impl StreamingContinuousPSI {
-    fn new(
+    pub fn new(
         n_bins: usize,
         baseline_slice: &[f64],
         flush_cadence: Option<i64>,
@@ -339,7 +351,7 @@ impl StreamingContinuousPSI {
         })
     }
 
-    fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), PSIError> {
+    pub fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), PSIError> {
         if let Err(e) = self.baseline.reset(baseline_slice) {
             return Err(e.into());
         };
@@ -349,7 +361,7 @@ impl StreamingContinuousPSI {
         Ok(())
     }
 
-    fn update_stream(&mut self, runtime_slice: &[f64]) -> Result<f64, PSIError> {
+    pub fn update_stream(&mut self, runtime_slice: &[f64]) -> Result<f64, PSIError> {
         if runtime_slice.len() == 0 {
             return Err(PSIError::EmptyRuntimeData);
         }
@@ -368,27 +380,27 @@ impl StreamingContinuousPSI {
         Ok(self.normalize()?)
     }
 
-    fn flush(&mut self) {
+    pub fn flush(&mut self) {
         self.flush_runtime_stream();
         self.last_flush_ts = Utc::now().timestamp();
     }
 
-    fn total_samples(&self) -> usize {
+    pub fn total_samples(&self) -> usize {
         self.total_stream_size
     }
 
-    fn last_flush(&self) -> PyResult<DateTime<Utc>> {
+    pub fn last_flush(&self) -> Result<DateTime<Utc>, PSIError> {
         let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
-            return Err(PSIError::DateTimeError.into());
+            return Err(PSIError::DateTimeError);
         };
         Ok(ts)
     }
 
-    fn n_bins(&self) -> usize {
+    pub fn n_bins(&self) -> usize {
         self.baseline.n_bins
     }
 
-    fn export_snapshot(&self) -> HashMap<String, Vec<f64>> {
+    pub fn export_snapshot(&self) -> HashMap<String, Vec<f64>> {
         // determine snapshot shape
         let mut table: HashMap<String, Vec<f64>> = HashMap::with_capacity(3);
         table.insert("binEdges".into(), self.baseline.bin_edges.clone());
@@ -424,11 +436,13 @@ impl StreamingContinuousPSI {
     }
 }
 
+#[cfg(feature = "python")]
 #[pyclass]
 struct PyStreamingContinuousPSI {
     inner: StreamingContinuousPSI,
 }
 
+#[cfg(feature = "python")]
 #[pymethods]
 impl PyStreamingContinuousPSI {
     #[new]
@@ -518,10 +532,7 @@ struct BaselineCategoricalPSI {
 }
 
 impl BaselineCategoricalPSI {
-    fn new<S>(baseline_data: &[S]) -> BaselineCategoricalPSI
-    where
-        S: AsRef<str> + Eq + Hash + ToString,
-    {
+    fn new<S: StringLike>(baseline_data: &[S]) -> BaselineCategoricalPSI {
         let n = baseline_data.len() as f64;
 
         let predicted_capacity = compute_expected_categorical_bins(n);
@@ -559,10 +570,7 @@ impl BaselineCategoricalPSI {
             .collect()
     }
 
-    fn reset<S>(&mut self, baseline_data: &[S])
-    where
-        S: AsRef<str> + Eq + Hash + ToString,
-    {
+    fn reset<S: StringLike>(&mut self, baseline_data: &[S]) {
         let n = baseline_data.len() as f64;
         let new_predicted_capacity = compute_expected_categorical_bins(n);
 
@@ -599,10 +607,7 @@ pub struct CategoricalPSI {
 }
 
 impl CategoricalPSI {
-    pub fn new<S>(baseline_data: &[S]) -> Result<CategoricalPSI, PSIError>
-    where
-        S: AsRef<str> + Eq + Hash + ToString,
-    {
+    pub fn new<S: StringLike>(baseline_data: &[S]) -> Result<CategoricalPSI, PSIError> {
         if baseline_data.is_empty() {
             return Err(PSIError::EmptyBaselineData);
         }
@@ -614,10 +619,7 @@ impl CategoricalPSI {
         Ok(CategoricalPSI { baseline, rt_bins })
     }
 
-    fn compute_rt<S>(&mut self, runtime_data: &[S]) -> Option<f64>
-    where
-        S: AsRef<str> + Eq + Hash,
-    {
+    fn compute_rt<S: StringLike>(&mut self, runtime_data: &[S]) -> Option<f64> {
         let n = runtime_data.len() as f64;
 
         let other_idx = self.baseline.idx_map[OTHER_LABEL.as_str()];
@@ -638,8 +640,8 @@ impl CategoricalPSI {
         self.rt_bins.fill(0_f64);
     }
 
-    fn reset_baseline(&mut self, new_baseline: Vec<String>) {
-        self.baseline.reset(&new_baseline);
+    pub fn reset_baseline<S: StringLike>(&mut self, new_baseline: &[S]) {
+        self.baseline.reset(new_baseline);
         let num_bins = self.baseline.baseline_bins.len();
 
         // pay the cost to reallocate bins in order to have correct size
@@ -647,10 +649,10 @@ impl CategoricalPSI {
         self.rt_bins = vec![0_f64; num_bins];
     }
 
-    pub fn compute_psi_drift<S>(&mut self, runtime_data: &[S]) -> Result<f64, PSIError>
-    where
-        S: AsRef<str> + Eq + Hash + ToString,
-    {
+    pub fn compute_psi_drift<S: StringLike>(
+        &mut self,
+        runtime_data: &[S],
+    ) -> Result<f64, PSIError> {
         // will not compute on empty data
         if runtime_data.is_empty() {
             return Err(PSIError::EmptyRuntimeData.into());
@@ -673,11 +675,13 @@ impl CategoricalPSI {
     }
 }
 
+#[cfg(feature = "python")]
 #[pyclass]
 struct PyCategoricalPSI {
     inner: CategoricalPSI,
 }
 
+#[cfg(feature = "python")]
 #[pymethods]
 impl PyCategoricalPSI {
     #[new]
@@ -693,7 +697,7 @@ impl PyCategoricalPSI {
 
     #[pyo3(signature = (new_baseline))]
     fn reset_baseline(&mut self, new_baseline: Vec<String>) {
-        self.inner.reset_baseline(new_baseline);
+        self.inner.reset_baseline(&new_baseline);
     }
 
     #[pyo3(signature = (runtime_data))]
@@ -723,13 +727,10 @@ pub struct StreamingCategoricalPSI {
 }
 
 impl StreamingCategoricalPSI {
-    pub fn new<S>(
+    pub fn new<S: StringLike>(
         baseline_data: &[S],
         user_flush_rate: Option<i64>,
-    ) -> Result<StreamingCategoricalPSI, PSIError>
-    where
-        S: AsRef<str> + Eq + Hash + ToString,
-    {
+    ) -> Result<StreamingCategoricalPSI, PSIError> {
         let baseline = BaselineCategoricalPSI::new(baseline_data);
         let flush_rate = user_flush_rate.unwrap_or_else(|| DEFAULT_STREAM_FLUSH);
         let n_bins = baseline.baseline_bins.len();
@@ -747,18 +748,12 @@ impl StreamingCategoricalPSI {
         Ok(obj)
     }
 
-    pub fn reset_baseline<S>(&mut self, new_baseline: &[S])
-    where
-        S: AsRef<str> + Eq + Hash + ToString,
-    {
+    pub fn reset_baseline<S: StringLike>(&mut self, new_baseline: &[S]) {
         self.baseline.reset(new_baseline);
         self.init_stream_bins();
     }
 
-    pub fn update_stream<S>(&mut self, runtime_data: &[S]) -> f64
-    where
-        S: AsRef<str> + Eq + Hash + ToString,
-    {
+    pub fn update_stream<S: StringLike>(&mut self, runtime_data: &[S]) -> f64 {
         let curr_ts: i64 = Utc::now().timestamp();
 
         if curr_ts > (self.last_flush_ts + self.flush_rate)
@@ -782,9 +777,9 @@ impl StreamingCategoricalPSI {
         self.total_stream_size
     }
 
-    pub fn last_flush(&self) -> PyResult<DateTime<Utc>> {
+    pub fn last_flush(&self) -> Result<DateTime<Utc>, PSIError> {
         let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
-            return Err(PSIError::DateTimeError.into());
+            return Err(PSIError::DateTimeError);
         };
         Ok(ts)
     }
@@ -814,10 +809,7 @@ impl StreamingCategoricalPSI {
         self.total_stream_size = 0;
     }
 
-    fn update_stream_bins<S>(&mut self, runtime_data: &[S])
-    where
-        S: AsRef<str> + Eq + Hash + ToString,
-    {
+    fn update_stream_bins<S: StringLike>(&mut self, runtime_data: &[S]) {
         let n = runtime_data.len();
         let other_idx = self.baseline.idx_map[OTHER_LABEL.as_str()];
         for cat in runtime_data.into_iter() {
@@ -838,11 +830,13 @@ impl StreamingCategoricalPSI {
     }
 }
 
+#[cfg(feature = "python")]
 #[pyclass]
 struct PyStreamingCategoricalPSI {
     inner: StreamingCategoricalPSI,
 }
 
+#[cfg(feature = "python")]
 #[pymethods]
 impl PyStreamingCategoricalPSI {
     #[new]
@@ -900,10 +894,118 @@ impl PyStreamingCategoricalPSI {
 }
 
 #[cfg(test)]
-mod continuous_test {
+mod continuous_tests {
     use super::*;
-    use numpy::{PyArray, PyArrayMethods, PyReadonlyArray1, PyReadwriteArray};
 
     #[test]
-    fn baseline_bin_generation() {}
+    fn test_continuous_baseline_builds_expected_bins() {
+        let baseline = [1.0, 2.0, 3.0, 4.0];
+        let psi = ContinuousPSI::new_from_baseline(3, &baseline).unwrap();
+
+        // 3 bins → 4 edges
+        assert_eq!(psi.baseline.bin_edges.len(), 4);
+        assert_eq!(psi.rt_bins.len(), 3);
+    }
+
+    #[test]
+    fn test_continuous_psi_zero_when_no_drift() {
+        let baseline = [1.0, 2.0, 3.0, 4.0];
+        let mut psi = ContinuousPSI::new_from_baseline(3, &baseline).unwrap();
+        let runtime = [1.0, 2.0, 3.0, 4.0];
+
+        let drift = psi.compute_psi_drift(&runtime).unwrap();
+        assert!(drift.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_continuous_psi_detects_shift() {
+        let baseline = [1.0, 2.0, 3.0, 4.0];
+        let mut psi = ContinuousPSI::new_from_baseline(3, &baseline).unwrap();
+        let runtime = [10.0, 11.0, 12.0, 13.0];
+
+        let drift = psi.compute_psi_drift(&runtime).unwrap();
+        assert!(drift > 0.5); // clearly shifted
+    }
+
+    #[test]
+    fn test_streaming_continuous_accumulation() {
+        let baseline = [1.0, 2.0, 3.0, 4.0];
+        let mut streaming = StreamingContinuousPSI::new(3, &baseline, None).unwrap();
+
+        // first batch
+        let d1 = streaming.update_stream(&[1.0, 2.0]).unwrap();
+        // second batch (same distribution)
+        let d2 = streaming.update_stream(&[3.0, 4.0]).unwrap();
+
+        assert!(d1.abs() < 1e-9);
+        assert!(d2.abs() < 1e-9);
+        assert_eq!(streaming.total_samples(), 4);
+    }
+
+    #[test]
+    fn test_streaming_flush() {
+        let baseline = [1.0, 2.0, 3.0, 4.0];
+        let mut streaming = StreamingContinuousPSI::new(3, &baseline, None).unwrap();
+
+        streaming.update_stream(&[1.0, 2.0, 3.0]).unwrap();
+        streaming.flush();
+
+        assert_eq!(streaming.total_samples(), 0);
+    }
+}
+
+#[cfg(test)]
+mod categorical_tests {
+    use super::*;
+
+    #[test]
+    fn test_categorical_baseline_builds_expected_size() {
+        let baseline = ["a", "b", "a", "c"];
+        let psi = CategoricalPSI::new(&baseline).unwrap();
+
+        // baseline has 3 real labels + OTHER bucket
+        assert_eq!(psi.baseline.baseline_bins.len(), 4);
+    }
+
+    #[test]
+    fn test_categorical_psi_zero_when_no_drift() {
+        let baseline = ["a", "b", "a", "c"];
+        let mut psi = CategoricalPSI::new(&baseline).unwrap();
+        let runtime = ["a", "b", "a", "c"];
+
+        let drift = psi.compute_psi_drift(&runtime).unwrap();
+        assert!(drift.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_categorical_psi_detects_shift() {
+        let baseline = ["a", "b", "a", "c"];
+        let mut psi = CategoricalPSI::new(&baseline).unwrap();
+        let runtime = ["x", "x", "x", "x"]; // go to other bucket
+
+        let drift = psi.compute_psi_drift(&runtime).unwrap();
+        assert!(drift > 0.5);
+    }
+
+    #[test]
+    fn test_other_bucket_label_exposed() {
+        let baseline = ["a", "b"];
+        let psi = CategoricalPSI::new(&baseline).unwrap();
+        let other = psi.other_bucket_label();
+
+        assert!(other.starts_with("__fairperf_othercat__"));
+    }
+
+    #[test]
+    fn test_streaming_categorical_accumulation() {
+        let baseline = ["a", "b"];
+        let mut streaming = StreamingCategoricalPSI::new(&baseline, None).unwrap();
+
+        let d1 = streaming.update_stream(&["a", "b"]);
+        let d2 = streaming.update_stream(&["a"]);
+
+        assert_eq!(streaming.total_samples(), 3);
+        assert!(d1 < 1e-9);
+        assert!(d2 < 1e-9);
+    }
 }

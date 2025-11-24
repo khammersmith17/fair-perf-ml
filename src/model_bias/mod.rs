@@ -1,66 +1,40 @@
+use crate::metrics::ModelBiasMetric;
+#[cfg(feature = "python")]
+use pyo3::{
+    exceptions::PySystemError,
+    types::{IntoPyDict, PyDict},
+    Bound, PyResult, Python,
+};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::error::Error;
 
-pub enum ModelBiasMetrics {
-    DifferenceInPositivePredictedLabels,
-    DisparateImpact,
-    AccuracyDifference,
-    RecallDifference,
-    DifferenceInConditionalAcceptance,
-    DifferenceInAcceptanceRate,
-    SpecialityDifference,
-    DifferenceInConditionalRejection,
-    DifferenceInRejectionRate,
-    TreatmentEquity,
-    ConditionalDemographicDesparityPredictedLabels,
-    GeneralizedEntropy,
-}
+pub(crate) mod core;
 
-pub const FULL_MODEL_BIAS_METRICS: [ModelBiasMetrics; 12] = [
-    ModelBiasMetrics::DifferenceInPositivePredictedLabels,
-    ModelBiasMetrics::DisparateImpact,
-    ModelBiasMetrics::AccuracyDifference,
-    ModelBiasMetrics::RecallDifference,
-    ModelBiasMetrics::DifferenceInConditionalAcceptance,
-    ModelBiasMetrics::DifferenceInAcceptanceRate,
-    ModelBiasMetrics::SpecialityDifference,
-    ModelBiasMetrics::DifferenceInConditionalRejection,
-    ModelBiasMetrics::DifferenceInRejectionRate,
-    ModelBiasMetrics::TreatmentEquity,
-    ModelBiasMetrics::ConditionalDemographicDesparityPredictedLabels,
-    ModelBiasMetrics::GeneralizedEntropy,
-];
+pub struct ModelBiasAnalysisReport(HashMap<ModelBiasMetric, f32>);
 
-pub fn map_string_to_metrics(
-    metrics: Vec<String>,
-) -> Result<Vec<ModelBiasMetrics>, Box<dyn Error>> {
-    let mut tms: Vec<ModelBiasMetrics> = Vec::with_capacity(metrics.len());
-    for str_m in metrics.into_iter() {
-        let m = ModelBiasMetrics::try_from(str_m.as_str())?;
-        tms.push(m)
+impl ModelBiasAnalysisReport {
+    fn new(cap: usize) -> ModelBiasAnalysisReport {
+        let inner: HashMap<ModelBiasMetric, f32> = HashMap::with_capacity(cap);
+        Self(inner)
     }
-    Ok(tms)
-}
 
-impl TryFrom<&str> for ModelBiasMetrics {
-    type Error = String;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "DifferenceInPositivePredictedLabels" => Ok(Self::DifferenceInPositivePredictedLabels),
-            "DisparateImpact" => Ok(Self::DisparateImpact),
-            "AccuracyDifference" => Ok(Self::AccuracyDifference),
-            "RecallDifference" => Ok(Self::RecallDifference),
-            "DifferenceInConditionalAcceptance" => Ok(Self::DifferenceInConditionalAcceptance),
-            "DifferenceInAcceptanceRate" => Ok(Self::DifferenceInAcceptanceRate),
-            "SpecialityDifference" => Ok(Self::SpecialityDifference),
-            "DifferenceInConditionalRejection" => Ok(Self::DifferenceInConditionalRejection),
-            "DifferenceInRejectionRate" => Ok(Self::DifferenceInRejectionRate),
-            "TreatmentEquity" => Ok(Self::TreatmentEquity),
-            "ConditionalDemographicDesparityPredictedLabels" => {
-                Ok(Self::ConditionalDemographicDesparityPredictedLabels)
-            }
-            "GeneralizedEntropy" => Ok(Self::GeneralizedEntropy),
-            _ => Err("Invalid metric passed".into()),
+    fn insert(&mut self, metric: ModelBiasMetric, val: f32) {
+        self.0.insert(metric, val);
+    }
+
+    #[cfg(feature = "python")]
+    pub fn into_py_dict(self, py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+        let map = self
+            .0
+            .into_iter()
+            .map(|(m, v)| (m.to_string(), v))
+            .collect::<HashMap<String, f32>>();
+        match map.into_py_dict(py) {
+            Ok(py_dict) => Ok(py_dict),
+            Err(e) => Err(PySystemError::new_err(format!(
+                "Unable to convert HashMap into dict: {:?}",
+                e
+            ))),
         }
     }
 }
@@ -394,51 +368,46 @@ pub fn generalized_entropy(data: &PostTrainingData) -> f32 {
     result * (0.5 * n)
 }
 
-pub fn post_training_bias(data: PostTrainingData) -> Result<HashMap<String, f32>, String> {
+pub fn post_training_bias(data: PostTrainingData) -> ModelBiasAnalysisReport {
+    use ModelBiasMetric as M;
     let pre_computed_data: PostTrainingComputations = data.general_data_computations();
-    let mut result: HashMap<String, f32> = HashMap::with_capacity(12);
+    let mut result = ModelBiasAnalysisReport::new(12);
     result.insert(
-        "DifferenceInPositivePredictedLabels".into(),
+        M::DifferenceInPositivePredictedLabels,
         diff_in_pos_proportion_in_pred_labels(&data),
     );
-    result.insert("DisparateImpact".into(), disparate_impact(&data));
+    result.insert(M::DisparateImpact, disparate_impact(&data));
     result.insert(
-        "AccuracyDifference".into(),
+        M::AccuracyDifference,
         accuracy_difference(&pre_computed_data, &data),
     );
+    result.insert(M::RecallDifference, recall_difference(&pre_computed_data));
     result.insert(
-        "RecallDifference".into(),
-        recall_difference(&pre_computed_data),
-    );
-    result.insert(
-        "DifferenceInConditionalAcceptance".into(),
+        M::DifferenceInConditionalAcceptance,
         diff_in_cond_acceptance(&data),
     );
     result.insert(
-        "DifferenceInAcceptanceRate".into(),
+        M::DifferenceInAcceptanceRate,
         diff_in_acceptance_rate(&pre_computed_data),
     );
     result.insert(
-        "SpecialityDifference".into(),
+        M::SpecialityDifference,
         specailty_difference(&pre_computed_data),
     );
     result.insert(
-        "DifferenceInConditionalRejection".into(),
+        M::DifferenceInConditionalRejection,
         diff_in_cond_rejection(&data),
     );
     result.insert(
-        "DifferenceInRejectionRate".into(),
+        M::DifferenceInRejectionRate,
         diff_in_rejection_rate(&pre_computed_data),
     );
+    result.insert(M::TreatmentEquity, treatment_equity(&pre_computed_data));
     result.insert(
-        "TreatmentEquity".into(),
-        treatment_equity(&pre_computed_data),
-    );
-    result.insert(
-        "ConditionalDemographicDesparityPredictedLabels".into(),
+        M::ConditionalDemographicDesparityPredictedLabels,
         cond_dem_desp_in_pred_labels(&data),
     );
-    result.insert("GeneralizedEntropy".into(), generalized_entropy(&data));
+    result.insert(M::GeneralizedEntropy, generalized_entropy(&data));
 
-    Ok(result)
+    result
 }

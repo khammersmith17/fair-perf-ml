@@ -1,6 +1,8 @@
 # fair-ml
 Custom implementation of bias analysis for machine learning models. Based on the AWS SageMaker bias models, though this accommodates bias based on protected classes not used in model training.
 
+Working on v0.2.0 to add some more runtime drift proxies, provide better runtime support, and make the crate available in both pure Rust and Python contexts.
+
 [Background](#background)
 [Modules](#modules)
 [Usage](#usage)

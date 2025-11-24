@@ -1,134 +1,15 @@
-use crate::data_handler::{determine_type, PassedType};
-use crate::zip;
+use crate::{
+    data_handler::{determine_type, PassedType},
+    metrics::{
+        ClassificationEvaluationMetric, LinearRegressionEvaluationMetric, ModelPerformanceMetric,
+    },
+    zip,
+};
 use numpy::PyUntypedArray;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::error::Error;
-
-pub const FULL_REGRESSION_METRICS: [LinearRegressionEvaluationMetrics; 8] = [
-    LinearRegressionEvaluationMetrics::RootMeanSquaredError,
-    LinearRegressionEvaluationMetrics::MeanSquaredError,
-    LinearRegressionEvaluationMetrics::MeanAbsoluteError,
-    LinearRegressionEvaluationMetrics::RSquared,
-    LinearRegressionEvaluationMetrics::MaxError,
-    LinearRegressionEvaluationMetrics::MeanSquaredLogError,
-    LinearRegressionEvaluationMetrics::RootMeanSquaredLogError,
-    LinearRegressionEvaluationMetrics::MeanAbsolutePercentageError,
-];
-
-pub const FULL_LOGISTIC_REGRESSION_METRICS: [ClassificationEvaluationMetrics; 8] = [
-    ClassificationEvaluationMetrics::BalancedAccuracy,
-    ClassificationEvaluationMetrics::PrecisionPositive,
-    ClassificationEvaluationMetrics::PrecisionNegative,
-    ClassificationEvaluationMetrics::RecallPositive,
-    ClassificationEvaluationMetrics::RecallNegative,
-    ClassificationEvaluationMetrics::Accuracy,
-    ClassificationEvaluationMetrics::F1Score,
-    ClassificationEvaluationMetrics::LogLoss,
-];
-
-pub const FULL_BINARY_CLASSIFICATION_METRICS: [ClassificationEvaluationMetrics; 7] = [
-    ClassificationEvaluationMetrics::BalancedAccuracy,
-    ClassificationEvaluationMetrics::PrecisionPositive,
-    ClassificationEvaluationMetrics::PrecisionNegative,
-    ClassificationEvaluationMetrics::RecallPositive,
-    ClassificationEvaluationMetrics::RecallNegative,
-    ClassificationEvaluationMetrics::Accuracy,
-    ClassificationEvaluationMetrics::F1Score,
-];
-
-pub enum ClassificationEvaluationMetrics {
-    BalancedAccuracy,
-    PrecisionPositive,
-    PrecisionNegative,
-    RecallPositive,
-    RecallNegative,
-    Accuracy,
-    F1Score,
-    LogLoss,
-}
-
-pub enum LinearRegressionEvaluationMetrics {
-    RootMeanSquaredError,
-    MeanSquaredError,
-    MeanAbsoluteError,
-    RSquared,
-    MaxError,
-    MeanSquaredLogError,
-    RootMeanSquaredLogError,
-    MeanAbsolutePercentageError,
-}
-
-impl TryFrom<&str> for ClassificationEvaluationMetrics {
-    type Error = String;
-    fn try_from(val: &str) -> Result<Self, Self::Error> {
-        match val {
-            "BalancedAccuracy" => Ok(Self::BalancedAccuracy),
-            "PrecisionPositive" => Ok(Self::PrecisionPositive),
-            "PrecisionNegative" => Ok(Self::PrecisionNegative),
-            "RecallPositive" => Ok(Self::RecallPositive),
-            "RecallNegative" => Ok(Self::RecallNegative),
-            "Accuracy" => Ok(Self::Accuracy),
-            "F1Score" => Ok(Self::F1Score),
-            "LogLoss" => Ok(Self::LogLoss),
-            _ => Err("Invalid metric type".into()),
-        }
-    }
-}
-
-impl TryFrom<&str> for LinearRegressionEvaluationMetrics {
-    type Error = String;
-    fn try_from(val: &str) -> Result<Self, Self::Error> {
-        match val {
-            "RootMeanSquaredError" => Ok(Self::RootMeanSquaredError),
-            "MeanSquaredError" => Ok(Self::MeanSquaredError),
-            "MeanAbsoluteError" => Ok(Self::MeanAbsoluteError),
-            "RSquared" => Ok(Self::RSquared),
-            "MaxError" => Ok(Self::MaxError),
-            "MeanSquaredLogError" => Ok(Self::MeanSquaredLogError),
-            "RootMeanSquaredLogError" => Ok(Self::RootMeanSquaredLogError),
-            "MeanAbsolutePercentageError" => Ok(Self::MeanAbsolutePercentageError),
-            _ => Err("Invalid metric name passed".into()),
-        }
-    }
-}
-
-pub fn map_string_to_linear_metric(
-    metrics_string: Vec<String>,
-) -> Result<Vec<LinearRegressionEvaluationMetrics>, Box<dyn Error>> {
-    let mut v: Vec<LinearRegressionEvaluationMetrics> = Vec::with_capacity(metrics_string.len());
-    for m_str in metrics_string.iter() {
-        let new = match LinearRegressionEvaluationMetrics::try_from(m_str.as_str()) {
-            Ok(val) => val,
-            Err(_) => return Err("Invalid metric name".into()),
-        };
-        v.push(new);
-    }
-    Ok(v)
-}
-
-pub fn map_string_to_bin_metric(
-    metrics_string: Vec<String>,
-) -> Result<Vec<ClassificationEvaluationMetrics>, Box<dyn Error>> {
-    let mut v: Vec<ClassificationEvaluationMetrics> = Vec::with_capacity(metrics_string.len());
-    for m_str in metrics_string.iter() {
-        let new = match ClassificationEvaluationMetrics::try_from(m_str.as_str()) {
-            Ok(val) => val,
-            Err(_) => return Err("Invalid metric name".into()),
-        };
-        v.push(new);
-    }
-    Ok(v)
-}
-
-fn update_failure_report_above(map: &mut HashMap<String, String>, metric: String, diff: f32) {
-    map.insert(metric, format!("Exceeded threshold by {diff}"));
-}
-
-fn update_failure_report_below(map: &mut HashMap<String, String>, metric: String, diff: f32) {
-    map.insert(metric, format!("Below threshold by {diff}"));
-}
-
+// TODO: remove the python bounds on the below methods
 pub fn model_perf_regression<'py>(
     py: Python<'_>,
     y_pred_src: &Bound<'_, PyUntypedArray>,
@@ -385,12 +266,12 @@ impl TryFrom<HashMap<String, f32>> for BinaryClassificationReport {
 impl BinaryClassificationReport {
     pub fn compare_to_baseline(
         &self,
-        metrics: &[ClassificationEvaluationMetrics],
+        metrics: &[ClassificationEvaluationMetric],
         baseline: &Self,
         drift_threshold: f32,
-    ) -> Result<HashMap<String, String>, Box<dyn Error>> {
-        use ClassificationEvaluationMetrics as C;
-        let mut res: HashMap<String, String> = HashMap::with_capacity(7);
+    ) -> HashMap<ClassificationEvaluationMetric, f32> {
+        use ClassificationEvaluationMetric as C;
+        let mut res: HashMap<C, f32> = HashMap::with_capacity(7);
         let drift_factor = 1_f32 - drift_threshold;
         // log loss should not be present here
         // so when log loss comes up, we return Err
@@ -398,72 +279,59 @@ impl BinaryClassificationReport {
             match *m {
                 C::BalancedAccuracy => {
                     if self.balanced_accuracy < baseline.balanced_accuracy * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "BalancedAccuracy".into(),
+                        res.insert(
+                            C::BalancedAccuracy,
                             baseline.balanced_accuracy - self.balanced_accuracy,
                         );
                     }
                 }
                 C::PrecisionPositive => {
                     if self.precision_positive < baseline.precision_positive * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "PrecisionPositive".into(),
+                        res.insert(
+                            C::PrecisionPositive,
                             baseline.precision_positive - self.precision_positive,
                         );
                     }
                 }
                 C::PrecisionNegative => {
                     if self.precision_negative < baseline.precision_negative * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "PrecisionNegative".into(),
+                        res.insert(
+                            C::PrecisionNegative,
                             baseline.precision_negative - self.precision_negative,
                         );
                     }
                 }
                 C::RecallPositive => {
                     if self.recall_positive < baseline.recall_positive * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "RecallPositive".into(),
+                        res.insert(
+                            C::RecallPositive,
                             baseline.recall_positive - self.recall_positive,
                         );
                     }
                 }
                 C::RecallNegative => {
                     if self.recall_negative < baseline.recall_negative * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "RecallNegative".into(),
+                        res.insert(
+                            C::RecallNegative,
                             baseline.recall_negative - self.recall_negative,
                         );
                     }
                 }
                 C::Accuracy => {
                     if self.accuracy < baseline.accuracy * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "Accuracy".into(),
-                            baseline.accuracy - self.accuracy,
-                        );
+                        res.insert(C::Accuracy, baseline.accuracy - self.accuracy);
                     }
                 }
                 C::F1Score => {
                     if self.f1_score < baseline.f1_score * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "F1Score".into(),
-                            baseline.f1_score - self.f1_score,
-                        );
+                        res.insert(C::F1Score, baseline.f1_score - self.f1_score);
                     }
                 }
-                C::LogLoss => return Err("LogLoss is not valid for Binary Classification".into()),
+                _ => continue,
             }
         }
 
-        Ok(res)
+        res
     }
 }
 
@@ -537,87 +405,70 @@ impl TryFrom<HashMap<String, f32>> for LogisticRegressionReport {
 impl LogisticRegressionReport {
     pub fn compare_to_baseline(
         &self,
-        metrics: &[ClassificationEvaluationMetrics],
+        metrics: &[ClassificationEvaluationMetric],
         baseline: &Self,
         drift_threshold: f32,
-    ) -> HashMap<String, String> {
+    ) -> HashMap<ClassificationEvaluationMetric, f32> {
         // all the metrics here are used, at this point we have
         // everything correct, thus no Result<T,E>
-        use ClassificationEvaluationMetrics as C;
-        let mut res: HashMap<String, String> = HashMap::with_capacity(7);
+        use ClassificationEvaluationMetric as C;
+        let mut res: HashMap<C, f32> = HashMap::with_capacity(7);
         let drift_factor = 1_f32 - drift_threshold;
         for m in metrics.iter() {
             match *m {
                 C::BalancedAccuracy => {
                     if self.balanced_accuracy < baseline.balanced_accuracy * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "BalancedAccuracy".into(),
+                        res.insert(
+                            C::BalancedAccuracy,
                             baseline.balanced_accuracy - self.balanced_accuracy,
                         );
                     }
                 }
                 C::PrecisionPositive => {
                     if self.precision_positive < baseline.precision_positive * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "PrecisionPositive".into(),
+                        res.insert(
+                            C::PrecisionPositive,
                             baseline.precision_positive - self.precision_positive,
                         );
                     }
                 }
                 C::PrecisionNegative => {
                     if self.precision_negative < baseline.precision_negative * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "PrecisionNegative".into(),
+                        res.insert(
+                            C::PrecisionNegative,
                             baseline.precision_negative - self.precision_negative,
                         );
                     }
                 }
                 C::RecallPositive => {
                     if self.recall_positive < baseline.recall_positive * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "RecallPositive".into(),
+                        res.insert(
+                            C::RecallPositive,
                             baseline.recall_positive - self.recall_positive,
                         );
                     }
                 }
                 C::RecallNegative => {
                     if self.recall_negative < baseline.recall_negative * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "RecallNegative".into(),
+                        res.insert(
+                            C::RecallNegative,
                             baseline.recall_negative - self.recall_negative,
                         );
                     }
                 }
                 C::Accuracy => {
                     if self.accuracy < baseline.accuracy * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "Accuracy".into(),
-                            baseline.accuracy - self.accuracy,
-                        );
+                        res.insert(C::Accuracy, baseline.accuracy - self.accuracy);
                     }
                 }
                 C::F1Score => {
                     if self.f1_score < baseline.f1_score * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "F1Score".into(),
-                            baseline.f1_score - self.f1_score,
-                        );
+                        res.insert(C::F1Score, baseline.f1_score - self.f1_score);
                     }
                 }
                 C::LogLoss => {
                     if self.log_loss < baseline.log_loss * drift_factor {
-                        update_failure_report_below(
-                            &mut res,
-                            "F1Score".into(),
-                            baseline.log_loss - self.log_loss,
-                        );
+                        res.insert(C::F1Score, baseline.log_loss - self.log_loss);
                     }
                 }
             }
@@ -840,84 +691,52 @@ impl LinearRegressionReport {
 impl LinearRegressionReport {
     pub fn compare_to_baseline(
         &self,
-        metrics: &[LinearRegressionEvaluationMetrics],
+        metrics: &[LinearRegressionEvaluationMetric],
         baseline: &LinearRegressionReport,
         drift_threshold: f32,
-    ) -> HashMap<String, String> {
-        use LinearRegressionEvaluationMetrics as L;
-        let mut res: HashMap<String, String> = HashMap::with_capacity(8);
+    ) -> HashMap<LinearRegressionEvaluationMetric, f32> {
+        use LinearRegressionEvaluationMetric as L;
+        let mut res: HashMap<L, f32> = HashMap::with_capacity(8);
         for m in metrics.iter() {
             match *m {
                 L::RootMeanSquaredError => {
                     if self.rmse > baseline.rmse * (1_f32 + drift_threshold) {
-                        update_failure_report_above(
-                            &mut res,
-                            "RootMeanSquaredError".into(),
-                            self.rmse - baseline.rmse,
-                        );
+                        res.insert(L::RootMeanSquaredError, self.rmse - baseline.rmse);
                     }
                 }
                 L::MeanSquaredError => {
                     if self.mse > baseline.mse * (1_f32 + drift_threshold) {
-                        update_failure_report_above(
-                            &mut res,
-                            "MeanSquaredError".into(),
-                            self.mse - baseline.mse,
-                        );
+                        res.insert(L::MeanSquaredError, self.mse - baseline.mse);
                     }
                 }
                 L::MeanAbsoluteError => {
                     if self.mae > baseline.mae * (1_f32 + drift_threshold) {
-                        update_failure_report_above(
-                            &mut res,
-                            "MeanAbsoluteError".into(),
-                            self.mae - baseline.mae,
-                        );
+                        res.insert(L::MeanAbsoluteError, self.mae - baseline.mae);
                     }
                 }
                 L::RSquared => {
                     if self.r_squared > baseline.r_squared * (1_f32 + drift_threshold) {
-                        update_failure_report_above(
-                            &mut res,
-                            "RSquared".into(),
-                            self.r_squared - baseline.r_squared,
-                        );
+                        res.insert(L::RSquared, self.r_squared - baseline.r_squared);
                     }
                 }
                 L::MaxError => {
                     if self.max_error > baseline.max_error * (1_f32 + drift_threshold) {
-                        update_failure_report_above(
-                            &mut res,
-                            "MaxError".into(),
-                            self.max_error - baseline.max_error,
-                        );
+                        res.insert(L::MaxError, self.max_error - baseline.max_error);
                     }
                 }
                 L::MeanSquaredLogError => {
                     if self.msle > baseline.msle * (1_f32 + drift_threshold) {
-                        update_failure_report_above(
-                            &mut res,
-                            "MeanSquaredLogError".into(),
-                            self.msle - baseline.msle,
-                        );
+                        res.insert(L::MeanSquaredLogError, self.msle - baseline.msle);
                     }
                 }
                 L::RootMeanSquaredLogError => {
                     if self.rmsle > baseline.rmsle * (1_f32 + drift_threshold) {
-                        update_failure_report_above(
-                            &mut res,
-                            "RootMeanSquaredLogError".into(),
-                            self.rmsle - baseline.rmsle,
-                        );
+                        res.insert(L::RootMeanSquaredLogError, self.rmsle - baseline.rmsle);
                     }
                 }
                 L::MeanAbsolutePercentageError => {
                     if self.mape > baseline.mape * (1_f32 + drift_threshold) {
-                        update_failure_report_above(
-                            &mut res,
-                            "MeanAbsolutePercentageError".into(),
-                            self.mape - baseline.mape,
-                        );
+                        res.insert(L::MeanAbsolutePercentageError, self.mape - baseline.mape);
                     }
                 }
             }
