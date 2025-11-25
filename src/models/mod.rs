@@ -1,6 +1,4 @@
-use crate::DataBiasMetric;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize)]
 pub enum ModelType {

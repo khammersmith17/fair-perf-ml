@@ -1,41 +1,118 @@
 use crate::metrics::ModelBiasMetric;
-#[cfg(feature = "python")]
-use pyo3::{
-    exceptions::PySystemError,
-    types::{IntoPyDict, PyDict},
-    Bound, PyResult, Python,
-};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub(crate) mod core;
 
-pub struct ModelBiasAnalysisReport(HashMap<ModelBiasMetric, f32>);
+pub type ModelBiasAnalysisReport = HashMap<ModelBiasMetric, f32>;
 
-impl ModelBiasAnalysisReport {
-    fn new(cap: usize) -> ModelBiasAnalysisReport {
-        let inner: HashMap<ModelBiasMetric, f32> = HashMap::with_capacity(cap);
-        Self(inner)
+#[cfg(feature = "python")]
+pub(crate) mod py_api {
+    use super::core::model_bias_analysis_core;
+    use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict};
+    use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
+    use crate::reporting::DriftReport;
+    use crate::runtime::ModelBiasRuntime;
+    use numpy::PyUntypedArray;
+    use pyo3::{
+        exceptions::{PyTypeError, PyValueError},
+        prelude::*,
+        types::{IntoPyDict, PyDict},
+        Bound, PyResult, Python,
+    };
+    use std::collections::HashMap;
+
+    #[pyfunction]
+    #[pyo3(signature = (baseline, latest, metrics, threshold=0.10))]
+    pub fn model_bias_partial_check<'py>(
+        py: Python<'py>,
+        baseline: HashMap<String, f32>,
+        latest: HashMap<String, f32>,
+        metrics: Vec<String>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let metrics = match ModelBiasMetricVec::try_from(metrics.as_slice()) {
+            Ok(m) => m,
+            Err(e) => return Err(e.into()),
+        };
+
+        let current = match ModelBiasRuntime::try_from(latest) {
+            Ok(obj) => obj,
+            Err(e) => return Err(e.into()),
+        };
+        let baseline = match ModelBiasRuntime::try_from(baseline) {
+            Ok(obj) => obj,
+            Err(e) => return Err(e.into()),
+        };
+        let failure_report: HashMap<ModelBiasMetric, f32> =
+            current.runtime_check(baseline, threshold, metrics.as_ref());
+
+        let drift_report: DriftReport<ModelBiasMetric> = DriftReport::from_runtime(failure_report);
+
+        let py_dict = drift_report.into_py_dict(py)?;
+
+        Ok(py_dict)
     }
 
-    fn insert(&mut self, metric: ModelBiasMetric, val: f32) {
-        self.0.insert(metric, val);
+    #[pyfunction]
+    #[pyo3(signature = (baseline, latest, threshold=0.10))]
+    pub fn model_bias_runtime_check<'py>(
+        py: Python<'py>,
+        baseline: HashMap<String, f32>,
+        latest: HashMap<String, f32>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let current = match ModelBiasRuntime::try_from(latest) {
+            Ok(obj) => obj,
+            Err(e) => return Err(e.into()),
+        };
+        let baseline = match ModelBiasRuntime::try_from(baseline) {
+            Ok(obj) => obj,
+            Err(e) => return Err(e.into()),
+        };
+        let failure_report: HashMap<ModelBiasMetric, f32> =
+            current.runtime_check(baseline, threshold, &FULL_MODEL_BIAS_METRICS);
+
+        let drift_report: DriftReport<ModelBiasMetric> = DriftReport::from_runtime(failure_report);
+
+        let py_dict = drift_report.into_py_dict(py)?;
+
+        Ok(py_dict)
     }
 
-    #[cfg(feature = "python")]
-    pub fn into_py_dict(self, py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
-        let map = self
-            .0
-            .into_iter()
-            .map(|(m, v)| (m.to_string(), v))
-            .collect::<HashMap<String, f32>>();
-        match map.into_py_dict(py) {
-            Ok(py_dict) => Ok(py_dict),
-            Err(e) => Err(PySystemError::new_err(format!(
-                "Unable to convert HashMap into dict: {:?}",
-                e
-            ))),
-        }
+    #[pyfunction]
+    #[pyo3(signature = (feature_array, ground_truth_array, prediction_array, feature_label_or_threshold, 
+        ground_truth_label_or_threshold, prediction_label_or_threshold))]
+    pub fn model_bias_analyzer<'py>(
+        py: Python<'py>,
+        feature_array: &Bound<'py, PyUntypedArray>,
+        ground_truth_array: &Bound<'py, PyUntypedArray>,
+        prediction_array: &Bound<'py, PyUntypedArray>,
+        feature_label_or_threshold: Bound<'py, PyAny>,
+        ground_truth_label_or_threshold: Bound<'py, PyAny>,
+        prediction_label_or_threshold: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let preds: Vec<i16> = match apply_label(py, prediction_array, prediction_label_or_threshold)
+        {
+            Ok(array) => array,
+            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
+        };
+        let gt: Vec<i16> =
+            match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
+                Ok(array) => array,
+                Err(err) => return Err(PyTypeError::new_err(err.to_string())),
+            };
+        let feats: Vec<i16> = match apply_label(py, feature_array, feature_label_or_threshold) {
+            Ok(array) => array,
+            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
+        };
+
+        let analysis_res = match model_bias_analysis_core(feats, preds, gt) {
+            Ok(res) => res,
+            Err(e) => return Err(PyValueError::new_err(e)),
+        };
+
+        let py_dict = report_to_py_dict(py, analysis_res);
+        Ok(py_dict)
     }
 }
 
@@ -371,7 +448,7 @@ pub fn generalized_entropy(data: &PostTrainingData) -> f32 {
 pub fn post_training_bias(data: PostTrainingData) -> ModelBiasAnalysisReport {
     use ModelBiasMetric as M;
     let pre_computed_data: PostTrainingComputations = data.general_data_computations();
-    let mut result = ModelBiasAnalysisReport::new(12);
+    let mut result: HashMap<ModelBiasMetric, f32> = HashMap::with_capacity(12);
     result.insert(
         M::DifferenceInPositivePredictedLabels,
         diff_in_pos_proportion_in_pred_labels(&data),

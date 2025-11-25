@@ -5,13 +5,8 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use pyo3::{exceptions::PyValueError, PyErr};
 
-pub type ModelBiasRuntimeReport = HashMap<ModelBiasMetric, String>;
-pub type DataBiasRuntimeReport = HashMap<DataBiasMetric, String>;
-
-pub trait RuntimeReport {}
-
-impl RuntimeReport for ModelBiasRuntimeReport {}
-impl RuntimeReport for DataBiasRuntimeReport {}
+pub type ModelBiasRuntimeReport = HashMap<ModelBiasMetric, f32>;
+pub type DataBiasRuntimeReport = HashMap<DataBiasMetric, f32>;
 
 #[derive(Debug, Error)]
 pub enum DataBiasRuntimeError {
@@ -99,7 +94,7 @@ impl DataBiasRuntime {
         baseline: DataBiasRuntime,
         threshold: f32,
         metrics: &[DataBiasMetric],
-    ) -> HashMap<DataBiasMetric, f32> {
+    ) -> DataBiasRuntimeReport {
         let mut result: HashMap<DataBiasMetric, f32> = HashMap::with_capacity(metrics.len());
         for m in metrics {
             match m {
@@ -179,6 +174,14 @@ pub enum ModelBiasRuntimeError {
     DifferenceInRejectionRate,
     #[error("GeneralizedEntropy not present")]
     GeneralizedEntropy,
+}
+
+#[cfg(feature = "python")]
+impl Into<PyErr> for ModelBiasRuntimeError {
+    fn into(self) -> PyErr {
+        let err_msg = self.to_string();
+        PyValueError::new_err(err_msg)
+    }
 }
 
 pub struct ModelBiasRuntime {
@@ -272,7 +275,7 @@ impl ModelBiasRuntime {
         baseline: ModelBiasRuntime,
         threshold: f32,
         metrics: &[ModelBiasMetric],
-    ) -> HashMap<ModelBiasMetric, f32> {
+    ) -> ModelBiasRuntimeReport {
         use ModelBiasMetric as M;
         let mut result: HashMap<ModelBiasMetric, f32> = HashMap::with_capacity(metrics.len());
         for m in metrics {

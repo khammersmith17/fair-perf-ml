@@ -1,47 +1,421 @@
 use crate::{
-    data_handler::{determine_type, PassedType},
-    metrics::{
-        ClassificationEvaluationMetric, LinearRegressionEvaluationMetric, ModelPerformanceMetric,
-    },
+    metrics::{ClassificationEvaluationMetric, LinearRegressionEvaluationMetric},
+    reporting::DriftReport,
     zip,
 };
-use numpy::PyUntypedArray;
-use pyo3::prelude::*;
+
 use std::collections::HashMap;
-use std::error::Error;
-// TODO: remove the python bounds on the below methods
-pub fn model_perf_regression<'py>(
-    py: Python<'_>,
-    y_pred_src: &Bound<'_, PyUntypedArray>,
-    y_true_src: &Bound<'_, PyUntypedArray>,
-) -> Result<HashMap<String, f32>, Box<dyn Error>> {
-    let perf: LinearRegressionPerf = LinearRegressionPerf::new(py, y_true_src, y_pred_src)?;
-    let report: LinearRegressionReport = perf.into();
-    Ok(report.generate_report())
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ModelPerformanceError {
+    #[error("Empty data vectors")]
+    EmptyDataVector,
+    #[error("Data vectors must be equal length")]
+    DataVectorLengthMismatch,
 }
 
-pub fn model_perf_classification<'py>(
-    py: Python<'_>,
-    y_pred_src: &Bound<'_, PyUntypedArray>,
-    y_true_src: &Bound<'_, PyUntypedArray>,
-) -> Result<HashMap<String, f32>, Box<dyn Error>> {
-    let perf: ClassificationPerf = ClassificationPerf::new(py, y_true_src, y_pred_src)?;
-    let report: BinaryClassificationReport = perf.into();
-    Ok(report.generate_report())
-}
+pub type BinaryClassificationReport = HashMap<ClassificationEvaluationMetric, f32>;
+pub type LinearRegressionReport = HashMap<LinearRegressionEvaluationMetric, f32>;
+pub type LogisticRegressionReport = HashMap<ClassificationEvaluationMetric, f32>;
 
-pub fn model_perf_logistic_regression<'py>(
-    py: Python<'_>,
-    y_pred_src: &Bound<'_, PyUntypedArray>,
-    y_true_src: &Bound<'_, PyUntypedArray>,
+fn classification_performance_runtime(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    metrics: &[ClassificationEvaluationMetric],
     threshold: f32,
-) -> Result<HashMap<String, f32>, Box<dyn Error>> {
-    let perf: LogisticRegressionPerf =
-        LogisticRegressionPerf::new(py, y_pred_src, y_true_src, threshold)?;
-    let lr_report: LogisticRegressionReport = perf.into();
-    let map = lr_report.report();
-    Ok(map)
+) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
+    let baseline = match BinaryClassificationAnalysisResult::try_from(baseline) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
+    };
+    let latest = match BinaryClassificationAnalysisResult::try_from(latest) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
+    };
+    let res = latest.compare_to_baseline(metrics, &baseline, threshold);
+
+    Ok(DriftReport::from_runtime(res))
 }
+
+fn logistic_performance_runtime(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    metrics: &[ClassificationEvaluationMetric],
+    threshold: f32,
+) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
+    let baseline = match LogisticRegressionAnalysisResult::try_from(baseline) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
+    };
+    let latest = match LogisticRegressionAnalysisResult::try_from(latest) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
+    };
+    let res = latest.compare_to_baseline(metrics, &baseline, threshold);
+    Ok(DriftReport::from_runtime(res))
+}
+
+fn regression_performance_runtime(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    evaluation_metrics: &[LinearRegressionEvaluationMetric],
+    threshold: f32,
+) -> Result<DriftReport<LinearRegressionEvaluationMetric>, String> {
+    let baseline: LinearRegressionAnalysisResult =
+        match LinearRegressionAnalysisResult::try_from(baseline) {
+            Ok(val) => val,
+            Err(e) => return Err(format!("Invalid baseline report: {}", e)),
+        };
+    let latest: LinearRegressionAnalysisResult =
+        match LinearRegressionAnalysisResult::try_from(latest) {
+            Ok(val) => val,
+            Err(e) => return Err(format!("Invalid latest report: {}", e)),
+        };
+
+    let results = latest.compare_to_baseline(&evaluation_metrics, &baseline, threshold);
+    Ok(DriftReport::from_runtime(results))
+}
+
+#[cfg(feature = "python")]
+pub(crate) mod py_api {
+    use super::model_perf_classification;
+    use super::{
+        classification_performance_runtime, logistic_performance_runtime,
+        model_perf_logistic_regression, model_perf_regression, regression_performance_runtime,
+        ModelPerformanceError,
+    };
+    use crate::data_handler::py_types_handler::{determine_type, report_to_py_dict, PassedType};
+    use crate::metrics::{
+        ClassificationMetricVec, LinearRegressionMetricVec, LogisticRegressionMetricVec,
+        FULL_BINARY_CLASSIFICATION_METRICS, FULL_LOGISTIC_REGRESSION_METRICS,
+        FULL_REGRESSION_METRICS,
+    };
+    use numpy::PyUntypedArray;
+    use pyo3::{
+        exceptions::{PyTypeError, PyValueError},
+        prelude::*,
+        types::{IntoPyDict, PyDict},
+        Bound,
+    };
+    use std::collections::HashMap;
+    use std::error::Error;
+    use thiserror::Error;
+
+    #[derive(Debug, Error)]
+    enum PythonTypeError {
+        #[error("Invalid types passed")]
+        TypeError,
+    }
+
+    impl Into<PyErr> for ModelPerformanceError {
+        fn into(self) -> PyErr {
+            let err_msg = self.to_string();
+            PyValueError::new_err(err_msg)
+        }
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (baseline, latest, threshold=0.10))]
+    pub fn py_model_perf_lin_reg_rt_full<'py>(
+        py: Python<'py>,
+        baseline: HashMap<String, f32>,
+        latest: HashMap<String, f32>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let drift_report = regression_performance_runtime(
+            baseline,
+            latest,
+            FULL_REGRESSION_METRICS.as_slice(),
+            threshold,
+        )
+        .unwrap();
+        Ok(drift_report.into_py_dict(py)?)
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (baseline, latest, evaluation_metrics, threshold=0.10))]
+    pub fn py_model_perf_lin_reg_rt_partial<'py>(
+        py: Python<'py>,
+        baseline: HashMap<String, f32>,
+        latest: HashMap<String, f32>,
+        evaluation_metrics: Vec<String>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let metrics_to_eval: LinearRegressionMetricVec =
+            match LinearRegressionMetricVec::try_from(evaluation_metrics.as_slice()) {
+                Ok(m) => m,
+                Err(e) => return Err(e.into()),
+            };
+        let drift_report =
+            regression_performance_runtime(baseline, latest, metrics_to_eval.as_ref(), threshold)
+                .unwrap();
+        Ok(drift_report.into_py_dict(py)?)
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (baseline, latest, evaluation_metrics, threshold=0.10))]
+    pub fn py_model_perf_log_reg_rt_partial<'py>(
+        py: Python<'py>,
+        baseline: HashMap<String, f32>,
+        latest: HashMap<String, f32>,
+        evaluation_metrics: Vec<String>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let metrics_to_eval: LogisticRegressionMetricVec =
+            match LogisticRegressionMetricVec::try_from(evaluation_metrics.as_slice()) {
+                Ok(m) => m,
+                Err(e) => return Err(e.into()),
+            };
+        let drift_report =
+            logistic_performance_runtime(baseline, latest, metrics_to_eval.as_ref(), threshold)
+                .unwrap();
+        Ok(drift_report.into_py_dict(py)?)
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (baseline, latest,  threshold=0.10))]
+    pub fn py_model_perf_log_reg_rt_full<'py>(
+        py: Python<'py>,
+        baseline: HashMap<String, f32>,
+        latest: HashMap<String, f32>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let drift_report = logistic_performance_runtime(
+            baseline,
+            latest,
+            FULL_LOGISTIC_REGRESSION_METRICS.as_slice(),
+            threshold,
+        )
+        .unwrap();
+        Ok(drift_report.into_py_dict(py)?)
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (baseline, latest, evaluation_metrics, threshold=0.10))]
+    pub fn py_model_perf_class_rt_partial<'py>(
+        py: Python<'py>,
+        baseline: HashMap<String, f32>,
+        latest: HashMap<String, f32>,
+        evaluation_metrics: Vec<String>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let metrics_to_eval: ClassificationMetricVec =
+            match ClassificationMetricVec::try_from(evaluation_metrics.as_slice()) {
+                Ok(m) => m,
+                Err(e) => return Err(e.into()),
+            };
+        let drift_report = classification_performance_runtime(
+            baseline,
+            latest,
+            metrics_to_eval.as_ref(),
+            threshold,
+        )
+        .unwrap();
+        Ok(drift_report.into_py_dict(py)?)
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (baseline, latest,  threshold=0.10))]
+    pub fn py_model_perf_class_rt_full<'py>(
+        py: Python<'py>,
+        baseline: HashMap<String, f32>,
+        latest: HashMap<String, f32>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let drift_report = classification_performance_runtime(
+            baseline,
+            latest,
+            FULL_BINARY_CLASSIFICATION_METRICS.as_slice(),
+            threshold,
+        )
+        .unwrap();
+        Ok(drift_report.into_py_dict(py)?)
+    }
+
+    pub fn validate_and_cast_classification(
+        py: Python<'_>,
+        y_true_src: &Bound<'_, PyUntypedArray>,
+        y_pred_src: &Bound<'_, PyUntypedArray>,
+        needs_decision: bool,
+        threshold: Option<f32>,
+    ) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
+        let pred_type = determine_type(py, y_pred_src);
+        let gt_type = determine_type(py, y_true_src);
+
+        if pred_type != gt_type {
+            return Err("Type between y_true and y_pred do not match".into());
+        }
+
+        if needs_decision {
+            let Some(thres) = threshold else {
+                return Err("Threshold must be set for logisitc model type".into());
+            };
+            convert_w_label_application(py, y_true_src, y_pred_src, thres, gt_type, pred_type)
+        } else {
+            let y_pred = convert_f32(py, y_pred_src, pred_type)?;
+            let y_true = convert_f32(py, y_true_src, gt_type)?;
+            Ok((y_pred, y_true))
+        }
+    }
+
+    pub fn validate_and_cast_regression(
+        py: Python<'_>,
+        y_true_src: &Bound<'_, PyUntypedArray>,
+        y_pred_src: &Bound<'_, PyUntypedArray>,
+    ) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
+        let y_true: Vec<f32> = convert_f32(py, y_pred_src, determine_type(py, y_true_src))?;
+        let y_pred: Vec<f32> = convert_f32(py, y_true_src, determine_type(py, y_pred_src))?;
+        Ok((y_true, y_pred))
+    }
+
+    pub fn convert_f32(
+        _py: Python<'_>,
+        arr: &Bound<'_, PyUntypedArray>,
+        passed_type: PassedType,
+    ) -> Result<Vec<f32>, PyErr> {
+        let mut data_container: Vec<f32> = Vec::with_capacity(arr.len()?);
+        // pulls the py data type out
+        // applying labels as usize
+        //
+
+        match passed_type {
+            PassedType::Float => {
+                for item in arr.try_iter()? {
+                    let data = item?.extract::<f64>()? as f32;
+                    data_container.push(data);
+                }
+            }
+            PassedType::Integer => {
+                for item in arr.try_iter()? {
+                    let data = item?.extract::<f32>()? as f32;
+                    data_container.push(data)
+                }
+            }
+            _ => {
+                return Err(PyTypeError::new_err(
+                    "String type in not supported for Regression models",
+                ))
+            }
+        };
+        Ok(data_container)
+    }
+
+    fn convert_w_label_application(
+        py: Python<'_>,
+        y_true_src: &Bound<'_, PyUntypedArray>,
+        y_pred_src: &Bound<'_, PyUntypedArray>,
+        threshold: f32,
+        true_passed_type: PassedType,
+        pred_passed_type: PassedType,
+    ) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
+        let y_pred: Vec<f32> = convert_f32(py, y_pred_src, pred_passed_type)?
+            .iter()
+            .map(|x| if x >= &threshold { 1_f32 } else { 0_f32 })
+            .collect::<Vec<f32>>();
+        let y_true: Vec<f32> = convert_f32(py, y_true_src, true_passed_type)?
+            .iter()
+            .map(|x| if x >= &threshold { 1_f32 } else { 0_f32 })
+            .collect::<Vec<f32>>();
+        Ok((y_pred, y_true))
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (y_pred_src, y_true_src))]
+    pub fn py_model_perf_regression<'py>(
+        py: Python<'py>,
+        y_pred_src: &Bound<'_, PyUntypedArray>,
+        y_true_src: &Bound<'_, PyUntypedArray>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let Ok((y_true, y_pred)) = validate_and_cast_regression(py, y_true_src, y_pred_src) else {
+            return Err(PyValueError::new_err("Invalid types passed"));
+        };
+        let report = match model_perf_regression(y_true, y_pred) {
+            Ok(r) => r,
+            Err(e) => return Err(e.into()),
+        };
+        Ok(report_to_py_dict(py, report))
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (y_pred_src, y_true_src))]
+    pub fn py_model_perf_classification<'py>(
+        py: Python<'py>,
+        y_pred_src: &Bound<'py, PyUntypedArray>,
+        y_true_src: &Bound<'py, PyUntypedArray>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        // coerce py types
+        let true_type: PassedType = determine_type(py, y_true_src);
+        let Ok(y_true) = convert_f32(py, y_true_src, true_type) else {
+            return Err(PyValueError::new_err("Invalid types passed"));
+        };
+        let pred_type = determine_type(py, y_pred_src);
+        let Ok(y_pred) = convert_f32(py, y_pred_src, pred_type) else {
+            return Err(PyValueError::new_err("Invalid types passed"));
+        };
+
+        let report = match model_perf_classification(y_true, y_pred) {
+            Ok(r) => r,
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(report_to_py_dict(py, report))
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (y_pred_src, y_true_src, threshold))]
+    pub fn py_model_perf_logistic_regression<'py>(
+        py: Python<'py>,
+        y_pred_src: &Bound<'py, PyUntypedArray>,
+        y_true_src: &Bound<'py, PyUntypedArray>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        // coerce py types
+        let true_type: PassedType = determine_type(py, y_true_src);
+        let Ok(y_true) = convert_f32(py, y_true_src, true_type) else {
+            return Err(PyTypeError::new_err("Invalid types passed"));
+        };
+        let pred_type = determine_type(py, y_pred_src);
+        let Ok(y_proba) = convert_f32(py, y_pred_src, pred_type) else {
+            return Err(PyTypeError::new_err("Invalid type passed"));
+        };
+
+        let report = match model_perf_logistic_regression(y_true, y_proba, threshold) {
+            Ok(r) => r,
+            Err(e) => return Err(e.into()),
+        };
+        Ok(report_to_py_dict(py, report))
+    }
+}
+
+pub fn model_perf_classification(
+    y_true: Vec<f32>,
+    y_pred: Vec<f32>,
+) -> Result<BinaryClassificationReport, ModelPerformanceError> {
+    let perf: ClassificationPerf = ClassificationPerf::new(y_true, y_pred)?;
+    let report: BinaryClassificationAnalysisResult = perf.into();
+    Ok(report.generate_report())
+}
+
+pub fn model_perf_regression(
+    y_true: Vec<f32>,
+    y_pred: Vec<f32>,
+) -> Result<LinearRegressionReport, ModelPerformanceError> {
+    let perf: LinearRegressionPerf = LinearRegressionPerf::new(y_true, y_pred)?;
+    let report: LinearRegressionAnalysisResult = perf.into();
+    Ok(report.generate_report())
+}
+
+pub fn model_perf_logistic_regression(
+    y_true: Vec<f32>,
+    y_proba: Vec<f32>,
+    threshold: f32,
+) -> Result<LogisticRegressionReport, ModelPerformanceError> {
+    let perf: LogisticRegressionPerf = LogisticRegressionPerf::new(y_true, y_proba, threshold)?;
+    let lr_report: LogisticRegressionAnalysisResult = perf.into();
+    Ok(lr_report.generate_report())
+}
+
 struct GeneralClassificationMetrics;
 
 impl GeneralClassificationMetrics {
@@ -121,88 +495,15 @@ impl GeneralClassificationMetrics {
         }
     }
 }
-pub struct PerfEntry;
 
-impl PerfEntry {
-    fn validate_and_cast_classification(
-        py: Python<'_>,
-        y_true_src: &Bound<'_, PyUntypedArray>,
-        y_pred_src: &Bound<'_, PyUntypedArray>,
-        needs_decision: bool,
-        threshold: Option<f32>,
-    ) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
-        let pred_type: PassedType = determine_type(py, y_pred_src);
-        let gt_type: PassedType = determine_type(py, y_true_src);
+//pub struct PerfEntry;
 
-        if pred_type != gt_type {
-            return Err("Type between y_true and y_pred do not match".into());
-        }
+//impl PerfEntry {
+#[cfg(feature = "python")]
+mod py_perf_entry {}
 
-        if needs_decision {
-            let Some(thres) = threshold else {
-                return Err("Threshold must be set for logisitc model type".into());
-            };
-            Self::convert_w_label_application(py, y_true_src, y_pred_src, thres, gt_type, pred_type)
-        } else {
-            let y_pred = Self::convert_f32(py, y_pred_src, pred_type)?;
-            let y_true = Self::convert_f32(py, y_true_src, gt_type)?;
-            Ok((y_pred, y_true))
-        }
-    }
-
-    pub fn validate_and_cast_regression(
-        py: Python<'_>,
-        y_true_src: &Bound<'_, PyUntypedArray>,
-        y_pred_src: &Bound<'_, PyUntypedArray>,
-    ) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
-        let y_true: Vec<f32> = Self::convert_f32(py, y_pred_src, determine_type(py, y_true_src))?;
-        let y_pred: Vec<f32> = Self::convert_f32(py, y_true_src, determine_type(py, y_pred_src))?;
-        Ok((y_true, y_pred))
-    }
-
-    fn convert_f32(
-        _py: Python<'_>,
-        arr: &Bound<'_, PyUntypedArray>,
-        passed_type: PassedType,
-    ) -> Result<Vec<f32>, Box<dyn Error>> {
-        // pulls the py data type out
-        // applying labels as usize
-        let res: Vec<f32> = match passed_type {
-            PassedType::Float => arr
-                .try_iter()?
-                .map(|item| item.unwrap().extract::<f64>().unwrap() as f32)
-                .collect::<Vec<f32>>(),
-            PassedType::Integer => arr
-                .try_iter()?
-                .clone()
-                .map(|item| item.unwrap().extract::<f32>().unwrap() as f32)
-                .collect::<Vec<f32>>(),
-            _ => panic!("Data of type String is not supported"),
-        };
-        Ok(res)
-    }
-
-    fn convert_w_label_application(
-        py: Python<'_>,
-        y_true_src: &Bound<'_, PyUntypedArray>,
-        y_pred_src: &Bound<'_, PyUntypedArray>,
-        threshold: f32,
-        true_passed_type: PassedType,
-        pred_passed_type: PassedType,
-    ) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
-        let y_pred: Vec<f32> = Self::convert_f32(py, y_pred_src, pred_passed_type)?
-            .iter()
-            .map(|x| if x >= &threshold { 1_f32 } else { 0_f32 })
-            .collect::<Vec<f32>>();
-        let y_true: Vec<f32> = Self::convert_f32(py, y_true_src, true_passed_type)?
-            .iter()
-            .map(|x| if x >= &threshold { 1_f32 } else { 0_f32 })
-            .collect::<Vec<f32>>();
-        Ok((y_pred, y_true))
-    }
-}
-
-pub struct BinaryClassificationReport {
+// TODO: change to follow the pattern in bias monitors
+pub struct BinaryClassificationAnalysisResult {
     balanced_accuracy: f32,
     precision_positive: f32,
     precision_negative: f32,
@@ -212,21 +513,22 @@ pub struct BinaryClassificationReport {
     f1_score: f32,
 }
 
-impl BinaryClassificationReport {
-    pub fn generate_report(&self) -> HashMap<String, f32> {
-        let mut map: HashMap<String, f32> = HashMap::with_capacity(7);
-        map.insert("BalancedAccuracy".into(), self.balanced_accuracy);
-        map.insert("PrecisionPositive".into(), self.precision_positive);
-        map.insert("PrecisionNegative".into(), self.precision_negative);
-        map.insert("RecallPositive".into(), self.recall_positive);
-        map.insert("RecallNegative".into(), self.recall_negative);
-        map.insert("Accuracy".into(), self.accuracy);
-        map.insert("F1Score".into(), self.f1_score);
+impl BinaryClassificationAnalysisResult {
+    pub fn generate_report(&self) -> BinaryClassificationReport {
+        use ClassificationEvaluationMetric as C;
+        let mut map: HashMap<C, f32> = HashMap::with_capacity(7);
+        map.insert(C::BalancedAccuracy, self.balanced_accuracy);
+        map.insert(C::PrecisionPositive, self.precision_positive);
+        map.insert(C::PrecisionNegative, self.precision_negative);
+        map.insert(C::RecallPositive, self.recall_positive);
+        map.insert(C::RecallNegative, self.recall_negative);
+        map.insert(C::Accuracy, self.accuracy);
+        map.insert(C::F1Score, self.f1_score);
         map
     }
 }
 
-impl TryFrom<HashMap<String, f32>> for BinaryClassificationReport {
+impl TryFrom<HashMap<String, f32>> for BinaryClassificationAnalysisResult {
     type Error = String;
     fn try_from(map: HashMap<String, f32>) -> Result<Self, Self::Error> {
         let Some(balanced_accuracy) = map.get("BalancedAccuracy") else {
@@ -251,7 +553,7 @@ impl TryFrom<HashMap<String, f32>> for BinaryClassificationReport {
             return Err("Invalid regression report".into());
         };
 
-        Ok(BinaryClassificationReport {
+        Ok(BinaryClassificationAnalysisResult {
             balanced_accuracy: *balanced_accuracy,
             precision_positive: *precision_positive,
             precision_negative: *precision_negative,
@@ -263,7 +565,7 @@ impl TryFrom<HashMap<String, f32>> for BinaryClassificationReport {
     }
 }
 
-impl BinaryClassificationReport {
+impl BinaryClassificationAnalysisResult {
     pub fn compare_to_baseline(
         &self,
         metrics: &[ClassificationEvaluationMetric],
@@ -335,7 +637,7 @@ impl BinaryClassificationReport {
     }
 }
 
-pub struct LogisticRegressionReport {
+pub struct LogisticRegressionAnalysisResult {
     balanced_accuracy: f32,
     precision_positive: f32,
     precision_negative: f32,
@@ -346,22 +648,23 @@ pub struct LogisticRegressionReport {
     log_loss: f32,
 }
 
-impl LogisticRegressionReport {
-    pub fn report(&self) -> HashMap<String, f32> {
-        let mut map: HashMap<String, f32> = HashMap::with_capacity(8);
-        map.insert("BalancedAccuracy".into(), self.balanced_accuracy);
-        map.insert("PrecisionPositive".into(), self.precision_positive);
-        map.insert("PrecisionNegative".into(), self.precision_negative);
-        map.insert("RecallPositive".into(), self.recall_positive);
-        map.insert("RecallNegative".into(), self.recall_negative);
-        map.insert("Accuracy".into(), self.accuracy);
-        map.insert("F1Score".into(), self.f1_score);
-        map.insert("LogLoss".into(), self.log_loss);
+impl LogisticRegressionAnalysisResult {
+    pub fn generate_report(&self) -> LogisticRegressionReport {
+        use ClassificationEvaluationMetric as M;
+        let mut map: HashMap<M, f32> = HashMap::with_capacity(8);
+        map.insert(M::BalancedAccuracy, self.balanced_accuracy);
+        map.insert(M::PrecisionPositive, self.precision_positive);
+        map.insert(M::PrecisionNegative, self.precision_negative);
+        map.insert(M::RecallPositive, self.recall_positive);
+        map.insert(M::RecallNegative, self.recall_negative);
+        map.insert(M::Accuracy, self.accuracy);
+        map.insert(M::F1Score, self.f1_score);
+        map.insert(M::LogLoss, self.log_loss);
         map
     }
 }
 
-impl TryFrom<HashMap<String, f32>> for LogisticRegressionReport {
+impl TryFrom<HashMap<String, f32>> for LogisticRegressionAnalysisResult {
     type Error = String;
     fn try_from(map: HashMap<String, f32>) -> Result<Self, Self::Error> {
         let Some(balanced_accuracy) = map.get("BalancedAccuracy") else {
@@ -389,7 +692,7 @@ impl TryFrom<HashMap<String, f32>> for LogisticRegressionReport {
             return Err("Invalid regression report".into());
         };
 
-        Ok(LogisticRegressionReport {
+        Ok(LogisticRegressionAnalysisResult {
             balanced_accuracy: *balanced_accuracy,
             precision_positive: *precision_positive,
             precision_negative: *precision_negative,
@@ -402,7 +705,7 @@ impl TryFrom<HashMap<String, f32>> for LogisticRegressionReport {
     }
 }
 
-impl LogisticRegressionReport {
+impl LogisticRegressionAnalysisResult {
     pub fn compare_to_baseline(
         &self,
         metrics: &[ClassificationEvaluationMetric],
@@ -484,15 +787,19 @@ pub struct ClassificationPerf {
     y_true: Vec<f32>,
 }
 
-impl Into<BinaryClassificationReport> for ClassificationPerf {
-    fn into(self) -> BinaryClassificationReport {
+impl ClassificationPerf {
+    pub fn generate_report(&self) {}
+}
+
+impl Into<BinaryClassificationAnalysisResult> for ClassificationPerf {
+    fn into(self) -> BinaryClassificationAnalysisResult {
         let recall_positive =
             GeneralClassificationMetrics::recall_positive(&self.y_pred, &self.y_true);
         let precision_positive =
             GeneralClassificationMetrics::precision_positive(&self.y_pred, &self.y_true);
         let recall_negative =
             GeneralClassificationMetrics::recall_negative(&self.y_pred, &self.y_true, self.len);
-        BinaryClassificationReport {
+        BinaryClassificationAnalysisResult {
             balanced_accuracy: GeneralClassificationMetrics::balanced_accuracy(
                 recall_positive,
                 recall_negative,
@@ -517,17 +824,14 @@ impl Into<BinaryClassificationReport> for ClassificationPerf {
 
 impl ClassificationPerf {
     pub fn new(
-        py: Python<'_>,
-        y_true_src: &Bound<'_, PyUntypedArray>,
-        y_pred_src: &Bound<'_, PyUntypedArray>,
-    ) -> Result<ClassificationPerf, Box<dyn Error>> {
-        let (y_pred, y_true) =
-            PerfEntry::validate_and_cast_classification(py, y_true_src, y_pred_src, false, None)?;
+        y_true: Vec<f32>,
+        y_pred: Vec<f32>,
+    ) -> Result<ClassificationPerf, ModelPerformanceError> {
         if y_true.len() != y_pred.len() {
-            return Err("Arrays have different lengths".into());
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
         if y_pred.len() == 0 {
-            return Err("Arrays have no data".into());
+            return Err(ModelPerformanceError::EmptyDataVector);
         }
         let len: f32 = y_pred.len() as f32;
         let mean_f: f32 = 1_f32 / len;
@@ -540,6 +844,8 @@ impl ClassificationPerf {
     }
 }
 
+//TODO: update to only hold 1 vec for proba
+//compute label inline
 struct LogisticRegressionPerf {
     y_true: Vec<f32>,
     y_pred: Vec<f32>,
@@ -549,25 +855,18 @@ struct LogisticRegressionPerf {
 }
 
 impl LogisticRegressionPerf {
-    fn new(
-        py: Python<'_>,
-        y_pred_src: &Bound<'_, PyUntypedArray>,
-        y_true_src: &Bound<'_, PyUntypedArray>,
+    pub fn new(
+        y_true: Vec<f32>,
+        y_proba: Vec<f32>,
         threshold: f32,
-    ) -> Result<LogisticRegressionPerf, Box<dyn Error>> {
-        let true_type: PassedType = determine_type(py, y_true_src);
-        let y_true: Vec<f32> = PerfEntry::convert_f32(py, y_true_src, true_type)?;
-        let pred_type = determine_type(py, y_pred_src);
-        let y_proba: Vec<f32> = PerfEntry::convert_f32(py, y_pred_src, pred_type)?;
-
+    ) -> Result<LogisticRegressionPerf, ModelPerformanceError> {
         if y_true.len() != y_proba.len() {
-            return Err("Arrays have different lengths".into());
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
 
         if y_proba.len() == 0 {
-            return Err("Arrays have no data".into());
+            return Err(ModelPerformanceError::EmptyDataVector);
         }
-
         let y_pred = y_proba
             .clone()
             .iter()
@@ -586,15 +885,15 @@ impl LogisticRegressionPerf {
     }
 }
 
-impl Into<LogisticRegressionReport> for LogisticRegressionPerf {
-    fn into(self) -> LogisticRegressionReport {
+impl Into<LogisticRegressionAnalysisResult> for LogisticRegressionPerf {
+    fn into(self) -> LogisticRegressionAnalysisResult {
         let recall_positive =
             GeneralClassificationMetrics::recall_positive(&self.y_pred, &self.y_true);
         let precision_positive =
             GeneralClassificationMetrics::precision_positive(&self.y_pred, &self.y_true);
         let recall_negative =
             GeneralClassificationMetrics::recall_negative(&self.y_pred, &self.y_true, self.len);
-        LogisticRegressionReport {
+        LogisticRegressionAnalysisResult {
             balanced_accuracy: GeneralClassificationMetrics::balanced_accuracy(
                 recall_positive,
                 recall_negative,
@@ -622,7 +921,7 @@ impl Into<LogisticRegressionReport> for LogisticRegressionPerf {
     }
 }
 
-pub struct LinearRegressionReport {
+pub struct LinearRegressionAnalysisResult {
     rmse: f32,
     mse: f32,
     mae: f32,
@@ -633,7 +932,7 @@ pub struct LinearRegressionReport {
     mape: f32,
 }
 
-impl TryFrom<HashMap<String, f32>> for LinearRegressionReport {
+impl TryFrom<HashMap<String, f32>> for LinearRegressionAnalysisResult {
     type Error = String;
     fn try_from(map: HashMap<String, f32>) -> Result<Self, Self::Error> {
         let Some(rmse) = map.get("RootMeanSquaredError") else {
@@ -660,7 +959,7 @@ impl TryFrom<HashMap<String, f32>> for LinearRegressionReport {
         let Some(mape) = map.get("MeanAbsolutePercentageError") else {
             return Err("Invalid regression report".into());
         };
-        Ok(LinearRegressionReport {
+        Ok(LinearRegressionAnalysisResult {
             rmse: *rmse,
             mse: *mse,
             mae: *mae,
@@ -673,26 +972,27 @@ impl TryFrom<HashMap<String, f32>> for LinearRegressionReport {
     }
 }
 
-impl LinearRegressionReport {
-    pub fn generate_report(&self) -> HashMap<String, f32> {
-        let mut map: HashMap<String, f32> = HashMap::with_capacity(8);
-        map.insert("RootMeanSquaredError".into(), self.rmse);
-        map.insert("MeanSquaredError".into(), self.mse);
-        map.insert("MeanAbsoluteError".into(), self.mae);
-        map.insert("RSquared".into(), self.r_squared);
-        map.insert("MaxError".into(), self.max_error);
-        map.insert("MeanSquaredLogError".into(), self.msle);
-        map.insert("RootMeanSquaredLogError".into(), self.rmsle);
-        map.insert("MeanAbsolutePercentageError".into(), self.mape);
+impl LinearRegressionAnalysisResult {
+    pub fn generate_report(&self) -> LinearRegressionReport {
+        use LinearRegressionEvaluationMetric as L;
+        let mut map: HashMap<L, f32> = HashMap::with_capacity(8);
+        map.insert(L::RootMeanSquaredError, self.rmse);
+        map.insert(L::MeanSquaredError, self.mse);
+        map.insert(L::MeanAbsoluteError, self.mae);
+        map.insert(L::RSquared, self.r_squared);
+        map.insert(L::MaxError, self.max_error);
+        map.insert(L::MeanSquaredLogError, self.msle);
+        map.insert(L::RootMeanSquaredLogError, self.rmsle);
+        map.insert(L::MeanAbsolutePercentageError, self.mape);
         map
     }
 }
 
-impl LinearRegressionReport {
+impl LinearRegressionAnalysisResult {
     pub fn compare_to_baseline(
         &self,
         metrics: &[LinearRegressionEvaluationMetric],
-        baseline: &LinearRegressionReport,
+        baseline: &LinearRegressionAnalysisResult,
         drift_threshold: f32,
     ) -> HashMap<LinearRegressionEvaluationMetric, f32> {
         use LinearRegressionEvaluationMetric as L;
@@ -751,9 +1051,9 @@ pub struct LinearRegressionPerf {
     mean_f: f32,
 }
 
-impl Into<LinearRegressionReport> for LinearRegressionPerf {
-    fn into(self) -> LinearRegressionReport {
-        LinearRegressionReport {
+impl Into<LinearRegressionAnalysisResult> for LinearRegressionPerf {
+    fn into(self) -> LinearRegressionAnalysisResult {
+        LinearRegressionAnalysisResult {
             rmse: self.root_mean_squared_error(),
             mse: self.mean_squared_error(),
             mae: self.mean_absolute_error(),
@@ -768,16 +1068,14 @@ impl Into<LinearRegressionReport> for LinearRegressionPerf {
 
 impl LinearRegressionPerf {
     pub fn new(
-        py: Python<'_>,
-        y_pred_src: &Bound<'_, PyUntypedArray>,
-        y_true_src: &Bound<'_, PyUntypedArray>,
-    ) -> Result<LinearRegressionPerf, Box<dyn Error>> {
-        let (y_true, y_pred) = PerfEntry::validate_and_cast_regression(py, y_true_src, y_pred_src)?;
+        y_true: Vec<f32>,
+        y_pred: Vec<f32>,
+    ) -> Result<LinearRegressionPerf, ModelPerformanceError> {
         if y_true.len() != y_pred.len() {
-            return Err("Arrays have different lengths".into());
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
         if y_true.len() == 0 {
-            return Err("Arrays are emtpy".into());
+            return Err(ModelPerformanceError::EmptyDataVector);
         }
         let mean_f: f32 = 1_f32 / y_pred.len() as f32;
         Ok(LinearRegressionPerf {

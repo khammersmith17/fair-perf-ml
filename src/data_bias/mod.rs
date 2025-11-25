@@ -1,42 +1,123 @@
-use crate::metrics::DataBiasMetric;
+use crate::metrics::{DataBiasMetric, FULL_DATA_BIAS_METRICS};
+use crate::runtime::DataBiasRuntime;
 use std::collections::HashMap;
-
-#[cfg(feature = "python")]
-use pyo3::{
-    exceptions::{PySystemError, PyValueError},
-    types::{IntoPyDict, PyDict},
-    Bound, PyErr, PyResult, Python,
-};
-
 pub(crate) mod core;
 
-pub struct DataBiasAnalysisReport(HashMap<DataBiasMetric, f32>);
+pub type DataBiasAnalysisReport = HashMap<DataBiasMetric, f32>;
 
-impl DataBiasAnalysisReport {
-    fn new(cap: usize) -> DataBiasAnalysisReport {
-        let inner: HashMap<DataBiasMetric, f32> = HashMap::with_capacity(cap);
-        Self(inner)
+#[cfg(feature = "python")]
+pub(crate) mod py_api {
+    use super::core::data_bias_analysis_core;
+    use super::data_bias_runtime_check;
+    use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict};
+    use crate::metrics::{DataBiasMetric, DataBiasMetricVec};
+    use crate::reporting::DriftReport;
+    use crate::runtime::DataBiasRuntime;
+    use numpy::PyUntypedArray;
+    use pyo3::{
+        exceptions::{PyTypeError, PyValueError},
+        prelude::*,
+        types::{IntoPyDict, PyDict},
+        Bound, PyResult, Python,
+    };
+    use std::collections::HashMap;
+
+    #[pyfunction]
+    #[pyo3(signature = (feature_array, ground_truth_array, feature_label_or_threshold, ground_truth_label_or_threshold))]
+    pub fn py_data_bias_analyzer<'py>(
+        py: Python<'py>,
+        feature_array: &Bound<'py, PyUntypedArray>,
+        ground_truth_array: &Bound<'py, PyUntypedArray>,
+        feature_label_or_threshold: Bound<'py, PyAny>, //fix
+        ground_truth_label_or_threshold: Bound<'py, PyAny>, //fix
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let gt = match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
+            Ok(array) => array,
+            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
+        };
+
+        let feats = match apply_label(py, feature_array, feature_label_or_threshold) {
+            Ok(array) => array,
+            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
+        };
+
+        let res = match data_bias_analysis_core(gt, feats) {
+            Ok(r) => r,
+            Err(e) => return Err(PyValueError::new_err(e)),
+        };
+
+        let py_dict = report_to_py_dict(py, res);
+        Ok(py_dict)
     }
 
-    fn insert(&mut self, metric: DataBiasMetric, val: f32) {
-        self.0.insert(metric, val);
+    #[pyfunction]
+    #[pyo3(signature = (baseline, latest, threshold=0.10))]
+    pub fn py_data_bias_runtime_check<'py>(
+        py: Python<'py>,
+        baseline: HashMap<String, f32>,
+        latest: HashMap<String, f32>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let current = match DataBiasRuntime::try_from(latest) {
+            Ok(obj) => obj,
+            Err(e) => return Err(e.into()),
+        };
+
+        let baseline = match DataBiasRuntime::try_from(baseline) {
+            Ok(obj) => obj,
+            Err(e) => return Err(e.into()),
+        };
+        let failure_report = data_bias_runtime_check(baseline, current, threshold);
+        let drift_report: DriftReport<DataBiasMetric> = DriftReport::from_runtime(failure_report);
+
+        Ok(drift_report.into_py_dict(py)?)
     }
 
-    #[cfg(feature = "python")]
-    pub fn into_py_dict(self, py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
-        let map = self
-            .0
-            .into_iter()
-            .map(|(m, v)| (m.to_string(), v))
-            .collect::<HashMap<String, f32>>();
-        match map.into_py_dict(py) {
-            Ok(py_dict) => Ok(py_dict),
-            Err(e) => Err(PySystemError::new_err(format!(
-                "Unable to convert HashMap into dict: {:?}",
-                e
-            ))),
-        }
+    #[pyfunction]
+    #[pyo3(signature = (baseline, latest, metrics, threshold=0.10))]
+    pub fn py_data_bias_partial_check<'py>(
+        py: Python<'py>,
+        baseline: HashMap<String, f32>,
+        latest: HashMap<String, f32>,
+        metrics: Vec<String>,
+        threshold: f32,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let metrics = match DataBiasMetricVec::try_from(metrics.as_slice()) {
+            Ok(m) => m,
+            Err(e) => return Err(e.into()),
+        };
+        let current = match DataBiasRuntime::try_from(latest) {
+            Ok(obj) => obj,
+            Err(e) => return Err(e.into()),
+        };
+
+        let baseline = match DataBiasRuntime::try_from(baseline) {
+            Ok(obj) => obj,
+            Err(e) => return Err(e.into()),
+        };
+        let failure_report: HashMap<DataBiasMetric, f32> =
+            current.runtime_check(baseline, threshold, metrics.as_ref());
+
+        let drift_report: DriftReport<DataBiasMetric> = DriftReport::from_runtime(failure_report);
+        Ok(drift_report.into_py_dict(py)?)
     }
+}
+
+pub fn data_bias_runtime_check(
+    baseline: DataBiasRuntime,
+    current: DataBiasRuntime,
+    threshold: f32,
+) -> HashMap<DataBiasMetric, f32> {
+    current.runtime_check(baseline, threshold, &FULL_DATA_BIAS_METRICS)
+}
+
+pub fn data_bias_partial_check(
+    baseline: DataBiasRuntime,
+    latest: DataBiasRuntime,
+    metrics: Vec<DataBiasMetric>,
+    threshold: f32,
+) -> HashMap<DataBiasMetric, f32> {
+    latest.runtime_check(baseline, threshold, &metrics)
 }
 
 pub struct PreTraining {
@@ -144,7 +225,7 @@ pub fn kolmorogv_smirnov(data: &PreTraining) -> f32 {
 pub fn pre_training_bias(data: PreTraining) -> DataBiasAnalysisReport {
     use DataBiasMetric as M;
     let computed_data: PreTrainingComputations = data.generate();
-    let mut result = DataBiasAnalysisReport::new(7);
+    let mut result: HashMap<DataBiasMetric, f32> = HashMap::with_capacity(7);
     result.insert(M::ClassImbalance, class_imbalance(&data));
     result.insert(
         M::DifferenceInProportionOfLabels,

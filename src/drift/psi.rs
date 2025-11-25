@@ -268,7 +268,7 @@ impl ContinuousPSI {
 
 #[cfg(feature = "python")]
 #[pyclass]
-struct PyContinuousPSI {
+pub(crate) struct PyContinuousPSI {
     inner: ContinuousPSI,
 }
 
@@ -438,7 +438,7 @@ impl StreamingContinuousPSI {
 
 #[cfg(feature = "python")]
 #[pyclass]
-struct PyStreamingContinuousPSI {
+pub(crate) struct PyStreamingContinuousPSI {
     inner: StreamingContinuousPSI,
 }
 
@@ -677,7 +677,7 @@ impl CategoricalPSI {
 
 #[cfg(feature = "python")]
 #[pyclass]
-struct PyCategoricalPSI {
+pub(crate) struct PyCategoricalPSI {
     inner: CategoricalPSI,
 }
 
@@ -832,7 +832,7 @@ impl StreamingCategoricalPSI {
 
 #[cfg(feature = "python")]
 #[pyclass]
-struct PyStreamingCategoricalPSI {
+pub(crate) struct PyStreamingCategoricalPSI {
     inner: StreamingCategoricalPSI,
 }
 
