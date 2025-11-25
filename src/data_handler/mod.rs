@@ -1,7 +1,3 @@
-use super::data_bias::PreTraining;
-use super::model_bias::PostTrainingData;
-use crate::zip;
-
 #[cfg(feature = "python")]
 pub(crate) mod py_types_handler {
     use super::{apply_label_continuous, apply_label_discrete};
@@ -67,7 +63,7 @@ pub(crate) mod py_types_handler {
                 }
 
                 let data_label: String = label.extract::<String>()?;
-                apply_label_discrete(data_vec, data_label)
+                apply_label_discrete(&data_vec, data_label)
             }
             PassedType::Float => {
                 let mut data_vec: Vec<f64> = Vec::with_capacity(arr_len);
@@ -90,9 +86,9 @@ pub(crate) mod py_types_handler {
                     .collect::<std::collections::HashSet<_>>();
 
                 if data_set.len() == 2 {
-                    apply_label_discrete(data_vec, data_label)
+                    apply_label_discrete(&data_vec, data_label)
                 } else {
-                    apply_label_continuous(data_vec, data_label)
+                    apply_label_continuous(&data_vec, data_label)
                 }
             }
             PassedType::Integer => {
@@ -117,9 +113,9 @@ pub(crate) mod py_types_handler {
                 };
 
                 if data_set.len() == 2 {
-                    apply_label_discrete(data_vec, data_label)
+                    apply_label_discrete(&data_vec, data_label)
                 } else {
-                    apply_label_continuous(data_vec, data_label)
+                    apply_label_continuous(&data_vec, data_label)
                 }
             }
         };
@@ -127,65 +123,7 @@ pub(crate) mod py_types_handler {
     }
 }
 
-pub fn perform_segmentation_data_bias(
-    feature_values: Vec<i16>,
-    ground_truth_values: Vec<i16>,
-) -> Result<PreTraining, String> {
-    let mut facet_a: Vec<i16> = Vec::new();
-    let mut facet_d: Vec<i16> = Vec::new();
-
-    for (feature, ground_truth) in zip!(feature_values, ground_truth_values) {
-        match *feature {
-            1_i16 => {
-                facet_a.push(ground_truth);
-            }
-            _ => facet_d.push(ground_truth),
-        }
-    }
-
-    if facet_a.is_empty() | facet_d.is_empty() {
-        return Err("No deviation".into());
-    }
-
-    Ok(PreTraining { facet_a, facet_d })
-}
-
-pub fn perform_segmentation_model_bias(
-    feature_values: Vec<i16>,
-    prediction_values: Vec<i16>,
-    ground_truth_values: Vec<i16>,
-) -> Result<PostTrainingData, String> {
-    let mut facet_a_trues: Vec<i16> = Vec::new();
-    let mut facet_a_scores: Vec<i16> = Vec::new();
-    let mut facet_d_scores: Vec<i16> = Vec::new();
-    let mut facet_d_trues: Vec<i16> = Vec::new();
-
-    for (feature, (prediction, ground_truth)) in
-        zip!(feature_values, prediction_values, ground_truth_values)
-    {
-        match *feature {
-            1_i16 => {
-                facet_a_trues.push(ground_truth);
-                facet_a_scores.push(*prediction);
-            }
-            _ => {
-                facet_d_trues.push(ground_truth);
-                facet_d_scores.push(*prediction);
-            }
-        }
-    }
-    if facet_a_trues.is_empty() | facet_d_trues.is_empty() {
-        return Err("no deviaton".into());
-    }
-    Ok(PostTrainingData {
-        facet_a_trues,
-        facet_a_scores,
-        facet_d_trues,
-        facet_d_scores,
-    })
-}
-
-fn apply_label_discrete<T>(array: Vec<T>, label: T) -> Vec<i16>
+pub(crate) fn apply_label_discrete<T>(array: &[T], label: T) -> Vec<i16>
 where
     T: PartialEq<T>,
 {
@@ -196,7 +134,7 @@ where
     labeled_array
 }
 
-fn apply_label_continuous<T>(array: Vec<T>, threshold: T) -> Vec<i16>
+pub(crate) fn apply_label_continuous<T>(array: &[T], threshold: T) -> Vec<i16>
 where
     T: PartialOrd<T>,
 {

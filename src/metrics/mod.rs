@@ -1,36 +1,14 @@
 use crate::drift::psi::StringLike;
+use crate::errors::InvalidMetricError;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
-use thiserror::Error;
 
-#[cfg(feature = "python")]
-use pyo3::{exceptions::PyValueError, PyErr};
-
+// purely for generic trait bounds
 pub trait MachineLearningMetric {}
 impl MachineLearningMetric for DataBiasMetric {}
 impl MachineLearningMetric for ModelBiasMetric {}
 impl MachineLearningMetric for ClassificationEvaluationMetric {}
 impl MachineLearningMetric for LinearRegressionEvaluationMetric {}
-
-#[derive(Debug, Error)]
-pub enum InvalidMetricError {
-    #[error("Metrics: {0:?} are not supported")]
-    DataBiasMetricError(Vec<String>),
-    #[error("Metrics: {0:?} are not supported")]
-    ModelBiasMetricError(Vec<String>),
-    #[error("Metrics: {0:?} are not supported")]
-    ClassificationMetricError(Vec<String>),
-    #[error("Metrics: {0:?} are not supported")]
-    RegressionMetricError(Vec<String>),
-}
-
-#[cfg(feature = "python")]
-impl Into<PyErr> for InvalidMetricError {
-    fn into(self) -> PyErr {
-        let err_msg = self.to_string();
-        PyValueError::new_err(err_msg)
-    }
-}
 
 pub struct DataBiasMetricVec(Vec<DataBiasMetric>);
 impl AsRef<[DataBiasMetric]> for DataBiasMetricVec {

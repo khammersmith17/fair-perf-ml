@@ -1,26 +1,11 @@
 use crate::{
+    errors::ModelPerformanceError,
     metrics::{ClassificationEvaluationMetric, LinearRegressionEvaluationMetric},
     reporting::DriftReport,
     zip,
 };
 
 use std::collections::HashMap;
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum ModelPerformanceError {
-    #[error("Empty data vectors")]
-    EmptyDataVector,
-    #[error("Data vectors must be equal length")]
-    DataVectorLengthMismatch,
-    // py only errors
-    #[allow(unused)]
-    #[error("Data Vector type mistmatch")]
-    DataVectorTypeMismatch,
-    #[allow(unused)]
-    #[error("UnSupportedType")]
-    UnsupportedTypeError,
-}
 
 pub type BinaryClassificationReport = HashMap<ClassificationEvaluationMetric, f32>;
 pub type LinearRegressionReport = HashMap<LinearRegressionEvaluationMetric, f32>;
@@ -232,34 +217,6 @@ pub(crate) mod py_api {
         Ok(drift_report.into_py_dict(py)?)
     }
 
-    /*
-    pub fn validate_and_cast_classification(
-        py: Python<'_>,
-        y_true_src: &Bound<'_, PyUntypedArray>,
-        y_pred_src: &Bound<'_, PyUntypedArray>,
-        needs_decision: bool,
-        threshold: Option<f32>,
-    ) -> Result<(Vec<f32>, Vec<f32>), ModelPerformanceError> {
-        let pred_type = determine_type(py, y_pred_src);
-        let gt_type = determine_type(py, y_true_src);
-
-        if pred_type != gt_type {
-            return Err(ModelPerformanceError::DataVectorTypeMismatch);
-        }
-
-        if needs_decision {
-            let Some(thres) = threshold else {
-                return Err("Threshold must be set for logisitc model type".into());
-            };
-            convert_w_label_application(py, y_true_src, y_pred_src, thres, gt_type, pred_type)
-        } else {
-            let y_pred = convert_f32(py, y_pred_src, pred_type)?;
-            let y_true = convert_f32(py, y_true_src, gt_type)?;
-            Ok((y_pred, y_true))
-        }
-    }
-    */
-
     pub fn validate_and_cast_regression(
         py: Python<'_>,
         y_true_src: &Bound<'_, PyUntypedArray>,
@@ -297,27 +254,6 @@ pub(crate) mod py_api {
         };
         Ok(data_container)
     }
-
-    /*
-    fn convert_w_label_application(
-        py: Python<'_>,
-        y_true_src: &Bound<'_, PyUntypedArray>,
-        y_pred_src: &Bound<'_, PyUntypedArray>,
-        threshold: f32,
-        true_passed_type: PassedType,
-        pred_passed_type: PassedType,
-    ) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
-        let y_pred: Vec<f32> = convert_f32(py, y_pred_src, pred_passed_type)?
-            .iter()
-            .map(|x| if x >= &threshold { 1_f32 } else { 0_f32 })
-            .collect::<Vec<f32>>();
-        let y_true: Vec<f32> = convert_f32(py, y_true_src, true_passed_type)?
-            .iter()
-            .map(|x| if x >= &threshold { 1_f32 } else { 0_f32 })
-            .collect::<Vec<f32>>();
-        Ok((y_pred, y_true))
-    }
-    */
 
     #[pyfunction]
     #[pyo3(signature = (y_pred_src, y_true_src))]

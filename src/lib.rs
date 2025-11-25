@@ -1,6 +1,7 @@
 pub mod data_bias;
 pub(crate) mod data_handler;
 pub mod drift;
+pub mod errors;
 mod macros;
 pub mod metrics;
 pub mod model_bias;
@@ -31,7 +32,7 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     use data_bias::py_api::{
         py_data_bias_analyzer, py_data_bias_partial_check, py_data_bias_runtime_check,
     };
-    use drift::psi::{
+    use drift::psi::py_api::{
         PyCategoricalPSI, PyContinuousPSI, PyStreamingCategoricalPSI, PyStreamingContinuousPSI,
     };
     use model_bias::py_api::{

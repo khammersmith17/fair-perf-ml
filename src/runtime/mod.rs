@@ -1,38 +1,9 @@
+use crate::errors::{DataBiasRuntimeError, ModelBiasRuntimeError};
 use crate::metrics::{DataBiasMetric, ModelBiasMetric};
 use std::collections::HashMap;
-use thiserror::Error;
-
-#[cfg(feature = "python")]
-use pyo3::{exceptions::PyValueError, PyErr};
 
 pub type ModelBiasRuntimeReport = HashMap<ModelBiasMetric, f32>;
 pub type DataBiasRuntimeReport = HashMap<DataBiasMetric, f32>;
-
-#[derive(Debug, Error)]
-pub enum DataBiasRuntimeError {
-    #[error("ClassImbalance not present")]
-    ClassImbalance,
-    #[error("DifferenceInProportionOfLabels not present")]
-    DifferenceInProportionOfLabels,
-    #[error("KlDivergence not present")]
-    KlDivergence,
-    #[error("JsDivergence not present")]
-    JsDivergence,
-    #[error("TotalVariationDistance not present")]
-    TotalVariationDistance,
-    #[error("KolmorogvSmirnov not present")]
-    KolmorogvSmirnov,
-    #[error("LpNorm not present")]
-    LpNorm,
-}
-
-#[cfg(feature = "python")]
-impl Into<PyErr> for DataBiasRuntimeError {
-    fn into(self) -> PyErr {
-        let err_msg = self.to_string();
-        PyValueError::new_err(err_msg)
-    }
-}
 
 pub struct DataBiasRuntime {
     ci: f32,
@@ -145,42 +116,6 @@ impl DataBiasRuntime {
             }
         }
         result
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum ModelBiasRuntimeError {
-    #[error("DifferenceInPositivePredictedLabels not present")]
-    DifferenceInPositivePredictedLabels,
-    #[error("DisparateImpact not present")]
-    DisparateImpact,
-    #[error("AccuracyDifference not present")]
-    AccuracyDifference,
-    #[error("RecallDifference not present")]
-    RecallDifference,
-    #[error("DifferenceInConditionalAcceptance not present")]
-    DifferenceInConditionalAcceptance,
-    #[error("DifferenceInAcceptanceRate not present")]
-    DifferenceInAcceptanceRate,
-    #[error("SpecialityDifference not present")]
-    SpecialityDifference,
-    #[error("DifferenceInConditionalRejection not present")]
-    DifferenceInConditionalRejection,
-    #[error("TreatmentEquity not present")]
-    TreatmentEquity,
-    #[error("ConditionalDemographicDesparityPredictedLabels not present")]
-    ConditionalDemographicDesparityPredictedLabels,
-    #[error("DifferenceInRejectionRate not present")]
-    DifferenceInRejectionRate,
-    #[error("GeneralizedEntropy not present")]
-    GeneralizedEntropy,
-}
-
-#[cfg(feature = "python")]
-impl Into<PyErr> for ModelBiasRuntimeError {
-    fn into(self) -> PyErr {
-        let err_msg = self.to_string();
-        PyValueError::new_err(err_msg)
     }
 }
 
