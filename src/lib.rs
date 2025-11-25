@@ -1,10 +1,10 @@
-mod data_bias;
+pub mod data_bias;
 pub(crate) mod data_handler;
 pub mod drift;
 mod macros;
 pub mod metrics;
-mod model_bias;
-mod model_perf;
+pub mod model_bias;
+pub mod model_perf;
 mod models;
 pub mod reporting;
 mod runtime;

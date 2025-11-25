@@ -21,8 +21,7 @@ use pyo3::{
 * an api to Python contexts via a pyclass wrapper
 * */
 
-pub(crate) trait StringLike: AsRef<str> + Eq + Hash + ToString {}
-
+pub trait StringLike: AsRef<str> + Eq + Hash + ToString {}
 impl<T> StringLike for T where T: AsRef<str> + Eq + Hash + ToString {}
 
 const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;

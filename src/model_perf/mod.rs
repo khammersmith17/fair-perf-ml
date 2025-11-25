@@ -13,6 +13,13 @@ pub enum ModelPerformanceError {
     EmptyDataVector,
     #[error("Data vectors must be equal length")]
     DataVectorLengthMismatch,
+    // py only errors
+    #[allow(unused)]
+    #[error("Data Vector type mistmatch")]
+    DataVectorTypeMismatch,
+    #[allow(unused)]
+    #[error("UnSupportedType")]
+    UnsupportedTypeError,
 }
 
 pub type BinaryClassificationReport = HashMap<ClassificationEvaluationMetric, f32>;
@@ -99,14 +106,6 @@ pub(crate) mod py_api {
         Bound,
     };
     use std::collections::HashMap;
-    use std::error::Error;
-    use thiserror::Error;
-
-    #[derive(Debug, Error)]
-    enum PythonTypeError {
-        #[error("Invalid types passed")]
-        TypeError,
-    }
 
     impl Into<PyErr> for ModelPerformanceError {
         fn into(self) -> PyErr {
@@ -233,18 +232,19 @@ pub(crate) mod py_api {
         Ok(drift_report.into_py_dict(py)?)
     }
 
+    /*
     pub fn validate_and_cast_classification(
         py: Python<'_>,
         y_true_src: &Bound<'_, PyUntypedArray>,
         y_pred_src: &Bound<'_, PyUntypedArray>,
         needs_decision: bool,
         threshold: Option<f32>,
-    ) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
+    ) -> Result<(Vec<f32>, Vec<f32>), ModelPerformanceError> {
         let pred_type = determine_type(py, y_pred_src);
         let gt_type = determine_type(py, y_true_src);
 
         if pred_type != gt_type {
-            return Err("Type between y_true and y_pred do not match".into());
+            return Err(ModelPerformanceError::DataVectorTypeMismatch);
         }
 
         if needs_decision {
@@ -258,12 +258,13 @@ pub(crate) mod py_api {
             Ok((y_pred, y_true))
         }
     }
+    */
 
     pub fn validate_and_cast_regression(
         py: Python<'_>,
         y_true_src: &Bound<'_, PyUntypedArray>,
         y_pred_src: &Bound<'_, PyUntypedArray>,
-    ) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
+    ) -> Result<(Vec<f32>, Vec<f32>), PyErr> {
         let y_true: Vec<f32> = convert_f32(py, y_pred_src, determine_type(py, y_true_src))?;
         let y_pred: Vec<f32> = convert_f32(py, y_true_src, determine_type(py, y_pred_src))?;
         Ok((y_true, y_pred))
@@ -292,15 +293,12 @@ pub(crate) mod py_api {
                     data_container.push(data)
                 }
             }
-            _ => {
-                return Err(PyTypeError::new_err(
-                    "String type in not supported for Regression models",
-                ))
-            }
+            _ => return Err(ModelPerformanceError::UnsupportedTypeError.into()),
         };
         Ok(data_container)
     }
 
+    /*
     fn convert_w_label_application(
         py: Python<'_>,
         y_true_src: &Bound<'_, PyUntypedArray>,
@@ -319,6 +317,7 @@ pub(crate) mod py_api {
             .collect::<Vec<f32>>();
         Ok((y_pred, y_true))
     }
+    */
 
     #[pyfunction]
     #[pyo3(signature = (y_pred_src, y_true_src))]
@@ -785,10 +784,6 @@ pub struct ClassificationPerf {
     mean_f: f32,
     y_pred: Vec<f32>,
     y_true: Vec<f32>,
-}
-
-impl ClassificationPerf {
-    pub fn generate_report(&self) {}
 }
 
 impl Into<BinaryClassificationAnalysisResult> for ClassificationPerf {

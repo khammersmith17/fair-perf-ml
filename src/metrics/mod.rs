@@ -6,8 +6,7 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use pyo3::{exceptions::PyValueError, PyErr};
 
-pub(crate) trait MachineLearningMetric {}
-
+pub trait MachineLearningMetric {}
 impl MachineLearningMetric for DataBiasMetric {}
 impl MachineLearningMetric for ModelBiasMetric {}
 impl MachineLearningMetric for ClassificationEvaluationMetric {}
@@ -466,10 +465,3 @@ impl std::fmt::Display for LinearRegressionEvaluationMetric {
         }
     }
 }
-
-pub(crate) trait ModelPerfMetricBase {}
-impl ModelPerfMetricBase for ClassificationEvaluationMetric {}
-impl ModelPerfMetricBase for LinearRegressionEvaluationMetric {}
-
-pub(crate) trait ModelPerformanceMetric: Eq + Hash + ModelPerfMetricBase {}
-impl<T> ModelPerformanceMetric for T where T: Eq + Hash + ModelPerfMetricBase {}
