@@ -1,15 +1,13 @@
 use crate::{
     errors::ModelPerformanceError,
     metrics::{ClassificationEvaluationMetric, LinearRegressionEvaluationMetric},
-    reporting::DriftReport,
+    reporting::{
+        BinaryClassificationReport, DriftReport, LinearRegressionReport, LogisticRegressionReport,
+    },
     zip,
 };
 
 use std::collections::HashMap;
-
-pub type BinaryClassificationReport = HashMap<ClassificationEvaluationMetric, f32>;
-pub type LinearRegressionReport = HashMap<LinearRegressionEvaluationMetric, f32>;
-pub type LogisticRegressionReport = HashMap<ClassificationEvaluationMetric, f32>;
 
 fn classification_performance_runtime(
     baseline: HashMap<String, f32>,

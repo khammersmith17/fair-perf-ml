@@ -1,4 +1,5 @@
 use super::{ModelBiasAnalysisReport, PostTrainingComputations, PostTrainingData};
+use crate::errors::BiasError;
 use crate::metrics::ModelBiasMetric;
 use crate::zip;
 use std::collections::HashMap;
@@ -7,7 +8,7 @@ pub fn perform_segmentation_model_bias(
     feature_values: Vec<i16>,
     prediction_values: Vec<i16>,
     ground_truth_values: Vec<i16>,
-) -> Result<PostTrainingData, String> {
+) -> Result<PostTrainingData, BiasError> {
     let mut facet_a_trues: Vec<i16> = Vec::new();
     let mut facet_a_scores: Vec<i16> = Vec::new();
     let mut facet_d_scores: Vec<i16> = Vec::new();
@@ -28,7 +29,7 @@ pub fn perform_segmentation_model_bias(
         }
     }
     if facet_a_trues.is_empty() | facet_d_trues.is_empty() {
-        return Err("no deviaton".into());
+        return Err(BiasError::NoFacetDeviation);
     }
     Ok(PostTrainingData {
         facet_a_trues,
@@ -42,7 +43,7 @@ pub fn model_bias_analysis_core(
     labeled_features: Vec<i16>,
     labeled_predictions: Vec<i16>,
     labeled_ground_truth: Vec<i16>,
-) -> Result<ModelBiasAnalysisReport, String> {
+) -> Result<ModelBiasAnalysisReport, BiasError> {
     let post_training_data = perform_segmentation_model_bias(
         labeled_features,
         labeled_predictions,

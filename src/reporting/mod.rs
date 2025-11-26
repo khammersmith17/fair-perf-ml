@@ -1,6 +1,18 @@
-use crate::metrics::MachineLearningMetric;
-use serde::Serialize;
+use crate::metrics;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Type aliases to document in code where `HashMap<T, f32>' where T is a metric differs from drift
+/// computation and actual computation of the associated statistic for the dataset
+pub type DataBiasRuntimeReport = HashMap<metrics::DataBiasMetric, f32>;
+pub type ModelBiasRuntimeReport = HashMap<metrics::ModelBiasMetric, f32>;
+
+/// Type aliases to document in code maps that represent result from analysis, and not drift degree
+pub type ModelBiasAnalysisReport = HashMap<metrics::ModelBiasMetric, f32>;
+pub type DataBiasAnalysisReport = HashMap<metrics::DataBiasMetric, f32>;
+pub type BinaryClassificationReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
+pub type LinearRegressionReport = HashMap<metrics::LinearRegressionEvaluationMetric, f32>;
+pub type LogisticRegressionReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 
 #[cfg(feature = "python")]
 use pyo3::{
@@ -8,13 +20,13 @@ use pyo3::{
     Bound, PyResult, Python,
 };
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct MetricDrift<T> {
     metric: T,
     drift: f32,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct DriftReport<T> {
     pub passed: bool,
     pub failed_report: Option<Vec<MetricDrift<T>>>,
@@ -22,7 +34,7 @@ pub struct DriftReport<T> {
 
 impl<T> DriftReport<T>
 where
-    T: MachineLearningMetric + Serialize + std::fmt::Display,
+    T: metrics::MachineLearningMetric + Serialize + std::fmt::Display,
 {
     pub(crate) fn from_runtime(runtime: HashMap<T, f32>) -> DriftReport<T> {
         if runtime.is_empty() {
@@ -47,7 +59,7 @@ where
 #[cfg(feature = "python")]
 impl<T> IntoPyDict<'_> for DriftReport<T>
 where
-    T: MachineLearningMetric + Serialize + std::fmt::Display,
+    T: metrics::MachineLearningMetric + Serialize + std::fmt::Display,
 {
     fn into_py_dict(self, py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
         let dict = PyDict::new(py);

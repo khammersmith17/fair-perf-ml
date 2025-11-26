@@ -1,11 +1,11 @@
 use super::{DataBiasAnalysisReport, PreTraining, PreTrainingComputations};
-use crate::{errors::DataBiasError, zip};
+use crate::{errors::BiasError, zip};
 use std::collections::HashMap;
 
 pub fn data_bias_analysis_core(
     labeled_features: Vec<i16>,
     labeled_ground_truth: Vec<i16>,
-) -> Result<DataBiasAnalysisReport, DataBiasError> {
+) -> Result<DataBiasAnalysisReport, BiasError> {
     let pre_training = perform_segmentation_data_bias(labeled_features, labeled_ground_truth)?;
     Ok(pre_training_bias(pre_training))
 }
@@ -13,7 +13,7 @@ pub fn data_bias_analysis_core(
 pub fn perform_segmentation_data_bias(
     feature_values: Vec<i16>,
     ground_truth_values: Vec<i16>,
-) -> Result<PreTraining, DataBiasError> {
+) -> Result<PreTraining, BiasError> {
     let mut facet_a: Vec<i16> = Vec::new();
     let mut facet_d: Vec<i16> = Vec::new();
 
@@ -27,7 +27,7 @@ pub fn perform_segmentation_data_bias(
     }
 
     if facet_a.is_empty() | facet_d.is_empty() {
-        return Err(DataBiasError::NoFacetDeviation);
+        return Err(BiasError::NoFacetDeviation);
     }
 
     Ok(PreTraining { facet_a, facet_d })

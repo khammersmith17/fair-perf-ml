@@ -63,7 +63,7 @@ pub(crate) mod py_types_handler {
                 }
 
                 let data_label: String = label.extract::<String>()?;
-                apply_label_discrete(&data_vec, data_label)
+                apply_label_discrete(&data_vec, &data_label)
             }
             PassedType::Float => {
                 let mut data_vec: Vec<f64> = Vec::with_capacity(arr_len);
@@ -86,9 +86,9 @@ pub(crate) mod py_types_handler {
                     .collect::<std::collections::HashSet<_>>();
 
                 if data_set.len() == 2 {
-                    apply_label_discrete(&data_vec, data_label)
+                    apply_label_discrete(&data_vec, &data_label)
                 } else {
-                    apply_label_continuous(&data_vec, data_label)
+                    apply_label_continuous(&data_vec, &data_label)
                 }
             }
             PassedType::Integer => {
@@ -113,9 +113,9 @@ pub(crate) mod py_types_handler {
                 };
 
                 if data_set.len() == 2 {
-                    apply_label_discrete(&data_vec, data_label)
+                    apply_label_discrete(&data_vec, &data_label)
                 } else {
-                    apply_label_continuous(&data_vec, data_label)
+                    apply_label_continuous(&data_vec, &data_label)
                 }
             }
         };
@@ -123,24 +123,61 @@ pub(crate) mod py_types_handler {
     }
 }
 
-pub(crate) fn apply_label_discrete<T>(array: &[T], label: T) -> Vec<i16>
+#[derive(PartialEq)]
+pub enum BiasSegmentationType {
+    Continuous,
+    Discrete,
+}
+
+pub struct BiasDataPayload<'a, T> {
+    data: &'a [T],
+    segmentation_criteria: T,
+    segmentation_type: BiasSegmentationType,
+}
+
+impl<'a, T> BiasDataPayload<'a, T>
+where
+    T: PartialEq + PartialOrd,
+{
+    pub fn new(
+        data: &'a [T],
+        segmentation_criteria: T,
+        segmentation_type: BiasSegmentationType,
+    ) -> BiasDataPayload<'a, T> {
+        BiasDataPayload {
+            data,
+            segmentation_criteria,
+            segmentation_type,
+        }
+    }
+
+    pub(crate) fn generate_labeled_data(&self) -> Vec<i16> {
+        if self.segmentation_type == BiasSegmentationType::Discrete {
+            apply_label_discrete(self.data, &self.segmentation_criteria)
+        } else {
+            apply_label_continuous(self.data, &self.segmentation_criteria)
+        }
+    }
+}
+
+fn apply_label_discrete<T>(array: &[T], label: &T) -> Vec<i16>
 where
     T: PartialEq<T>,
 {
     let labeled_array: Vec<i16> = array
         .iter()
-        .map(|value| if *value == label { 1_i16 } else { 0_i16 })
+        .map(|value| if value == label { 1_i16 } else { 0_i16 })
         .collect();
     labeled_array
 }
 
-pub(crate) fn apply_label_continuous<T>(array: &[T], threshold: T) -> Vec<i16>
+fn apply_label_continuous<T>(array: &[T], threshold: &T) -> Vec<i16>
 where
     T: PartialOrd<T>,
 {
     let labeled_array: Vec<i16> = array
         .iter()
-        .map(|value| if *value >= threshold { 1_i16 } else { 0_i16 })
+        .map(|value| if value >= threshold { 1_i16 } else { 0_i16 })
         .collect();
     labeled_array
 }

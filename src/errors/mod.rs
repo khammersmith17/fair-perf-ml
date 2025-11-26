@@ -1,11 +1,13 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum DataBiasError {
+pub enum BiasError {
     #[error("No deviation in behavior between facets")]
     NoFacetDeviation,
     #[error("No segmentation parameters provided")]
     NoSegmentationParameters,
+    #[error("Ambiguous segmentation parameters")]
+    AmbiguousSegmentationParameters,
 }
 
 #[derive(Debug, Error)]
@@ -129,6 +131,13 @@ pub(crate) mod py_errors {
     }
 
     impl Into<PyErr> for InvalidMetricError {
+        fn into(self) -> PyErr {
+            let err_msg = self.to_string();
+            exceptions::PyValueError::new_err(err_msg)
+        }
+    }
+
+    impl Into<PyErr> for BiasError {
         fn into(self) -> PyErr {
             let err_msg = self.to_string();
             exceptions::PyValueError::new_err(err_msg)

@@ -1,11 +1,12 @@
-use crate::metrics::ModelBiasMetric;
+use crate::data_handler::BiasDataPayload;
+use crate::errors::{BiasError, ModelBiasRuntimeError};
+use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
+use crate::runtime::ModelBiasRuntime;
 use std::collections::HashMap;
-pub (crate) mod statistics;
-
 pub(crate) mod core;
-
-pub type ModelBiasAnalysisReport = HashMap<ModelBiasMetric, f32>;
-
+pub(crate) mod statistics;
+use crate::reporting::{DriftReport, ModelBiasAnalysisReport};
+use core::model_bias_analysis_core;
 
 //TODO: expose rust apis, see data bias for details
 
@@ -18,7 +19,7 @@ pub(crate) mod py_api {
     use crate::runtime::ModelBiasRuntime;
     use numpy::PyUntypedArray;
     use pyo3::{
-        exceptions::{PyTypeError, PyValueError},
+        exceptions::PyTypeError,
         prelude::*,
         types::{IntoPyDict, PyDict},
         Bound, PyResult, Python,
@@ -27,7 +28,7 @@ pub(crate) mod py_api {
 
     #[pyfunction]
     #[pyo3(signature = (baseline, latest, metrics, threshold=0.10))]
-    pub fn model_bias_partial_check<'py>(
+    pub fn py_model_bias_partial_check<'py>(
         py: Python<'py>,
         baseline: HashMap<String, f32>,
         latest: HashMap<String, f32>,
@@ -59,7 +60,7 @@ pub(crate) mod py_api {
 
     #[pyfunction]
     #[pyo3(signature = (baseline, latest, threshold=0.10))]
-    pub fn model_bias_runtime_check<'py>(
+    pub fn py_model_bias_runtime_check<'py>(
         py: Python<'py>,
         baseline: HashMap<String, f32>,
         latest: HashMap<String, f32>,
@@ -84,9 +85,9 @@ pub(crate) mod py_api {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (feature_array, ground_truth_array, prediction_array, feature_label_or_threshold, 
+    #[pyo3(signature = (feature_array, ground_truth_array, prediction_array, feature_label_or_threshold,
         ground_truth_label_or_threshold, prediction_label_or_threshold))]
-    pub fn model_bias_analyzer<'py>(
+    pub fn py_model_bias_analyzer<'py>(
         py: Python<'py>,
         feature_array: &Bound<'py, PyUntypedArray>,
         ground_truth_array: &Bound<'py, PyUntypedArray>,
@@ -112,12 +113,67 @@ pub(crate) mod py_api {
 
         let analysis_res = match model_bias_analysis_core(feats, preds, gt) {
             Ok(res) => res,
-            Err(e) => return Err(PyValueError::new_err(e)),
+            Err(e) => return Err(e.into()),
         };
 
         let py_dict = report_to_py_dict(py, analysis_res);
         Ok(py_dict)
     }
+}
+
+pub fn model_bias_runtime_check(
+    baseline: ModelBiasAnalysisReport,
+    latest: ModelBiasAnalysisReport,
+    threshold: f32,
+) -> Result<DriftReport<ModelBiasMetric>, ModelBiasRuntimeError> {
+    let current = match ModelBiasRuntime::try_from(latest) {
+        Ok(obj) => obj,
+        Err(e) => return Err(e.into()),
+    };
+    let baseline = match ModelBiasRuntime::try_from(baseline) {
+        Ok(obj) => obj,
+        Err(e) => return Err(e.into()),
+    };
+    let failure_report: HashMap<ModelBiasMetric, f32> =
+        current.runtime_check(baseline, threshold, &FULL_MODEL_BIAS_METRICS);
+
+    let drift_report: DriftReport<ModelBiasMetric> = DriftReport::from_runtime(failure_report);
+
+    Ok(drift_report)
+}
+
+pub fn model_bias_partial_runtime_check(
+    baseline: ModelBiasAnalysisReport,
+    latest: ModelBiasAnalysisReport,
+    threshold: f32,
+    metrics: ModelBiasMetricVec,
+) -> Result<DriftReport<ModelBiasMetric>, ModelBiasRuntimeError> {
+    let current = ModelBiasRuntime::try_from(latest)?;
+    let baseline = ModelBiasRuntime::try_from(baseline)?;
+    let failure_report: HashMap<ModelBiasMetric, f32> =
+        current.runtime_check(baseline, threshold, metrics.as_ref());
+
+    let drift_report: DriftReport<ModelBiasMetric> = DriftReport::from_runtime(failure_report);
+
+    Ok(drift_report)
+}
+
+pub fn model_bias_analyzer<'a, F, P, G>(
+    feature: BiasDataPayload<'a, F>,
+    predictions: BiasDataPayload<'a, P>,
+    ground_truth: BiasDataPayload<'a, G>,
+) -> Result<ModelBiasAnalysisReport, BiasError>
+where
+    G: PartialEq + PartialOrd,
+    F: PartialEq + PartialOrd,
+    P: PartialEq + PartialOrd,
+{
+    let labeled_features = feature.generate_labeled_data();
+    let labeled_gt = ground_truth.generate_labeled_data();
+    let labeled_preds = predictions.generate_labeled_data();
+
+    let analysis_res = model_bias_analysis_core(labeled_features, labeled_preds, labeled_gt)?;
+    Ok(analysis_res)
 }
 
 pub struct PostTrainingData {
@@ -265,5 +321,3 @@ impl PostTrainingData {
             .sum::<f32>()
     }
 }
-
-
