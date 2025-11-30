@@ -1,9 +1,9 @@
-from ._fair_perf_ml import (
-    model_performance_regression,
-    model_performance_classification,
-    model_performance_logisitic_regression,
-    model_performance_runtime_entry_full,
-    model_performance_runtime_entry_partial,
+from ._fair_perf_ml.py_model_perf import (
+    py_model_performance_regression as model_performance_regression,
+    py_model_performance_classification as model_performance_classification,
+    py_model_performance_logisitic_regression as model_performance_logisitic_regression,
+    py_model_performance_runtime_entry_full as model_performance_runtime_entry_full,
+    py_model_performance_runtime_entry_partial as model_performance_runtime_entry_partial,
 )
 from .models import (
     ModelType,

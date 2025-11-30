@@ -6,13 +6,16 @@ use std::collections::HashMap;
 /// computation and actual computation of the associated statistic for the dataset
 pub type DataBiasRuntimeReport = HashMap<metrics::DataBiasMetric, f32>;
 pub type ModelBiasRuntimeReport = HashMap<metrics::ModelBiasMetric, f32>;
+pub type BinaryClassificationRuntimeReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
+pub type LinearRegressionRuntimeReport = HashMap<metrics::LinearRegressionEvaluationMetric, f32>;
+pub type LogisticRegressionRuntimeReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 
 /// Type aliases to document in code maps that represent result from analysis, and not drift degree
 pub type ModelBiasAnalysisReport = HashMap<metrics::ModelBiasMetric, f32>;
 pub type DataBiasAnalysisReport = HashMap<metrics::DataBiasMetric, f32>;
-pub type BinaryClassificationReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
-pub type LinearRegressionReport = HashMap<metrics::LinearRegressionEvaluationMetric, f32>;
-pub type LogisticRegressionReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
+pub type BinaryClassificationAnalysisReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
+pub type LinearRegressionAnalysisReport = HashMap<metrics::LinearRegressionEvaluationMetric, f32>;
+pub type LogisticRegressionAnalysisReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 
 #[cfg(feature = "python")]
 use pyo3::{

@@ -1,30 +1,13 @@
-from typing import List, Union, Optional, Dict
+from typing import List, Union, Optional
 from numpy.typing import NDArray
-import orjson
-from ._fair_perf_ml import (
-    model_bias_analyzer,
-    model_bias_runtime_check,
-    model_bias_partial_check,
+from ._fair_perf_ml.py_model_bias import (
+    py_model_bias_analyzer as model_bias_analyzer,
+    py_model_bias_runtime_check as model_bias_runtime_check,
+    py_model_bias_partial_check as model_bias_partial_check,
 )
 from pydantic import ValidationError
 from ._internal import check_and_convert_type, InvalidBaseline
 from .models import ModelBiasBaseline
-
-
-class ModelBiasRuntimeUtility:
-    """
-    Utility hold data for long running monitoring services
-    """
-    __slots__ = ["baseline"]
-
-    def __init__(self, baseline: Dict[str, float]):
-        try:
-            baseline = ModelBiasBaseline(**baseline) # pyright: ignore
-        except ValidationError as e:
-            raise InvalidBaseline from e
-
-        self.baseline = baseline
-
 
 
 def perform_analysis(
@@ -63,7 +46,7 @@ def perform_analysis(
     )
 
     # for nice formatting
-    return ModelBiasBaseline(**res).model_dump()
+    return res
 
 
 def runtime_comparison(
@@ -79,12 +62,12 @@ def runtime_comparison(
     Returns:
         dict
     """
-    res: str = model_bias_runtime_check(
+    res: dict = model_bias_runtime_check(
         baseline=baseline, latest=comparison, threshold=threshold
     )
 
     # for nice formatting
-    return orjson.loads(res)
+    return res
 
 
 def partial_runtime_comparison(
@@ -92,7 +75,7 @@ def partial_runtime_comparison(
     comparison: dict,
     metrics: List[str],
     threshold: Optional[float] = None,
-) -> dict[str, str]:
+) -> dict:
     """
     interface into rust module
     data body validation will happen within the rust logic
@@ -105,9 +88,9 @@ def partial_runtime_comparison(
     Returns:
         dict
     """
-    res: str = model_bias_partial_check(
+    res: dict = model_bias_partial_check(
         baseline=baseline, latest=comparison, metrics=metrics, threshold=threshold
     )
 
     # for nice formatting
-    return orjson.loads(res)
+    return res

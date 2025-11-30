@@ -2,70 +2,13 @@ use crate::{
     errors::ModelPerformanceError,
     metrics::{ClassificationEvaluationMetric, LinearRegressionEvaluationMetric},
     reporting::{
-        BinaryClassificationReport, DriftReport, LinearRegressionReport, LogisticRegressionReport,
+        BinaryClassificationAnalysisReport, BinaryClassificationRuntimeReport, DriftReport,
+        LinearRegressionAnalysisReport, LinearRegressionRuntimeReport,
+        LogisticRegressionAnalysisReport, LogisticRegressionRuntimeReport,
     },
     zip,
 };
-
 use std::collections::HashMap;
-
-fn classification_performance_runtime(
-    baseline: HashMap<String, f32>,
-    latest: HashMap<String, f32>,
-    metrics: &[ClassificationEvaluationMetric],
-    threshold: f32,
-) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
-    let baseline = match BinaryClassificationAnalysisResult::try_from(baseline) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
-    };
-    let latest = match BinaryClassificationAnalysisResult::try_from(latest) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
-    };
-    let res = latest.compare_to_baseline(metrics, &baseline, threshold);
-
-    Ok(DriftReport::from_runtime(res))
-}
-
-fn logistic_performance_runtime(
-    baseline: HashMap<String, f32>,
-    latest: HashMap<String, f32>,
-    metrics: &[ClassificationEvaluationMetric],
-    threshold: f32,
-) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
-    let baseline = match LogisticRegressionAnalysisResult::try_from(baseline) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
-    };
-    let latest = match LogisticRegressionAnalysisResult::try_from(latest) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
-    };
-    let res = latest.compare_to_baseline(metrics, &baseline, threshold);
-    Ok(DriftReport::from_runtime(res))
-}
-
-fn regression_performance_runtime(
-    baseline: HashMap<String, f32>,
-    latest: HashMap<String, f32>,
-    evaluation_metrics: &[LinearRegressionEvaluationMetric],
-    threshold: f32,
-) -> Result<DriftReport<LinearRegressionEvaluationMetric>, String> {
-    let baseline: LinearRegressionAnalysisResult =
-        match LinearRegressionAnalysisResult::try_from(baseline) {
-            Ok(val) => val,
-            Err(e) => return Err(format!("Invalid baseline report: {}", e)),
-        };
-    let latest: LinearRegressionAnalysisResult =
-        match LinearRegressionAnalysisResult::try_from(latest) {
-            Ok(val) => val,
-            Err(e) => return Err(format!("Invalid latest report: {}", e)),
-        };
-
-    let results = latest.compare_to_baseline(&evaluation_metrics, &baseline, threshold);
-    Ok(DriftReport::from_runtime(results))
-}
 
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
@@ -321,10 +264,70 @@ pub(crate) mod py_api {
     }
 }
 
+pub fn classification_performance_runtime(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    metrics: &[ClassificationEvaluationMetric],
+    threshold: f32,
+) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
+    let baseline = match BinaryClassificationAnalysisResult::try_from(baseline) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
+    };
+    let latest = match BinaryClassificationAnalysisResult::try_from(latest) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
+    };
+    let res = latest.compare_to_baseline(metrics, &baseline, threshold);
+
+    Ok(DriftReport::<ClassificationEvaluationMetric>::from_runtime(
+        res,
+    ))
+}
+
+pub fn logistic_performance_runtime(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    metrics: &[ClassificationEvaluationMetric],
+    threshold: f32,
+) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
+    let baseline = match LogisticRegressionAnalysisResult::try_from(baseline) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
+    };
+    let latest = match LogisticRegressionAnalysisResult::try_from(latest) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
+    };
+    let res = latest.compare_to_baseline(metrics, &baseline, threshold);
+    Ok(DriftReport::from_runtime(res))
+}
+
+pub fn regression_performance_runtime(
+    baseline: HashMap<String, f32>,
+    latest: HashMap<String, f32>,
+    evaluation_metrics: &[LinearRegressionEvaluationMetric],
+    threshold: f32,
+) -> Result<DriftReport<LinearRegressionEvaluationMetric>, String> {
+    let baseline: LinearRegressionAnalysisResult =
+        match LinearRegressionAnalysisResult::try_from(baseline) {
+            Ok(val) => val,
+            Err(e) => return Err(format!("Invalid baseline report: {}", e)),
+        };
+    let latest: LinearRegressionAnalysisResult =
+        match LinearRegressionAnalysisResult::try_from(latest) {
+            Ok(val) => val,
+            Err(e) => return Err(format!("Invalid latest report: {}", e)),
+        };
+
+    let results = latest.compare_to_baseline(&evaluation_metrics, &baseline, threshold);
+    Ok(DriftReport::from_runtime(results))
+}
+
 pub fn model_perf_classification(
     y_true: Vec<f32>,
     y_pred: Vec<f32>,
-) -> Result<BinaryClassificationReport, ModelPerformanceError> {
+) -> Result<BinaryClassificationAnalysisReport, ModelPerformanceError> {
     let perf: ClassificationPerf = ClassificationPerf::new(y_true, y_pred)?;
     let report: BinaryClassificationAnalysisResult = perf.into();
     Ok(report.generate_report())
@@ -333,7 +336,7 @@ pub fn model_perf_classification(
 pub fn model_perf_regression(
     y_true: Vec<f32>,
     y_pred: Vec<f32>,
-) -> Result<LinearRegressionReport, ModelPerformanceError> {
+) -> Result<LinearRegressionAnalysisReport, ModelPerformanceError> {
     let perf: LinearRegressionPerf = LinearRegressionPerf::new(y_true, y_pred)?;
     let report: LinearRegressionAnalysisResult = perf.into();
     Ok(report.generate_report())
@@ -343,7 +346,7 @@ pub fn model_perf_logistic_regression(
     y_true: Vec<f32>,
     y_proba: Vec<f32>,
     threshold: f32,
-) -> Result<LogisticRegressionReport, ModelPerformanceError> {
+) -> Result<LogisticRegressionAnalysisReport, ModelPerformanceError> {
     let perf: LogisticRegressionPerf = LogisticRegressionPerf::new(y_true, y_proba, threshold)?;
     let lr_report: LogisticRegressionAnalysisResult = perf.into();
     Ok(lr_report.generate_report())
@@ -447,7 +450,7 @@ pub struct BinaryClassificationAnalysisResult {
 }
 
 impl BinaryClassificationAnalysisResult {
-    pub fn generate_report(&self) -> BinaryClassificationReport {
+    pub fn generate_report(&self) -> BinaryClassificationAnalysisReport {
         use ClassificationEvaluationMetric as C;
         let mut map: HashMap<C, f32> = HashMap::with_capacity(7);
         map.insert(C::BalancedAccuracy, self.balanced_accuracy);
@@ -504,7 +507,7 @@ impl BinaryClassificationAnalysisResult {
         metrics: &[ClassificationEvaluationMetric],
         baseline: &Self,
         drift_threshold: f32,
-    ) -> HashMap<ClassificationEvaluationMetric, f32> {
+    ) -> BinaryClassificationRuntimeReport {
         use ClassificationEvaluationMetric as C;
         let mut res: HashMap<C, f32> = HashMap::with_capacity(7);
         let drift_factor = 1_f32 - drift_threshold;
@@ -582,7 +585,7 @@ pub struct LogisticRegressionAnalysisResult {
 }
 
 impl LogisticRegressionAnalysisResult {
-    pub fn generate_report(&self) -> LogisticRegressionReport {
+    pub fn generate_report(&self) -> LogisticRegressionAnalysisReport {
         use ClassificationEvaluationMetric as M;
         let mut map: HashMap<M, f32> = HashMap::with_capacity(8);
         map.insert(M::BalancedAccuracy, self.balanced_accuracy);
@@ -644,7 +647,7 @@ impl LogisticRegressionAnalysisResult {
         metrics: &[ClassificationEvaluationMetric],
         baseline: &Self,
         drift_threshold: f32,
-    ) -> HashMap<ClassificationEvaluationMetric, f32> {
+    ) -> LogisticRegressionRuntimeReport {
         // all the metrics here are used, at this point we have
         // everything correct, thus no Result<T,E>
         use ClassificationEvaluationMetric as C;
@@ -902,7 +905,7 @@ impl TryFrom<HashMap<String, f32>> for LinearRegressionAnalysisResult {
 }
 
 impl LinearRegressionAnalysisResult {
-    pub fn generate_report(&self) -> LinearRegressionReport {
+    pub fn generate_report(&self) -> LinearRegressionAnalysisReport {
         use LinearRegressionEvaluationMetric as L;
         let mut map: HashMap<L, f32> = HashMap::with_capacity(8);
         map.insert(L::RootMeanSquaredError, self.rmse);
@@ -923,7 +926,7 @@ impl LinearRegressionAnalysisResult {
         metrics: &[LinearRegressionEvaluationMetric],
         baseline: &LinearRegressionAnalysisResult,
         drift_threshold: f32,
-    ) -> HashMap<LinearRegressionEvaluationMetric, f32> {
+    ) -> LinearRegressionRuntimeReport {
         use LinearRegressionEvaluationMetric as L;
         let mut res: HashMap<L, f32> = HashMap::with_capacity(8);
         for m in metrics.iter() {

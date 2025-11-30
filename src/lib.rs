@@ -23,6 +23,7 @@ mod runtime;
 *   5. clean up lib.rs to only expose functions via ffi
 * */
 
+/// Exposed Python APIs for the fair perf ml rust crate
 #[cfg(feature = "python")]
 use pyo3::{prelude::*, wrap_pymodule};
 #[cfg(feature = "python")]
@@ -63,24 +64,6 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
             py_model_perf_regression,
         };
     }
-
-    /*
-        m.add_function(wrap_pyfunction!(py_model_bias_analyzer, m)?)?;
-        m.add_function(wrap_pyfunction!(py_data_bias_analyzer, m)?)?;
-        m.add_function(wrap_pyfunction!(py_data_bias_runtime_check, m)?)?;
-        m.add_function(wrap_pyfunction!(py_data_bias_partial_check, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_bias_runtime_check, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_bias_partial_check, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_perf_regression, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_perf_class_rt_full, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_perf_class_rt_partial, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_perf_classification, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_perf_log_reg_rt_full, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_perf_log_reg_rt_partial, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_perf_logistic_regression, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_perf_lin_reg_rt_full, m)?)?;
-        m.add_function(wrap_pyfunction!(py_model_perf_lin_reg_rt_partial, m)?)?;
-    */
 
     m.add_wrapped(wrap_pymodule!(py_drift))?;
     m.add_wrapped(wrap_pymodule!(py_model_perf))?;

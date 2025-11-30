@@ -1,7 +1,7 @@
-from ._fair_perf_ml import (
-    data_bias_analyzer,
-    data_bias_runtime_check,
-    data_bias_partial_check,
+from ._fair_perf_ml.py_data_bias import (
+    py_data_bias_analyzer as data_bias_analyzer,
+    py_data_bias_runtime_check as data_bias_runtime_check,
+    py_data_bias_partial_check as data_bias_partial_check,
 )
 from typing import Union, Optional, List
 from numpy.typing import NDArray

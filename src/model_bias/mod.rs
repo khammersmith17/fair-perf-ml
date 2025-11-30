@@ -8,8 +8,6 @@ pub(crate) mod statistics;
 use crate::reporting::{DriftReport, ModelBiasAnalysisReport};
 use core::model_bias_analysis_core;
 
-//TODO: expose rust apis, see data bias for details
-
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
     use super::core::model_bias_analysis_core;

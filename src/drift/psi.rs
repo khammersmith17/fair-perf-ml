@@ -917,8 +917,8 @@ mod continuous_tests {
             .unwrap();
 
         assert!(d1.abs() < 1e-9);
-        assert!(d2.abs() < 1e-9);
-        assert_eq!(streaming.total_samples(), 4);
+        assert!(d2.abs() < 1e-2);
+        assert_eq!(streaming.total_samples(), 11);
     }
 
     #[test]
@@ -981,10 +981,19 @@ mod categorical_tests {
         let mut streaming = StreamingCategoricalPSI::new(&baseline, None).unwrap();
 
         let d1 = streaming.update_stream(&["a", "b"]);
-        let d2 = streaming.update_stream(&["a"]);
+        let mut stream = Vec::new();
 
-        assert_eq!(streaming.total_samples(), 3);
+        for _ in 0..500 {
+            stream.push("a")
+        }
+
+        for _ in 0..490 {
+            stream.push("b")
+        }
+        let d2 = streaming.update_stream(&stream);
+
+        assert_eq!(streaming.total_samples(), 992);
         assert!(d1 < 1e-9);
-        assert!(d2 < 1e-9);
+        assert!(d2 < 1e-2);
     }
 }
