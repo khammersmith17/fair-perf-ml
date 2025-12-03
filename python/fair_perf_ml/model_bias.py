@@ -5,9 +5,7 @@ from ._fair_perf_ml.py_model_bias import (
     py_model_bias_runtime_check as model_bias_runtime_check,
     py_model_bias_partial_check as model_bias_partial_check,
 )
-from pydantic import ValidationError
-from ._internal import check_and_convert_type, InvalidBaseline
-from .models import ModelBiasBaseline
+from ._internal import check_and_convert_type
 
 
 def perform_analysis(

@@ -45,6 +45,7 @@ pub(crate) mod py_api {
 
     // exposes python APIs to the python type
     // encapsulates all rust logic
+    /// Python exposed api for discrete categorical PSI
     #[pymethods]
     impl PyContinuousPSI {
         #[new]
@@ -90,6 +91,7 @@ pub(crate) mod py_api {
         }
     }
 
+    /// Exposed Python APIs for streaming continuous PSI
     #[pyclass]
     pub(crate) struct PyStreamingContinuousPSI {
         inner: StreamingContinuousPSI,
@@ -166,6 +168,7 @@ pub(crate) mod py_api {
         }
     }
 
+    /// Python exposed api for discrete categorical PSI
     #[pyclass]
     pub(crate) struct PyCategoricalPSI {
         inner: CategoricalPSI,
@@ -207,6 +210,7 @@ pub(crate) mod py_api {
         }
     }
 
+    /// Exposed Python APIs for streaming categorical PSI
     #[pyclass]
     pub(crate) struct PyStreamingCategoricalPSI {
         inner: StreamingCategoricalPSI,

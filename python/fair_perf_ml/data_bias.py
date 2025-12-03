@@ -1,4 +1,4 @@
-from ._fair_perf_ml.py_data_bias import (
+from ._fair_perf_ml import (
     py_data_bias_analyzer as data_bias_analyzer,
     py_data_bias_runtime_check as data_bias_runtime_check,
     py_data_bias_partial_check as data_bias_partial_check,
@@ -29,7 +29,6 @@ def perform_analysis(
     """
     # want to pass numpy arrays to rust
     # type resolution in rust mod depends on numpy arrays
-    # ignoring lsp message because we are deliberately changing the type on these values
     feature: NDArray = check_and_convert_type(feature)
     ground_truth: NDArray = check_and_convert_type(ground_truth)
 
@@ -48,7 +47,7 @@ def runtime_comparison(
     baseline: dict[str, float],
     latest: dict[str, float],
     threshold: Optional[float] = None,
-) -> dict[str, str]:
+) -> dict:
     """
     interface into rust module
     serves to nicely formats the return as dicts are ordered and hashmaps are not
@@ -59,13 +58,13 @@ def runtime_comparison(
     Returns:
         dict
     """
-    res: str = (
+    res: dict = (
         data_bias_runtime_check(baseline=baseline, latest=latest, threshold=threshold)
         if threshold
         else data_bias_runtime_check(baseline=baseline, latest=latest)
     )
     # for nicer formatting on the return
-    return loads(res)
+    return res
 
 
 def partial_runtime_comparison(
@@ -73,7 +72,7 @@ def partial_runtime_comparison(
     latest: dict[str, float],
     metrics: List[str],
     threshold: Optional[float] = 0.10,
-) -> dict[str, str]:
+) -> dict:
     """
     interface into rust module
     serves to nicely formats the return as dicts are ordered and hashmaps are not
@@ -85,8 +84,8 @@ def partial_runtime_comparison(
     Returns:
         dict
     """
-    res: str = data_bias_partial_check(
+    res: dict = data_bias_partial_check(
         baseline=baseline, latest=latest, metrics=metrics, threshold=threshold
     )
     # for nicer formatting on the return
-    return loads(res)
+    return res

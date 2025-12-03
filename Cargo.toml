@@ -1,6 +1,6 @@
 [package]
 name = "fair_perf_ml"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -30,4 +30,5 @@ uuid = {version = "1.18.1", features = ["v4"]}
 pyo3 = {version = "0.24.0", optional = true, features = ["auto-initialize", "chrono"]}
 rust-numpy = {version = "0.1.0", optional = true }
 numpy = {version = "0.24.0", optional = true }
+rand = "0.9.2"
 

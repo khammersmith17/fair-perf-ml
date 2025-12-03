@@ -123,43 +123,71 @@ pub(crate) mod py_types_handler {
     }
 }
 
-#[derive(PartialEq)]
+/// Enum to differentiate between an array that is going to be segmented by label versus by a
+/// threshold. Dicrete data should be segmented by a label and continuous data should be segmented
+/// by a threshold. For example a categorical dataset should use the label variant, where as a
+/// linear regression prediction dataset should use the threshold.
+#[derive(PartialEq, Clone)]
 pub enum BiasSegmentationType {
-    Continuous,
-    Discrete,
+    Label,
+    Threshold,
 }
 
+#[derive(Clone)]
+pub struct BiasSegmentationCriteria<T> {
+    pub value: T,
+    pub stype: BiasSegmentationType,
+}
+
+/// Type to organize bias monitor inputs and differentiate between a continuous and a discrete
+/// feature. This can be defined once if bias is performed across multiple features, the baseline
+/// data just needs to live as long as all analysis computations. This is also cheap to clone, for
+/// easy resuse.
+#[derive(Clone)]
 pub struct BiasDataPayload<'a, T> {
     data: &'a [T],
-    segmentation_criteria: T,
-    segmentation_type: BiasSegmentationType,
+    segmentation_criteria: BiasSegmentationCriteria<T>,
 }
 
 impl<'a, T> BiasDataPayload<'a, T>
 where
     T: PartialEq + PartialOrd,
 {
-    pub fn new(
+    /// Constructor for BiasDataPayload. The type in the slice must be the same as the type passed
+    /// for the segmentation criteria.
+    pub fn new_from_parts(
         data: &'a [T],
-        segmentation_criteria: T,
-        segmentation_type: BiasSegmentationType,
+        value: T,
+        stype: BiasSegmentationType,
+    ) -> BiasDataPayload<'a, T> {
+        let segmentation_criteria = BiasSegmentationCriteria { value, stype };
+
+        BiasDataPayload {
+            data,
+            segmentation_criteria,
+        }
+    }
+
+    pub fn new_from_criteria(
+        data: &'a [T],
+        segmentation_criteria: BiasSegmentationCriteria<T>,
     ) -> BiasDataPayload<'a, T> {
         BiasDataPayload {
             data,
             segmentation_criteria,
-            segmentation_type,
         }
     }
 
     pub(crate) fn generate_labeled_data(&self) -> Vec<i16> {
-        if self.segmentation_type == BiasSegmentationType::Discrete {
-            apply_label_discrete(self.data, &self.segmentation_criteria)
+        if self.segmentation_criteria.stype == BiasSegmentationType::Label {
+            apply_label_discrete(self.data, &self.segmentation_criteria.value)
         } else {
-            apply_label_continuous(self.data, &self.segmentation_criteria)
+            apply_label_continuous(self.data, &self.segmentation_criteria.value)
         }
     }
 }
 
+#[inline]
 fn apply_label_discrete<T>(array: &[T], label: &T) -> Vec<i16>
 where
     T: PartialEq<T>,
@@ -171,6 +199,7 @@ where
     labeled_array
 }
 
+#[inline]
 fn apply_label_continuous<T>(array: &[T], threshold: &T) -> Vec<i16>
 where
     T: PartialOrd<T>,

@@ -1,82 +1,153 @@
-use super::{PreTraining, PreTrainingComputations};
+use super::PreTraining;
 
 pub fn class_imbalance(data: &PreTraining) -> f32 {
-    return (data.facet_a.len() as f32 - data.facet_d.len() as f32).abs() as f32
-        / (data.facet_a.len() + data.facet_d.len()) as f32;
+    return (data.facet_a.len as i64 - data.facet_d.len as i64).abs() as f32
+        / (data.facet_a.len + data.facet_d.len) as f32;
 }
 
 pub fn diff_in_proportion_of_labels(data: &PreTraining) -> f32 {
-    let q_a: f32 = data.facet_a.iter().sum::<i16>() as f32 / data.facet_a.len() as f32;
-    let q_d: f32 = data.facet_d.iter().sum::<i16>() as f32 / data.facet_d.len() as f32;
-
-    return q_a - q_d;
+    return data.facet_a.acceptance() - data.facet_d.acceptance();
 }
 
-pub fn kl_divergence(data: &PreTrainingComputations) -> f32 {
-    return data.a_acceptance * (data.a_acceptance / data.d_acceptance).ln()
-        + (1.0_f32 - data.a_acceptance)
-            * ((1.0_f32 - data.a_acceptance) / (1.0_f32 - data.d_acceptance)).ln();
+pub fn kl_divergence(data: &PreTraining) -> f32 {
+    let a_acceptance = data.facet_a.acceptance();
+    let d_acceptance = data.facet_d.acceptance();
+    return a_acceptance * (a_acceptance / d_acceptance).ln()
+        + (1_f32 - a_acceptance) * ((1_f32 - a_acceptance) / (1_f32 - d_acceptance)).ln();
 }
 
 fn ks_kl_div(p_facet: f32, p: f32) -> f32 {
     return p_facet * (p_facet / p).ln()
-        + (1.0_f32 - p_facet) * ((1.0_f32 - p_facet) / (1.0_f32 - p)).ln();
+        + (1_f32 - p_facet) * ((1_f32 - p_facet) / (1_f32 - p)).ln();
 }
 
-pub fn jensen_shannon(data: &PreTraining, pre_comp: &PreTrainingComputations) -> f32 {
-    let p: f32 = 0.5_f32
-        * (data.facet_a.iter().sum::<i16>() as f32 / data.facet_d.len() as f32
-            + data.facet_d.iter().sum::<i16>() as f32 / data.facet_a.len() as f32);
+pub fn jensen_shannon(data: &PreTraining) -> f32 {
+    let a_acceptance = data.facet_a.acceptance();
+    let d_acceptance = data.facet_d.acceptance();
+    let p = 0.5_f32
+        * (data.facet_a.positive as f32 / data.facet_d.len as f32
+            + data.facet_d.positive as f32 / data.facet_a.len as f32);
 
-    return 0.5 * (ks_kl_div(pre_comp.a_acceptance, p) + ks_kl_div(pre_comp.d_acceptance, p));
+    return 0.5 * (ks_kl_div(a_acceptance, p) + ks_kl_div(d_acceptance, p));
 }
 
-pub fn lp_norm(data: &PreTrainingComputations) -> f32 {
-    return ((data.a_acceptance - data.d_acceptance).powf(2.0)
-        + (1.0_f32 - data.a_acceptance - 1.0_f32 - data.d_acceptance).powf(2.0))
+pub fn lp_norm(data: &PreTraining) -> f32 {
+    let a_acceptance = data.facet_a.acceptance();
+    let d_acceptance = data.facet_d.acceptance();
+    return ((a_acceptance - d_acceptance).powf(2.0)
+        + (1_f32 - a_acceptance - 1_f32 - d_acceptance).powf(2.0))
     .sqrt();
 }
 
-pub fn total_variation_distance(data: &PreTrainingComputations) -> f32 {
-    return (data.a_acceptance - data.d_acceptance).abs()
-        + ((1.0_f32 - data.a_acceptance) - (1.0_f32 - data.a_acceptance)).abs();
+pub fn total_variation_distance(data: &PreTraining) -> f32 {
+    let a_acceptance = data.facet_a.acceptance();
+    let d_acceptance = data.facet_d.acceptance();
+    return (a_acceptance - d_acceptance).abs()
+        + ((1_f32 - a_acceptance) - (1_f32 - a_acceptance)).abs();
 }
 
 pub fn kolmorogv_smirnov(data: &PreTraining) -> f32 {
-    let a_0_dist: f32 = data
-        .facet_a
-        .iter()
-        .map(|value| if *value == 0 { 1.0_f32 } else { 0.0_f32 })
-        .sum::<f32>()
-        / data.facet_a.len() as f32;
-
-    let a_1_dist = data
-        .facet_a
-        .iter()
-        .map(|value| if *value == 1 { 1.0_f32 } else { 0.0_f32 })
-        .sum::<f32>()
-        / data.facet_a.len() as f32;
-
-    let d_0_dist = data
-        .facet_d
-        .iter()
-        .map(|value| if *value == 0 { 1.0_f32 } else { 0.0_f32 })
-        .sum::<f32>()
-        / data.facet_d.len() as f32;
-
-    let d_1_dist = data
-        .facet_d
-        .iter()
-        .map(|value| if *value == 1 { 1.0_f32 } else { 0.0_f32 })
-        .sum::<f32>()
-        / data.facet_d.len() as f32;
+    let a_1_dist = data.facet_a.acceptance();
+    let a_0_dist = 1_f32 - a_1_dist;
+    let d_1_dist = data.facet_d.acceptance();
+    let d_0_dist = 1_f32 - d_1_dist;
 
     let neg_outcome_diff = (a_0_dist - d_0_dist).abs();
     let pos_outcome_diff = (a_1_dist - d_1_dist).abs();
 
     if neg_outcome_diff > pos_outcome_diff {
-        return pos_outcome_diff;
+        pos_outcome_diff
     } else {
-        return neg_outcome_diff;
+        neg_outcome_diff
     }
 }
+
+/*
+* TESTS TO VERIFY NEW LOGIC IS STILL VALID
+mod data_bias_test_new_logic {
+    use super::*;
+
+    fn construct_args() -> (
+        super::super::PreTraining,
+        PreTraining,
+        PreTrainingComputations,
+    ) {
+        let mut feature_data = Vec::with_capacity(10_000);
+        let mut gt_data = Vec::with_capacity(10_000);
+
+        for _ in 0..10_000 {
+            feature_data.push(rand::random_range(0_i16..=1_i16));
+            gt_data.push(rand::random_range(0_i16..=1_i16));
+        }
+
+        let pre_training_v2 = super::super::PreTraining::new(&feature_data, &gt_data);
+        let pre_training =
+            crate::data_bias::core::perform_segmentation_data_bias(feature_data, gt_data).unwrap();
+        let computations = pre_training.generate();
+
+        (pre_training_v2, pre_training, computations)
+    }
+
+    #[test]
+    fn class_imbalance() {
+        let (v2, v1, _) = construct_args();
+        let ci1 = super::class_imbalance(&v1);
+        let ci2 = super::v2::class_imbalance(&v2);
+
+        assert!((ci1 as f32 - ci2).abs() < 1e-5_f32)
+    }
+
+    #[test]
+    fn diff_in_proportion_of_labels() {
+        let (v2, v1, _) = construct_args();
+        let res_v1 = super::diff_in_proportion_of_labels(&v1);
+        let res_v2 = super::v2::diff_in_proportion_of_labels(&v2);
+
+        assert!((res_v1 as f32 - res_v2).abs() < 1e-5_f32)
+    }
+
+    #[test]
+    fn kl_divergence() {
+        let (v2, _, comp) = construct_args();
+        let res_v1 = super::kl_divergence(&comp);
+        let res_v2 = super::v2::kl_divergence(&v2);
+
+        assert!((res_v1 as f32 - res_v2).abs() < 1e-5_f32)
+    }
+
+    #[test]
+    fn jensen_shannon() {
+        let (v2, v1, comp) = construct_args();
+        let res_v1 = super::jensen_shannon(&v1, &comp);
+        let res_v2 = super::v2::jensen_shannon(&v2);
+
+        assert!((res_v1 as f32 - res_v2).abs() < 1e-5_f32)
+    }
+
+    #[test]
+    fn lp_norm() {
+        let (v2, _, comp) = construct_args();
+        let res_v1 = super::lp_norm(&comp);
+        let res_v2 = super::v2::lp_norm(&v2);
+
+        assert!((res_v1 as f32 - res_v2).abs() < 1e-5_f32)
+    }
+    #[test]
+    fn total_variation_distance() {
+        let (v2, _, comp) = construct_args();
+        let res_v1 = super::total_variation_distance(&comp);
+        let res_v2 = super::v2::total_variation_distance(&v2);
+
+        assert!((res_v1 as f32 - res_v2).abs() < 1e-5_f32)
+    }
+
+    #[test]
+    fn kolmorogv_smirnov() {
+        let (v2, v1, _) = construct_args();
+        let res_v1 = super::kolmorogv_smirnov(&v1);
+        let res_v2 = super::v2::kolmorogv_smirnov(&v2);
+
+        assert!((res_v1 as f32 - res_v2).abs() < 1e-5_f32)
+    }
+}
+*/

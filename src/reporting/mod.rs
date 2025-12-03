@@ -10,18 +10,15 @@ pub type BinaryClassificationRuntimeReport = HashMap<metrics::ClassificationEval
 pub type LinearRegressionRuntimeReport = HashMap<metrics::LinearRegressionEvaluationMetric, f32>;
 pub type LogisticRegressionRuntimeReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 
-/// Type aliases to document in code maps that represent result from analysis, and not drift degree
+/// Type aliases to document in code where `HashMap<T, f32>' maps to results from analysis, and not drift
+/// degree.
 pub type ModelBiasAnalysisReport = HashMap<metrics::ModelBiasMetric, f32>;
 pub type DataBiasAnalysisReport = HashMap<metrics::DataBiasMetric, f32>;
 pub type BinaryClassificationAnalysisReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 pub type LinearRegressionAnalysisReport = HashMap<metrics::LinearRegressionEvaluationMetric, f32>;
 pub type LogisticRegressionAnalysisReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 
-#[cfg(feature = "python")]
-use pyo3::{
-    types::{IntoPyDict, PyDict, PyDictMethods, PyList, PyListMethods},
-    Bound, PyResult, Python,
-};
+pub(crate) const DEFAULT_DRIFT_THRESHOLD: f32 = 0.10;
 
 #[derive(Serialize, Deserialize)]
 pub struct MetricDrift<T> {
@@ -29,6 +26,13 @@ pub struct MetricDrift<T> {
     drift: f32,
 }
 
+/// Type to return the results of a runtime "check". Runtime check is where the runtime data passed
+/// into any of the utilities is evaluted against the baseline set. This type contains a boolean
+/// pass/fail flag, which will be flipped true when any of the metrics drift outside the defined
+/// threshold, and false when all metrics are within the allowable drift threshold from the
+/// baseline. The failed_report will contain the metrics that drifted outside the allowable bounds
+/// and will contian the degree of drift. This type implements 'serde::Serialize' and
+/// 'serde::Deserialize' so the drift report payloads can be sent or loaded from external sources.
 #[derive(Serialize, Deserialize)]
 pub struct DriftReport<T> {
     pub passed: bool,
@@ -59,6 +63,13 @@ where
     }
 }
 
+#[cfg(feature = "python")]
+use pyo3::{
+    types::{IntoPyDict, PyDict, PyDictMethods, PyList, PyListMethods},
+    Bound, PyResult, Python,
+};
+
+/// Utility to coerce a report into a Python dictionary.
 #[cfg(feature = "python")]
 impl<T> IntoPyDict<'_> for DriftReport<T>
 where

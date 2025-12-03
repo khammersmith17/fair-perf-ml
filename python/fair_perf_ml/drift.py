@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Tuple, Union, List, Iterable, Any
 import numpy as np
 from numpy.typing import NDArray
-from ._fair_perf_ml import (
+from _fair_perf_ml import (  # pyright: ignore
     PyStreamingContinuousPSI as StreamingContinuousPSI,
     PyContinuousPSI as ContinuousPSI,
     PyStreamingCategoricalPSI as StreamingCategoricalPSI,

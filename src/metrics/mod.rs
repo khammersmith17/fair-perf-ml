@@ -3,7 +3,7 @@ use crate::errors::InvalidMetricError;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
-// purely for generic trait bounds
+/// Trait to enfore trait bounds around what is a crate supported machine learning/data metric.
 pub trait MachineLearningMetric {}
 impl MachineLearningMetric for DataBiasMetric {}
 impl MachineLearningMetric for ModelBiasMetric {}

@@ -25,49 +25,50 @@ mod runtime;
 
 /// Exposed Python APIs for the fair perf ml rust crate
 #[cfg(feature = "python")]
-use pyo3::{prelude::*, wrap_pymodule};
+use pyo3::prelude::*;
 #[cfg(feature = "python")]
 #[pymodule]
 #[pyo3(name = "_fair_perf_ml")]
 fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    #[allow(unused)]
-    #[pymodule]
-    mod py_data_bias {
-        use crate::data_bias::py_api::{
-            py_data_bias_analyzer, py_data_bias_partial_check, py_data_bias_runtime_check,
-        };
-    }
+    use data_bias::py_api::{
+        py_data_bias_analyzer, py_data_bias_partial_check, py_data_bias_runtime_check,
+    };
 
-    #[allow(unused)]
-    #[pymodule]
-    mod py_drift {
-        use crate::drift::psi::py_api::{
-            PyCategoricalPSI, PyContinuousPSI, PyStreamingCategoricalPSI, PyStreamingContinuousPSI,
-        };
-    }
+    use drift::psi::py_api::{
+        PyCategoricalPSI, PyContinuousPSI, PyStreamingCategoricalPSI, PyStreamingContinuousPSI,
+    };
 
-    #[allow(unused)]
-    #[pymodule]
-    mod py_model_bias {
-        use crate::model_bias::py_api::{
-            py_model_bias_analyzer, py_model_bias_partial_check, py_model_bias_runtime_check,
-        };
-    }
-    #[allow(unused)]
-    #[pymodule]
-    mod py_model_perf {
-        use crate::model_perf::py_api::{
-            py_model_perf_class_rt_full, py_model_perf_class_rt_partial,
-            py_model_perf_classification, py_model_perf_lin_reg_rt_full,
-            py_model_perf_lin_reg_rt_partial, py_model_perf_log_reg_rt_full,
-            py_model_perf_log_reg_rt_partial, py_model_perf_logistic_regression,
-            py_model_perf_regression,
-        };
-    }
+    use model_bias::py_api::{
+        py_model_bias_analyzer, py_model_bias_partial_check, py_model_bias_runtime_check,
+    };
 
-    m.add_wrapped(wrap_pymodule!(py_drift))?;
-    m.add_wrapped(wrap_pymodule!(py_model_perf))?;
-    m.add_wrapped(wrap_pymodule!(py_model_bias))?;
-    m.add_wrapped(wrap_pymodule!(py_data_bias))?;
+    use model_perf::py_api::{
+        py_model_perf_class_rt_full, py_model_perf_class_rt_partial, py_model_perf_classification,
+        py_model_perf_lin_reg_rt_full, py_model_perf_lin_reg_rt_partial,
+        py_model_perf_log_reg_rt_full, py_model_perf_log_reg_rt_partial,
+        py_model_perf_logistic_regression, py_model_perf_regression,
+    };
+
+    m.add_function(wrap_pyfunction!(py_model_bias_analyzer, m)?)?;
+    m.add_function(wrap_pyfunction!(py_data_bias_analyzer, m)?)?;
+    m.add_function(wrap_pyfunction!(py_data_bias_runtime_check, m)?)?;
+    m.add_function(wrap_pyfunction!(py_data_bias_partial_check, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_bias_runtime_check, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_bias_partial_check, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_perf_regression, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_perf_class_rt_full, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_perf_class_rt_partial, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_perf_classification, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_perf_log_reg_rt_partial, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_perf_logistic_regression, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_perf_lin_reg_rt_full, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_perf_lin_reg_rt_partial, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_perf_log_reg_rt_full, m)?)?;
+
+    m.add_class::<PyCategoricalPSI>()?;
+    m.add_class::<PyContinuousPSI>()?;
+    m.add_class::<PyStreamingContinuousPSI>()?;
+    m.add_class::<PyStreamingCategoricalPSI>()?;
+
     Ok(())
 }

@@ -15,15 +15,19 @@ from .models import (
 from ._internal import check_and_convert_type
 from numpy.typing import NDArray
 from typing import Union, List, Optional
-import orjson
 
 
 class DifferentModelTypes(Exception):
-    pass
+    """
+    Exception to handle when user passes in wrong model type
+    """
 
 
 class InvalidMetricsBody(Exception):
-    pass
+    """
+    Exception to handle when the user passes an invalid metrics
+    payload
+    """
 
 
 def linear_regression_analysis(
@@ -116,13 +120,13 @@ def runtime_check_full(
     baseline_perf = baseline.get("performanceData")
     if any([model_type is None, latest_perf is None, baseline_perf is None]):
         raise InvalidMetricsBody("Invalid metrics body")
-    perf = model_performance_runtime_entry_full(
+    perf: dict = model_performance_runtime_entry_full(
         model_type=model_type,
         latest=latest_perf,
         baseline=baseline_perf,
         threshold=threshold,
     )
-    return orjson.loads(perf)
+    return perf
 
 
 def partial_runtime_check(
@@ -142,11 +146,11 @@ def partial_runtime_check(
     baseline_perf = baseline.get("performanceData")
     if any([model_type is None, latest_perf is None, baseline_perf is None]):
         raise InvalidMetricsBody("Invalid metrics body")
-    perf = model_performance_runtime_entry_partial(
+    perf: dict = model_performance_runtime_entry_partial(
         model_type=model_type,
         latest=latest_perf,
         baseline=baseline_perf,
         evaluation_metrics=metrics,
         threshold=threshold,
     )
-    return orjson.loads(perf)
+    return perf
