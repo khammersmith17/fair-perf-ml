@@ -1,11 +1,11 @@
-use crate::data_handler::{BiasDataPayload, BiasSegmentationCriteria};
+use crate::data_handler::BiasDataPayload;
 use crate::errors::{BiasError, DataBiasRuntimeError};
 use crate::metrics::{DataBiasMetric, DataBiasMetricVec, FULL_DATA_BIAS_METRICS};
 use crate::reporting::{DataBiasAnalysisReport, DriftReport, DEFAULT_DRIFT_THRESHOLD};
 use crate::runtime::DataBiasRuntime;
 use crate::zip_iters;
 pub(crate) mod core;
-pub(crate) mod statistics;
+pub mod statistics;
 pub mod streaming;
 
 #[cfg(feature = "python")]
@@ -197,23 +197,6 @@ impl PreTrainingDistribution {
     #[inline]
     pub(crate) fn acceptance(&self) -> f32 {
         self.positive as f32 / self.len as f32
-    }
-
-    pub(crate) fn new_from_data<F, G>(
-        feature_seg: BiasSegmentationCriteria<F>,
-        feature_data: &[F],
-        gt_seg: BiasSegmentationCriteria<G>,
-        gt_data: &[G],
-    ) -> PreTrainingDistribution
-    where
-        F: PartialEq + PartialOrd,
-        G: PartialEq + PartialOrd,
-    {
-        for (f, g) in zip_iters!(feature_data, gt_data) {
-            let is_favored = feature_seg.label(f);
-            let is_positive = gt_seg.label(g);
-        }
-        todo!()
     }
 }
 

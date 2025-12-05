@@ -11,7 +11,7 @@ pub fn data_bias_analysis_core(
 }
 
 pub fn pre_training_bias(data: PreTraining) -> DataBiasAnalysisReport {
-    use super::statistics as stats;
+    use super::statistics::inner as stats;
     use crate::metrics::DataBiasMetric as M;
     let mut result: HashMap<M, f32> = HashMap::with_capacity(7);
     result.insert(M::ClassImbalance, stats::class_imbalance(&data));
