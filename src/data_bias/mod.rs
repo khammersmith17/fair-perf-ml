@@ -1,9 +1,9 @@
-use crate::data_handler::BiasDataPayload;
+use crate::data_handler::{BiasDataPayload, BiasSegmentationCriteria};
 use crate::errors::{BiasError, DataBiasRuntimeError};
 use crate::metrics::{DataBiasMetric, DataBiasMetricVec, FULL_DATA_BIAS_METRICS};
 use crate::reporting::{DataBiasAnalysisReport, DriftReport, DEFAULT_DRIFT_THRESHOLD};
 use crate::runtime::DataBiasRuntime;
-use crate::zip;
+use crate::zip_iters;
 pub(crate) mod core;
 pub(crate) mod statistics;
 pub mod streaming;
@@ -188,7 +188,7 @@ pub fn data_bias_partial_check(
 // instead of storing entire vector, store pos class count and neg class count for each facet
 
 #[derive(Default)]
-struct PreTrainingDistribution {
+pub(crate) struct PreTrainingDistribution {
     pub positive: u64,
     pub len: u64,
 }
@@ -199,9 +199,21 @@ impl PreTrainingDistribution {
         self.positive as f32 / self.len as f32
     }
 
-    #[inline]
-    pub(crate) fn negative(&self) -> u64 {
-        self.len - self.positive
+    pub(crate) fn new_from_data<F, G>(
+        feature_seg: BiasSegmentationCriteria<F>,
+        feature_data: &[F],
+        gt_seg: BiasSegmentationCriteria<G>,
+        gt_data: &[G],
+    ) -> PreTrainingDistribution
+    where
+        F: PartialEq + PartialOrd,
+        G: PartialEq + PartialOrd,
+    {
+        for (f, g) in zip_iters!(feature_data, gt_data) {
+            let is_favored = feature_seg.label(f);
+            let is_positive = gt_seg.label(g);
+        }
+        todo!()
     }
 }
 
@@ -215,7 +227,7 @@ impl PreTraining {
         let mut facet_a = PreTrainingDistribution::default();
         let mut facet_d = PreTrainingDistribution::default();
 
-        for (f, gt) in zip!(feature_data, gt_data) {
+        for (f, gt) in zip_iters!(feature_data, gt_data) {
             if *f == 1_i16 {
                 facet_a.positive += *gt as u64;
                 facet_a.len += 1

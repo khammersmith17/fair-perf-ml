@@ -6,7 +6,7 @@ use crate::{
         LinearRegressionAnalysisReport, LinearRegressionRuntimeReport,
         LogisticRegressionAnalysisReport, LogisticRegressionRuntimeReport,
     },
-    zip,
+    zip_iters,
 };
 use std::collections::HashMap;
 
@@ -362,7 +362,7 @@ impl GeneralClassificationMetrics {
     fn precision_positive(y_pred: &[f32], y_true: &[f32]) -> f32 {
         let total_pred_positives: f32 = y_pred.iter().sum::<f32>();
         let mut true_positives: f32 = 0_f32;
-        for (t, p) in zip!(y_true, y_pred) {
+        for (t, p) in zip_iters!(y_true, y_pred) {
             if (*t - 1_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
                 true_positives += 1_f32;
             }
@@ -373,7 +373,7 @@ impl GeneralClassificationMetrics {
     fn precision_negative(y_pred: &[f32], y_true: &[f32], len: f32) -> f32 {
         let total_pred_negatives: f32 = len - y_pred.iter().sum::<f32>();
         let mut true_negatives: f32 = 0_f32;
-        for (t, p) in zip!(y_true, y_pred) {
+        for (t, p) in zip_iters!(y_true, y_pred) {
             if (*t - 0_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
                 true_negatives += 1_f32;
             }
@@ -384,7 +384,7 @@ impl GeneralClassificationMetrics {
     fn recall_positive(y_pred: &[f32], y_true: &[f32]) -> f32 {
         let total_true_positives: f32 = y_true.iter().sum::<f32>();
         let mut true_positives: f32 = 0_f32;
-        for (t, p) in zip!(y_true, y_pred) {
+        for (t, p) in zip_iters!(y_true, y_pred) {
             if (*t - 1_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
                 true_positives += 1_f32;
             }
@@ -395,7 +395,7 @@ impl GeneralClassificationMetrics {
     fn recall_negative(y_pred: &[f32], y_true: &[f32], len: f32) -> f32 {
         let total_true_negatives: f32 = len - y_true.iter().sum::<f32>();
         let mut true_negatives: f32 = 0_f32;
-        for (t, p) in zip!(y_true, y_pred) {
+        for (t, p) in zip_iters!(y_true, y_pred) {
             if (*t - 0_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
                 true_negatives += 1_f32;
             }
@@ -405,7 +405,7 @@ impl GeneralClassificationMetrics {
 
     fn accuracy(y_pred: &Vec<f32>, y_true: &Vec<f32>, mean_f: f32) -> f32 {
         let mut correct: f32 = 0_f32;
-        for (t, p) in zip!(y_true, y_pred) {
+        for (t, p) in zip_iters!(y_true, y_pred) {
             if t == p {
                 correct += 1_f32;
             }
@@ -419,7 +419,7 @@ impl GeneralClassificationMetrics {
 
     fn log_loss_score(y_proba: &[f32], y_true: &[f32], mean_f: f32) -> f32 {
         let mut penalties = 0_f32;
-        for (t, p) in zip!(y_true, y_proba) {
+        for (t, p) in zip_iters!(y_true, y_proba) {
             penalties += t * f32::log10(*p) + (1_f32 - t) * f32::log10(1_f32 - p);
         }
         let res = -1_f32 * mean_f * penalties;
@@ -1019,7 +1019,7 @@ impl LinearRegressionPerf {
 
     fn root_mean_squared_error(&self) -> f32 {
         let mut errors = 0_f32;
-        for (t, p) in zip!(self.y_true, &self.y_pred) {
+        for (t, p) in zip_iters!(self.y_true, &self.y_pred) {
             errors += (t - p).powi(2);
         }
         (errors * self.mean_f).powf(0.5_f32)
@@ -1027,7 +1027,7 @@ impl LinearRegressionPerf {
 
     fn mean_squared_error(&self) -> f32 {
         let mut errors = 0_f32;
-        for (t, p) in zip!(&self.y_true, &self.y_pred) {
+        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
             errors += (t - p).powi(2);
         }
         errors * self.mean_f
@@ -1035,7 +1035,7 @@ impl LinearRegressionPerf {
 
     fn mean_absolute_error(&self) -> f32 {
         let mut errors = 0_f32;
-        for (t, p) in zip!(&self.y_true, &self.y_pred) {
+        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
             errors += (t - p).abs();
         }
         errors * self.mean_f
@@ -1044,7 +1044,7 @@ impl LinearRegressionPerf {
     fn r_squared(&self) -> f32 {
         let y_mean: f32 = self.y_true.iter().sum::<f32>() * self.mean_f;
         let mut ss_regression: f32 = 0_f32;
-        for (t, p) in zip!(self.y_true, &self.y_pred) {
+        for (t, p) in zip_iters!(self.y_true, &self.y_pred) {
             ss_regression += (t - p).powi(2);
         }
         let ss_total: f32 = self
@@ -1057,7 +1057,7 @@ impl LinearRegressionPerf {
 
     fn max_error(&self) -> f32 {
         let mut res = 0_f32;
-        for (t, p) in zip!(&self.y_true, &self.y_pred) {
+        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
             res = f32::max(t - p, res);
         }
         res
@@ -1065,7 +1065,7 @@ impl LinearRegressionPerf {
 
     fn mean_squared_log_error(&self) -> f32 {
         let mut sum = 0_f32;
-        for (t, p) in zip!(&self.y_true, &self.y_pred) {
+        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
             sum += (1_f32 + t).log10() - (1_f32 + p).log10();
         }
         sum.powi(2) / self.mean_f
@@ -1073,7 +1073,7 @@ impl LinearRegressionPerf {
 
     fn root_mean_squared_log_error(&self) -> f32 {
         let mut sum = 0_f32;
-        for (t, p) in zip!(&self.y_true, &self.y_pred) {
+        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
             sum += (1_f32 + t).log10() - (1_f32 + p).log10();
         }
         sum.powi(2).sqrt() / self.mean_f
@@ -1081,7 +1081,7 @@ impl LinearRegressionPerf {
 
     fn mean_absolute_percentage_error(&self) -> f32 {
         let mut sum = 0_f32;
-        for (t, p) in zip!(&self.y_true, &self.y_pred) {
+        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
             sum += (t - p).abs() / t;
         }
         sum * self.mean_f * 100_f32

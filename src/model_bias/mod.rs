@@ -2,15 +2,17 @@ use crate::data_handler::BiasDataPayload;
 use crate::errors::{BiasError, ModelBiasRuntimeError};
 use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
 use crate::runtime::ModelBiasRuntime;
+use crate::zip_iters;
 use std::collections::HashMap;
 pub(crate) mod core;
 pub(crate) mod statistics;
 use crate::reporting::{DriftReport, ModelBiasAnalysisReport};
-use core::model_bias_analysis_core;
+use core::post_training_bias;
 
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
-    use super::core::model_bias_analysis_core;
+    use super::core::post_training_bias;
+    use super::PostTrainingDataV2;
     use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict};
     use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
     use crate::reporting::DriftReport;
@@ -109,10 +111,9 @@ pub(crate) mod py_api {
             Err(err) => return Err(PyTypeError::new_err(err.to_string())),
         };
 
-        let analysis_res = match model_bias_analysis_core(feats, preds, gt) {
-            Ok(res) => res,
-            Err(e) => return Err(e.into()),
-        };
+        let post_training_data = PostTrainingDataV2::new(&feats, &preds, &gt);
+
+        let analysis_res = post_training_bias(&post_training_data);
 
         let py_dict = report_to_py_dict(py, analysis_res);
         Ok(py_dict)
@@ -170,7 +171,10 @@ where
     let labeled_gt = ground_truth.generate_labeled_data();
     let labeled_preds = predictions.generate_labeled_data();
 
-    let analysis_res = model_bias_analysis_core(labeled_features, labeled_preds, labeled_gt)?;
+    let post_training_base =
+        PostTrainingDataV2::new(&labeled_features, &labeled_preds, &labeled_gt);
+
+    let analysis_res = post_training_bias(&post_training_base);
     Ok(analysis_res)
 }
 
@@ -179,6 +183,83 @@ pub struct PostTrainingData {
     pub facet_d_scores: Vec<i16>,
     pub facet_a_trues: Vec<i16>,
     pub facet_d_trues: Vec<i16>,
+}
+
+#[derive(Default)]
+pub(crate) struct PostTrainingDistribution {
+    len: u64,
+    positive_gt: u64,
+    positive_pred: u64,
+}
+
+#[derive(Default)]
+pub(crate) struct ConfusionMatrix {
+    true_p: f32,
+    false_p: f32,
+    true_n: f32,
+    false_n: f32,
+}
+
+pub(crate) struct PostTrainingDataV2 {
+    pub confusion_a: ConfusionMatrix,
+    pub confusion_d: ConfusionMatrix,
+    pub dist_a: PostTrainingDistribution,
+    pub dist_d: PostTrainingDistribution,
+    pub ge: f32,
+}
+
+impl PostTrainingDataV2 {
+    fn new(
+        labeled_feature: &[i16],
+        labeled_prediction: &[i16],
+        labeled_gt: &[i16],
+    ) -> PostTrainingDataV2 {
+        let mut confusion_a = ConfusionMatrix::default();
+        let mut confusion_d = ConfusionMatrix::default();
+        let mut dist_a = PostTrainingDistribution::default();
+        let mut dist_d = PostTrainingDistribution::default();
+
+        for (f, (p, gt)) in zip_iters!(labeled_feature, labeled_prediction, labeled_gt) {
+            let is_a = *f == 1_i16;
+            let pred_is_positive = *p == 1_i16;
+            let gt_is_positive = *gt == 1_i16;
+            dist_a.len += is_a as u64;
+            dist_a.positive_pred += (is_a as usize * pred_is_positive as usize) as u64;
+            dist_a.positive_gt += (is_a as usize * gt_is_positive as usize) as u64;
+
+            dist_d.len += !is_a as u64;
+            dist_d.positive_pred += (!is_a as usize * pred_is_positive as usize) as u64;
+            dist_d.positive_gt += (!is_a as usize * gt_is_positive as usize) as u64;
+
+            let is_true = *p == *gt;
+            let tp = (pred_is_positive && is_true) as usize;
+            let tn = (!pred_is_positive && is_true) as usize;
+            let fp = (pred_is_positive && !is_true) as usize;
+            let r#fn = (!pred_is_positive && !is_true) as usize;
+
+            let grp = is_a as usize;
+
+            confusion_a.true_p += (grp * tp) as f32;
+            confusion_a.true_n += (grp * tn) as f32;
+            confusion_a.false_p += (grp * fp) as f32;
+            confusion_a.false_n += (grp * r#fn) as f32;
+
+            confusion_d.true_p += (grp * tp) as f32;
+            confusion_d.true_n += (grp * tn) as f32;
+            confusion_d.false_p += (grp * fp) as f32;
+            confusion_d.false_n += (grp * r#fn) as f32;
+        }
+
+        let ge = statistics::generalized_entropy(labeled_prediction, labeled_gt);
+
+        PostTrainingDataV2 {
+            confusion_a,
+            confusion_d,
+            dist_d,
+            dist_a,
+            ge,
+        }
+    }
 }
 
 pub struct PostTrainingComputations {

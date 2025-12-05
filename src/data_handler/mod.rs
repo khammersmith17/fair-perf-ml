@@ -134,9 +134,26 @@ pub enum BiasSegmentationType {
 }
 
 #[derive(Clone)]
-pub struct BiasSegmentationCriteria<T> {
-    pub value: T,
-    pub stype: BiasSegmentationType,
+pub struct BiasSegmentationCriteria<T>
+where
+    T: PartialOrd + PartialEq,
+{
+    value: T,
+    stype: BiasSegmentationType,
+}
+
+impl<T> BiasSegmentationCriteria<T>
+where
+    T: PartialOrd + PartialEq,
+{
+    #[inline]
+    pub(crate) fn label(&self, value: &T) -> bool {
+        if self.stype == BiasSegmentationType::Label {
+            self.value == *value
+        } else {
+            self.value <= *value
+        }
+    }
 }
 
 /// Type to organize bias monitor inputs and differentiate between a continuous and a discrete
@@ -144,7 +161,10 @@ pub struct BiasSegmentationCriteria<T> {
 /// data just needs to live as long as all analysis computations. This is also cheap to clone, for
 /// easy resuse.
 #[derive(Clone)]
-pub struct BiasDataPayload<'a, T> {
+pub struct BiasDataPayload<'a, T>
+where
+    T: PartialOrd + PartialEq,
+{
     data: &'a [T],
     segmentation_criteria: BiasSegmentationCriteria<T>,
 }
