@@ -5,14 +5,14 @@ use crate::runtime::ModelBiasRuntime;
 use crate::zip_iters;
 use std::collections::HashMap;
 pub(crate) mod core;
-pub(crate) mod statistics;
+pub mod statistics;
 use crate::reporting::{DriftReport, ModelBiasAnalysisReport};
 use core::post_training_bias;
 
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
     use super::core::post_training_bias;
-    use super::PostTrainingDataV2;
+    use super::PostTrainingData;
     use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict};
     use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
     use crate::reporting::DriftReport;
@@ -111,7 +111,7 @@ pub(crate) mod py_api {
             Err(err) => return Err(PyTypeError::new_err(err.to_string())),
         };
 
-        let post_training_data = PostTrainingDataV2::new(&feats, &preds, &gt);
+        let post_training_data = PostTrainingData::new(&feats, &preds, &gt);
 
         let analysis_res = post_training_bias(&post_training_data);
 
@@ -171,18 +171,10 @@ where
     let labeled_gt = ground_truth.generate_labeled_data();
     let labeled_preds = predictions.generate_labeled_data();
 
-    let post_training_base =
-        PostTrainingDataV2::new(&labeled_features, &labeled_preds, &labeled_gt);
+    let post_training_base = PostTrainingData::new(&labeled_features, &labeled_preds, &labeled_gt);
 
     let analysis_res = post_training_bias(&post_training_base);
     Ok(analysis_res)
-}
-
-pub struct PostTrainingData {
-    pub facet_a_scores: Vec<i16>,
-    pub facet_d_scores: Vec<i16>,
-    pub facet_a_trues: Vec<i16>,
-    pub facet_d_trues: Vec<i16>,
 }
 
 #[derive(Default)]
@@ -200,7 +192,7 @@ pub(crate) struct ConfusionMatrix {
     false_n: f32,
 }
 
-pub(crate) struct PostTrainingDataV2 {
+pub(crate) struct PostTrainingData {
     pub confusion_a: ConfusionMatrix,
     pub confusion_d: ConfusionMatrix,
     pub dist_a: PostTrainingDistribution,
@@ -208,12 +200,12 @@ pub(crate) struct PostTrainingDataV2 {
     pub ge: f32,
 }
 
-impl PostTrainingDataV2 {
+impl PostTrainingData {
     fn new(
         labeled_feature: &[i16],
         labeled_prediction: &[i16],
         labeled_gt: &[i16],
-    ) -> PostTrainingDataV2 {
+    ) -> PostTrainingData {
         let mut confusion_a = ConfusionMatrix::default();
         let mut confusion_d = ConfusionMatrix::default();
         let mut dist_a = PostTrainingDistribution::default();
@@ -250,9 +242,9 @@ impl PostTrainingDataV2 {
             confusion_d.false_n += (grp * r#fn) as f32;
         }
 
-        let ge = statistics::generalized_entropy(labeled_prediction, labeled_gt);
+        let ge = statistics::inner::generalized_entropy(labeled_prediction, labeled_gt);
 
-        PostTrainingDataV2 {
+        PostTrainingData {
             confusion_a,
             confusion_d,
             dist_d,
@@ -271,132 +263,4 @@ pub struct PostTrainingComputations {
     pub false_negatives_d: f32,
     pub true_negatives_a: f32,
     pub true_negatives_d: f32,
-}
-
-impl PostTrainingData {
-    pub fn general_data_computations(&self) -> PostTrainingComputations {
-        PostTrainingComputations {
-            true_positives_a: self.true_positives_a(),
-            true_positives_d: self.true_positives_d(),
-            false_positives_a: self.false_positives_a(),
-            false_positives_d: self.false_positives_d(),
-            false_negatives_a: self.false_negatives_a(),
-            false_negatives_d: self.false_negatives_d(),
-            true_negatives_a: self.true_negatives_a(),
-            true_negatives_d: self.true_negatives_d(),
-        }
-    }
-
-    fn true_positives_a(&self) -> f32 {
-        self.facet_a_scores
-            .iter()
-            .zip(self.facet_a_trues.iter())
-            .map(|(y_pred, y_true)| {
-                if *y_pred == 1_i16 && *y_true == 1_i16 {
-                    1_f32
-                } else {
-                    0_f32
-                }
-            })
-            .sum::<f32>()
-            .into()
-    }
-
-    fn true_positives_d(&self) -> f32 {
-        self.facet_d_scores
-            .iter()
-            .zip(self.facet_d_trues.iter())
-            .map(|(y_pred, y_true)| {
-                if *y_pred == 1_i16 && *y_true == 1_i16 {
-                    1_f32
-                } else {
-                    0_f32
-                }
-            })
-            .sum::<f32>()
-    }
-
-    fn false_positives_a(&self) -> f32 {
-        self.facet_a_scores
-            .iter()
-            .zip(self.facet_a_trues.iter())
-            .map(|(y_pred, y_true)| {
-                if *y_pred == 1_i16 && *y_true == 0_i16 {
-                    1_f32
-                } else {
-                    0_f32
-                }
-            })
-            .sum::<f32>()
-    }
-
-    fn false_positives_d(&self) -> f32 {
-        self.facet_d_scores
-            .iter()
-            .zip(self.facet_d_trues.iter())
-            .map(|(y_pred, y_true)| {
-                if *y_pred == 1 && *y_true == 0 {
-                    1_f32
-                } else {
-                    0_f32
-                }
-            })
-            .sum::<f32>()
-    }
-
-    fn false_negatives_a(&self) -> f32 {
-        self.facet_a_scores
-            .iter()
-            .zip(self.facet_a_trues.iter())
-            .map(|(y_pred, y_true)| {
-                if *y_pred == 0 && *y_true == 1 {
-                    1_f32
-                } else {
-                    0_f32
-                }
-            })
-            .sum::<f32>()
-    }
-
-    fn false_negatives_d(&self) -> f32 {
-        self.facet_d_scores
-            .iter()
-            .zip(self.facet_d_trues.iter())
-            .map(|(y_pred, y_true)| {
-                if *y_pred == 0 && *y_true == 1 {
-                    1_f32
-                } else {
-                    0_f32
-                }
-            })
-            .sum::<f32>()
-    }
-
-    fn true_negatives_a(&self) -> f32 {
-        self.facet_a_scores
-            .iter()
-            .zip(self.facet_a_trues.iter())
-            .map(|(y_pred, y_true)| {
-                if *y_pred == 0 && *y_true == 0 {
-                    1_f32
-                } else {
-                    0_f32
-                }
-            })
-            .sum::<f32>()
-    }
-
-    fn true_negatives_d(&self) -> f32 {
-        self.facet_d_scores
-            .iter()
-            .zip(self.facet_d_trues.iter())
-            .map(|(y_pred, y_true)| {
-                if *y_pred == 0 && *y_true == 0 {
-                    1_f32
-                } else {
-                    0_f32
-                }
-            })
-            .sum::<f32>()
-    }
 }

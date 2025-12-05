@@ -8,6 +8,8 @@ pub enum BiasError {
     NoSegmentationParameters,
     #[error("Ambiguous segmentation parameters")]
     AmbiguousSegmentationParameters,
+    #[error("All data arrays must have equal length")]
+    DataLengthError,
 }
 
 #[derive(Debug, Error)]
