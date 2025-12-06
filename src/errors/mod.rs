@@ -90,6 +90,8 @@ pub enum ModelPerformanceError {
     EmptyDataVector,
     #[error("Data vectors must be equal length")]
     DataVectorLengthMismatch,
+    #[error("Invalid analysis report")]
+    InvalidAnalysisReport,
     // py only errors
     #[allow(unused)]
     #[error("Data Vector type mistmatch")]

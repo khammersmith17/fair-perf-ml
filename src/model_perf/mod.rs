@@ -264,6 +264,9 @@ pub(crate) mod py_api {
     }
 }
 
+/// Perform the full suite of Post Training Bias analysis on a discrete dataset. This method can be
+/// used to get a point in time snapshot into model performance across a discrete dataset. This
+/// method
 pub fn classification_performance_runtime(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
@@ -432,12 +435,6 @@ impl GeneralClassificationMetrics {
     }
 }
 
-//pub struct PerfEntry;
-
-//impl PerfEntry {
-#[cfg(feature = "python")]
-mod py_perf_entry {}
-
 // TODO: change to follow the pattern in bias monitors
 pub struct BinaryClassificationAnalysisResult {
     balanced_accuracy: f32,
@@ -464,39 +461,48 @@ impl BinaryClassificationAnalysisResult {
     }
 }
 
+impl TryFrom<&BinaryClassificationAnalysisReport> for BinaryClassificationAnalysisResult {
+    type Error = ModelPerformanceError;
+    fn try_from(payload: &BinaryClassificationAnalysisReport) -> Result<Self, Self::Error> {
+        use ClassificationEvaluationMetric as C;
+        let value_fetcher = |p: &BinaryClassificationAnalysisReport, key: C| {
+            let Some(v) = p.get(&key) else {
+                return Err(ModelPerformanceError::InvalidAnalysisReport);
+            };
+
+            Ok(*v)
+        };
+        Ok(BinaryClassificationAnalysisResult {
+            balanced_accuracy: value_fetcher(&payload, C::BalancedAccuracy)?,
+            precision_positive: value_fetcher(&payload, C::PrecisionPositive)?,
+            precision_negative: value_fetcher(&payload, C::PrecisionNegative)?,
+            recall_positive: value_fetcher(&payload, C::RecallPositive)?,
+            recall_negative: value_fetcher(&payload, C::RecallNegative)?,
+            accuracy: value_fetcher(&payload, C::Accuracy)?,
+            f1_score: value_fetcher(&payload, C::F1Score)?,
+        })
+    }
+}
+
 impl TryFrom<HashMap<String, f32>> for BinaryClassificationAnalysisResult {
-    type Error = String;
-    fn try_from(map: HashMap<String, f32>) -> Result<Self, Self::Error> {
-        let Some(balanced_accuracy) = map.get("BalancedAccuracy") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(precision_positive) = map.get("PrecisionPositive") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(precision_negative) = map.get("PrecisionNegative") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(recall_positive) = map.get("RecallPositive") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(recall_negative) = map.get("RecallNegative") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(accuracy) = map.get("Accuracy") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(f1_score) = map.get("F1Score") else {
-            return Err("Invalid regression report".into());
+    type Error = ModelPerformanceError;
+    fn try_from(mut payload: HashMap<String, f32>) -> Result<Self, Self::Error> {
+        let value_fetcher = |p: &mut HashMap<String, f32>, key: &str| {
+            let Some(v) = p.remove(key) else {
+                return Err(ModelPerformanceError::InvalidAnalysisReport);
+            };
+
+            Ok(v)
         };
 
         Ok(BinaryClassificationAnalysisResult {
-            balanced_accuracy: *balanced_accuracy,
-            precision_positive: *precision_positive,
-            precision_negative: *precision_negative,
-            recall_positive: *recall_positive,
-            recall_negative: *recall_negative,
-            accuracy: *accuracy,
-            f1_score: *f1_score,
+            balanced_accuracy: value_fetcher(&mut payload, "BalancedAccuracy")?,
+            precision_positive: value_fetcher(&mut payload, "PrecisionPositive")?,
+            precision_negative: value_fetcher(&mut payload, "PrecisionNegative")?,
+            recall_positive: value_fetcher(&mut payload, "RecallPositive")?,
+            recall_negative: value_fetcher(&mut payload, "RecallNegative")?,
+            accuracy: value_fetcher(&mut payload, "Accuracy")?,
+            f1_score: value_fetcher(&mut payload, "F1Score")?,
         })
     }
 }
@@ -600,43 +606,47 @@ impl LogisticRegressionAnalysisResult {
     }
 }
 
-impl TryFrom<HashMap<String, f32>> for LogisticRegressionAnalysisResult {
-    type Error = String;
-    fn try_from(map: HashMap<String, f32>) -> Result<Self, Self::Error> {
-        let Some(balanced_accuracy) = map.get("BalancedAccuracy") else {
-            return Err("Invalid regression report".into());
+impl TryFrom<&LogisticRegressionAnalysisReport> for LogisticRegressionAnalysisResult {
+    type Error = ModelPerformanceError;
+    fn try_from(payload: &LogisticRegressionAnalysisReport) -> Result<Self, Self::Error> {
+        use ClassificationEvaluationMetric as L;
+        let value_fetcher = |p: &LogisticRegressionAnalysisReport, key: L| {
+            let Some(v) = p.get(&key) else {
+                return Err(ModelPerformanceError::InvalidAnalysisReport);
+            };
+            Ok(*v)
         };
-        let Some(precision_positive) = map.get("PrecisionPositive") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(precision_negative) = map.get("PrecisionNegative") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(recall_positive) = map.get("RecallPositive") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(recall_negative) = map.get("RecallNegative") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(accuracy) = map.get("Accuracy") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(f1_score) = map.get("F1Score") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(log_loss) = map.get("LogLoss") else {
-            return Err("Invalid regression report".into());
-        };
-
         Ok(LogisticRegressionAnalysisResult {
-            balanced_accuracy: *balanced_accuracy,
-            precision_positive: *precision_positive,
-            precision_negative: *precision_negative,
-            recall_positive: *recall_positive,
-            recall_negative: *recall_negative,
-            accuracy: *accuracy,
-            f1_score: *f1_score,
-            log_loss: *log_loss,
+            balanced_accuracy: value_fetcher(&payload, L::BalancedAccuracy)?,
+            precision_positive: value_fetcher(&payload, L::PrecisionPositive)?,
+            precision_negative: value_fetcher(&payload, L::PrecisionNegative)?,
+            recall_positive: value_fetcher(&payload, L::RecallPositive)?,
+            recall_negative: value_fetcher(&payload, L::RecallNegative)?,
+            accuracy: value_fetcher(&payload, L::Accuracy)?,
+            f1_score: value_fetcher(&payload, L::F1Score)?,
+            log_loss: value_fetcher(&payload, L::LogLoss)?,
+        })
+    }
+}
+
+impl TryFrom<HashMap<String, f32>> for LogisticRegressionAnalysisResult {
+    type Error = ModelPerformanceError;
+    fn try_from(mut payload: HashMap<String, f32>) -> Result<Self, Self::Error> {
+        let value_fetcher = |p: &mut HashMap<String, f32>, key: &str| {
+            let Some(v) = p.remove(key) else {
+                return Err(ModelPerformanceError::InvalidAnalysisReport);
+            };
+            Ok(v)
+        };
+        Ok(LogisticRegressionAnalysisResult {
+            balanced_accuracy: value_fetcher(&mut payload, "BalancedAccuracy")?,
+            precision_positive: value_fetcher(&mut payload, "PrecisionPositive")?,
+            precision_negative: value_fetcher(&mut payload, "PrecisionNegative")?,
+            recall_positive: value_fetcher(&mut payload, "RecallPositive")?,
+            recall_negative: value_fetcher(&mut payload, "RecallNegative")?,
+            accuracy: value_fetcher(&mut payload, "Accuracy")?,
+            f1_score: value_fetcher(&mut payload, "F1Score")?,
+            log_loss: value_fetcher(&mut payload, "LogLoss")?,
         })
     }
 }
@@ -864,42 +874,49 @@ pub struct LinearRegressionAnalysisResult {
     mape: f32,
 }
 
-impl TryFrom<HashMap<String, f32>> for LinearRegressionAnalysisResult {
-    type Error = String;
-    fn try_from(map: HashMap<String, f32>) -> Result<Self, Self::Error> {
-        let Some(rmse) = map.get("RootMeanSquaredError") else {
-            return Err("Invalid regression report".into());
+impl TryFrom<&LinearRegressionAnalysisReport> for LinearRegressionAnalysisResult {
+    type Error = ModelPerformanceError;
+    fn try_from(payload: &LinearRegressionAnalysisReport) -> Result<Self, Self::Error> {
+        use LinearRegressionEvaluationMetric as L;
+        let value_fetcher = |p: &LinearRegressionAnalysisReport, key: L| {
+            let Some(v) = p.get(&key) else {
+                return Err(ModelPerformanceError::InvalidAnalysisReport);
+            };
+            Ok(*v)
         };
-        let Some(mse) = map.get("MeanSquaredError") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(mae) = map.get("MeanAbsoluteError") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(r_squared) = map.get("RSquared") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(max_error) = map.get("MaxError") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(msle) = map.get("MeanSquaredLogError") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(rmsle) = map.get("RootMeanSquaredLogError") else {
-            return Err("Invalid regression report".into());
-        };
-        let Some(mape) = map.get("MeanAbsolutePercentageError") else {
-            return Err("Invalid regression report".into());
-        };
+
         Ok(LinearRegressionAnalysisResult {
-            rmse: *rmse,
-            mse: *mse,
-            mae: *mae,
-            r_squared: *r_squared,
-            max_error: *max_error,
-            msle: *msle,
-            rmsle: *rmsle,
-            mape: *mape,
+            rmse: value_fetcher(&payload, L::RootMeanSquaredError)?,
+            mse: value_fetcher(&payload, L::MeanSquaredError)?,
+            mae: value_fetcher(&payload, L::MeanAbsoluteError)?,
+            r_squared: value_fetcher(&payload, L::RSquared)?,
+            max_error: value_fetcher(&payload, L::MaxError)?,
+            msle: value_fetcher(&payload, L::MeanSquaredLogError)?,
+            rmsle: value_fetcher(&payload, L::RootMeanSquaredLogError)?,
+            mape: value_fetcher(&payload, L::MeanAbsolutePercentageError)?,
+        })
+    }
+}
+
+impl TryFrom<HashMap<String, f32>> for LinearRegressionAnalysisResult {
+    type Error = ModelPerformanceError;
+    fn try_from(mut payload: HashMap<String, f32>) -> Result<Self, Self::Error> {
+        let value_fetcher = |p: &mut HashMap<String, f32>, key: &str| {
+            let Some(v) = p.remove(key) else {
+                return Err(ModelPerformanceError::InvalidAnalysisReport);
+            };
+            Ok(v)
+        };
+
+        Ok(LinearRegressionAnalysisResult {
+            rmse: value_fetcher(&mut payload, "RootMeanSquaredError")?,
+            mse: value_fetcher(&mut payload, "MeanSquaredError")?,
+            mae: value_fetcher(&mut payload, "MeanAbsoluteError")?,
+            r_squared: value_fetcher(&mut payload, "RSquared")?,
+            max_error: value_fetcher(&mut payload, "MaxError")?,
+            msle: value_fetcher(&mut payload, "MeanSquaredLogError")?,
+            rmsle: value_fetcher(&mut payload, "RootMeanSquaredLogError")?,
+            mape: value_fetcher(&mut payload, "MeanAbsolutePercentageError")?,
         })
     }
 }

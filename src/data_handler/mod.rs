@@ -9,7 +9,11 @@ pub(crate) mod py_types_handler {
     use std::collections::HashMap;
     use std::error::Error;
 
-    pub fn report_to_py_dict<'py, T>(py: Python<'py>, report: HashMap<T, f32>) -> Bound<'py, PyDict>
+    // Coerce analysis/runtime report into Python Dictionary
+    pub(crate) fn report_to_py_dict<'py, T>(
+        py: Python<'py>,
+        report: HashMap<T, f32>,
+    ) -> Bound<'py, PyDict>
     where
         T: ToString,
     {
@@ -42,7 +46,8 @@ pub(crate) mod py_types_handler {
         }
     }
 
-    pub fn apply_label<'py>(
+    // Handles untyped nature of python data. Determines type and labels accordingly.
+    pub(crate) fn apply_label<'py>(
         py: Python<'_>,
         array: &Bound<'_, PyUntypedArray>,
         label: Bound<'py, PyAny>,
@@ -133,7 +138,21 @@ pub enum BiasSegmentationType {
     Threshold,
 }
 
-#[derive(Clone)]
+/// Type to identify how bias data will be segmented into positive and negative classes. This can
+/// be applied to feature classes, prediction classes, and ground truth classes. All bias analysis
+/// in this crate is based on segmentation of all data into a positive and negative class. The
+/// feature data is segmented into "advantaged" and "disadvantaged" groups, where predictions and
+/// ground truth examples are segmented into "positive" and "negative" outcomes.
+///
+/// Continuous data is segmented into positive and negative classes based on some threshold, and
+/// discrete data is segmented based on some label, this labeling can either dictate the advantaged
+/// or disadvantaged group. To gain analysis on multiple classes, the same data can be segmented in
+/// multiple ways for different dimensions of analysis/montioring. Given the labeling involved, the
+/// type that performs the segmentation must implement 'PartialOrd' and 'PartialEq'. The
+/// segmentation operation is dictated by the 'BiasSegmentationType' passed on construction.
+///
+/// This intentionally does implement Clone, to avoid limiting possible types that can be used.
+/// This type is cheap enough to reconstuct when needed
 pub struct BiasSegmentationCriteria<T>
 where
     T: PartialOrd + PartialEq,
@@ -160,7 +179,6 @@ where
 /// feature. This can be defined once if bias is performed across multiple features, the baseline
 /// data just needs to live as long as all analysis computations. This is also cheap to clone, for
 /// easy resuse.
-#[derive(Clone)]
 pub struct BiasDataPayload<'a, T>
 where
     T: PartialOrd + PartialEq,
@@ -188,6 +206,7 @@ where
         }
     }
 
+    /// Constructor from already formed 'BiasSegmentationCriteria'.
     pub fn new_from_criteria(
         data: &'a [T],
         segmentation_criteria: BiasSegmentationCriteria<T>,
