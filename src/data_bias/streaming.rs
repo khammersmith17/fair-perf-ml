@@ -1,103 +1,100 @@
-use super::PreTrainingDistribution;
+use super::PreTraining;
 use crate::data_handler::BiasSegmentationCriteria;
-use crate::reporting::DataBiasRuntimeReport;
-use crate::zip_iters;
-use std::collections::HashMap;
-/// Container for long running processes and accumulating runtime data. As opposed to point in time
-/// utilities provided in the crate.
+use crate::errors::ModelPerformanceError;
+use crate::metrics::DataBiasMetric;
+use crate::reporting::DriftReport;
+use crate::runtime::DataBiasRuntime;
 
-// TODO:
-// baseline computation on init
-// accumulate labels based on segmentation criteria
-// compute metrics on every data push
-// determine best way to have data precomputed
+/// A streaming data bias manager. At construction, baseline data is required, then through the
+/// lifetime of the type instance, runtime data can be accumulated and a snapshot drift report can
+/// be generated to give a point in time snapshot into the current data bias drift. This type
+/// stores only the data needed to compute the supported bias metrics, and does so compactly.
+/// Reseting the baseline is also supported, which may be appropriate at some time cadence, or
+/// after a model refresh. Feature class and ground truth class labeling will be done with the
+/// provided 'data_handler::BiasSegmentationCriteria<T>'.
 pub struct StreamingDataBias<G, F>
 where
-    G: PartialEq + PartialOrd,
-    F: PartialEq + PartialOrd,
+    G: PartialOrd,
+    F: PartialOrd,
 {
     feature_seg_criteria: BiasSegmentationCriteria<F>,
     gt_seg_criteria: BiasSegmentationCriteria<G>,
-    rt: DbStreamingGroup,
-    bl: DbStreamingGroup,
-}
-
-#[derive(Default)]
-struct DbStreamingGroup {
-    dist_a: PreTrainingDistribution,
-    dist_d: PreTrainingDistribution,
-}
-
-impl DbStreamingGroup {
-    fn construct_bl_dists<F, G>(
-        feature_seg: &BiasSegmentationCriteria<F>,
-        feature_data: &[F],
-        gt_seg: &BiasSegmentationCriteria<G>,
-        gt_data: &[G],
-    ) -> DbStreamingGroup
-    where
-        F: PartialEq + PartialOrd,
-        G: PartialEq + PartialOrd,
-    {
-        // returns (facet a, facet d)
-        let mut len_a = 0_u64;
-        let mut positive_a = 0_u64;
-
-        let mut len_d = 0_u64;
-        let mut positive_d = 0_u64;
-
-        for (f, g) in zip_iters!(feature_data, gt_data) {
-            let is_favored = feature_seg.label(f);
-            let is_positive = gt_seg.label(g);
-
-            len_a += is_favored as u64;
-            positive_a += (is_favored && is_positive) as u64;
-            len_d += !is_favored as u64;
-            positive_d += (!is_favored && is_positive) as u64;
-        }
-
-        let dist_a = PreTrainingDistribution {
-            len: len_a,
-            positive: positive_a,
-        };
-        let dist_d = PreTrainingDistribution {
-            len: len_d,
-            positive: positive_d,
-        };
-
-        DbStreamingGroup { dist_a, dist_d }
-    }
+    baseline_report: DataBiasRuntime,
+    rt: PreTraining, // stores the runtime/accumulated distributions for both facets
+    bl: PreTraining, // stores the baseline accumulated distributions for both facets
 }
 
 impl<G, F> StreamingDataBias<G, F>
 where
-    F: PartialOrd + PartialEq,
-    G: PartialOrd + PartialEq,
+    F: PartialOrd,
+    G: PartialOrd,
 {
+    /// Construct a new streaming instance with baseline features and ground truth. Feature and
+    /// ground truth label segmentation criteria is required to segment features and labels into
+    /// advantaged and disadvantaged classes.
     pub fn new_with_baseline(
         feature_seg_criteria: BiasSegmentationCriteria<F>,
         gt_seg_criteria: BiasSegmentationCriteria<G>,
         feature_data: &[F],
         gt_data: &[G],
     ) -> StreamingDataBias<G, F> {
-        let bl = DbStreamingGroup::construct_bl_dists(
-            &feature_seg_criteria,
+        let bl = PreTraining::new_from_segmentation(
             feature_data,
-            &gt_seg_criteria,
+            &feature_seg_criteria,
             gt_data,
+            &gt_seg_criteria,
         );
-        let rt = DbStreamingGroup::default();
+        let rt = PreTraining::default();
+
+        let baseline_report = DataBiasRuntime::new_from_pre_training(&bl);
 
         StreamingDataBias {
             feature_seg_criteria,
             gt_seg_criteria,
+            baseline_report,
             bl,
             rt,
         }
     }
 
-    pub fn push_data(&mut self, feature: &[F], gt: &[G]) -> DataBiasRuntimeReport {
-        todo!()
+    /// Method to push new data to the stream and update stream state. The segmentation logic
+    /// provided at type construction will do all feature class and outcome class labeling.
+    pub fn push_data(&mut self, feature: &[F], gt: &[G]) {
+        self.rt.accumulate_runtime(
+            feature,
+            &self.feature_seg_criteria,
+            gt,
+            &self.gt_seg_criteria,
+        );
+    }
+
+    /// Reset the baseline data. This may be used to refresh the data on a retraining, or to move
+    /// forward in time from a given baseline set if data drifts. This method will clear all
+    /// runtime data.
+    pub fn reset_baseline(&mut self, feature_data: &[F], gt_data: &[G]) {
+        let new_bl = PreTraining::new_from_segmentation(
+            feature_data,
+            &self.feature_seg_criteria,
+            gt_data,
+            &self.gt_seg_criteria,
+        );
+
+        self.bl = new_bl;
+        self.rt.clear();
+    }
+
+    /// Method to generate a point in time drift snapshot. This method will report out the current
+    /// drift across all metrics in 'metrics::DataBiasMetric'. Returns an error when there the
+    /// runtime bins are empty.
+    pub fn generate_drift_snapshot(
+        &self,
+    ) -> Result<DriftReport<DataBiasMetric>, ModelPerformanceError> {
+        if self.rt.size() == 0_u64 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        let curr_rt = DataBiasRuntime::new_from_pre_training(&self.rt);
+        let rt_report = curr_rt.runtime_drift_report(&self.baseline_report);
+        Ok(DriftReport::from_runtime(rt_report))
     }
 }
 

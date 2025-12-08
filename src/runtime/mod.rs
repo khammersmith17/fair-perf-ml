@@ -1,3 +1,4 @@
+use crate::data_bias::PreTraining;
 use crate::errors::{DataBiasRuntimeError, ModelBiasRuntimeError};
 use crate::metrics::{DataBiasMetric, ModelBiasMetric};
 use crate::reporting::{
@@ -13,6 +14,21 @@ pub struct DataBiasRuntime {
     lpnorm: f32,
     tvd: f32,
     ks: f32,
+}
+
+impl DataBiasRuntime {
+    pub(crate) fn new_from_pre_training(pre_training: &PreTraining) -> DataBiasRuntime {
+        use crate::data_bias::statistics::inner as metrics;
+        DataBiasRuntime {
+            ci: metrics::class_imbalance(&pre_training),
+            dpl: metrics::diff_in_proportion_of_labels(&pre_training),
+            kl: metrics::kl_divergence(&pre_training),
+            js: metrics::jensen_shannon(&pre_training),
+            lpnorm: metrics::lp_norm(&pre_training),
+            tvd: metrics::total_variation_distance(&pre_training),
+            ks: metrics::kolmorogv_smirnov(&pre_training),
+        }
+    }
 }
 
 impl TryFrom<HashMap<String, f32>> for DataBiasRuntime {
@@ -160,6 +176,28 @@ impl DataBiasRuntime {
                 }
             }
         }
+        result
+    }
+
+    pub fn runtime_drift_report(&self, baseline: &DataBiasRuntime) -> DataBiasRuntimeReport {
+        let mut result = DataBiasRuntimeReport::with_capacity(7);
+        result.insert(
+            DataBiasMetric::ClassImbalance,
+            (self.ci.abs() - baseline.ci.abs()).abs(),
+        );
+        result.insert(
+            DataBiasMetric::DifferenceInProportionOfLabels,
+            (self.dpl.abs() - baseline.dpl.abs()).abs(),
+        );
+        result.insert(DataBiasMetric::KlDivergence, self.kl - baseline.kl);
+        result.insert(DataBiasMetric::JsDivergence, self.js - baseline.js);
+        result.insert(DataBiasMetric::LpNorm, self.lpnorm - baseline.lpnorm);
+        result.insert(
+            DataBiasMetric::TotalVariationDistance,
+            self.tvd - baseline.tvd,
+        );
+        result.insert(DataBiasMetric::KolmorogvSmirnov, self.tvd - baseline.tvd);
+
         result
     }
 }

@@ -179,7 +179,7 @@ pub enum BiasSegmentationType {
 /// This type is cheap enough to reconstuct when needed
 pub struct BiasSegmentationCriteria<T>
 where
-    T: PartialOrd + PartialEq,
+    T: PartialOrd,
 {
     value: T,
     stype: BiasSegmentationType,
