@@ -19,14 +19,14 @@ from typing import Union, List, Optional
 
 class DifferentModelTypes(Exception):
     """
-    Exception to handle when user passes in wrong model type
+    Exception to handle when user passes in wrong model type.
     """
 
 
 class InvalidMetricsBody(Exception):
     """
     Exception to handle when the user passes an invalid metrics
-    payload
+    payload.
     """
 
 

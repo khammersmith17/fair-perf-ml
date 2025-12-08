@@ -128,6 +128,30 @@ pub(crate) mod py_types_handler {
     }
 }
 
+pub(crate) trait ApplyThreshold {
+    fn apply_threshold(&self, other: Self) -> Self;
+}
+
+impl ApplyThreshold for f32 {
+    fn apply_threshold(&self, other: f32) -> f32 {
+        if *self >= other {
+            1_f32
+        } else {
+            0_f32
+        }
+    }
+}
+
+// Type to hold confusion matrix for binary type classification. This allows for much cheaper
+// computation of many of the classic classification metrics
+#[derive(Default)]
+pub(crate) struct ConfusionMatrix {
+    pub true_p: f32,
+    pub false_p: f32,
+    pub true_n: f32,
+    pub false_n: f32,
+}
+
 /// Enum to differentiate between an array that is going to be segmented by label versus by a
 /// threshold. Dicrete data should be segmented by a label and continuous data should be segmented
 /// by a threshold. For example a categorical dataset should use the label variant, where as a

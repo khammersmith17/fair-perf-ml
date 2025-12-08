@@ -5,7 +5,6 @@ from ._fair_perf_ml import (
 )
 from typing import Union, Optional, List
 from numpy.typing import NDArray
-from orjson import loads
 from .models import DataBiasBaseline
 from ._internal import check_and_convert_type
 

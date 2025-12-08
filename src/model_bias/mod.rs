@@ -1,4 +1,4 @@
-use crate::data_handler::BiasDataPayload;
+use crate::data_handler::{BiasDataPayload, ConfusionMatrix};
 use crate::errors::{BiasError, ModelBiasRuntimeError};
 use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
 use crate::runtime::ModelBiasRuntime;
@@ -182,14 +182,6 @@ pub(crate) struct PostTrainingDistribution {
     len: u64,
     positive_gt: u64,
     positive_pred: u64,
-}
-
-#[derive(Default)]
-pub(crate) struct ConfusionMatrix {
-    true_p: f32,
-    false_p: f32,
-    true_n: f32,
-    false_n: f32,
 }
 
 pub(crate) struct PostTrainingData {

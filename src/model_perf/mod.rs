@@ -1,4 +1,5 @@
 use crate::{
+    data_handler::{ApplyThreshold, ConfusionMatrix},
     errors::ModelPerformanceError,
     metrics::{ClassificationEvaluationMetric, LinearRegressionEvaluationMetric},
     reporting::{
@@ -9,14 +10,14 @@ use crate::{
     zip_iters,
 };
 use std::collections::HashMap;
+pub mod statistics;
 
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
-    use super::model_perf_classification;
     use super::{
         classification_performance_runtime, logistic_performance_runtime,
-        model_perf_logistic_regression, model_perf_regression, regression_performance_runtime,
-        ModelPerformanceError,
+        model_perf_binary_classification, model_perf_logistic_regression, model_perf_regression,
+        regression_performance_runtime, ModelPerformanceError,
     };
     use crate::data_handler::py_types_handler::{determine_type, report_to_py_dict, PassedType};
     use crate::metrics::{
@@ -206,7 +207,7 @@ pub(crate) mod py_api {
         let Ok((y_true, y_pred)) = validate_and_cast_regression(py, y_true_src, y_pred_src) else {
             return Err(PyValueError::new_err("Invalid types passed"));
         };
-        let report = match model_perf_regression(y_true, y_pred) {
+        let report = match model_perf_regression(&y_true, &y_pred) {
             Ok(r) => r,
             Err(e) => return Err(e.into()),
         };
@@ -230,7 +231,7 @@ pub(crate) mod py_api {
             return Err(PyValueError::new_err("Invalid types passed"));
         };
 
-        let report = match model_perf_classification(y_true, y_pred) {
+        let report = match model_perf_binary_classification(&y_true, &y_pred, 1_f32) {
             Ok(r) => r,
             Err(e) => return Err(e.into()),
         };
@@ -256,7 +257,7 @@ pub(crate) mod py_api {
             return Err(PyTypeError::new_err("Invalid type passed"));
         };
 
-        let report = match model_perf_logistic_regression(y_true, y_proba, threshold) {
+        let report = match model_perf_logistic_regression(&y_true, &y_proba, threshold) {
             Ok(r) => r,
             Err(e) => return Err(e.into()),
         };
@@ -327,115 +328,44 @@ pub fn regression_performance_runtime(
     Ok(DriftReport::from_runtime(results))
 }
 
-pub fn model_perf_classification(
-    y_true: Vec<f32>,
-    y_pred: Vec<f32>,
-) -> Result<BinaryClassificationAnalysisReport, ModelPerformanceError> {
-    let perf: ClassificationPerf = ClassificationPerf::new(y_true, y_pred)?;
-    let report: BinaryClassificationAnalysisResult = perf.into();
+/// Method to perform binary classification analysis on arbitrary type and label. Traditionally a
+/// positive label would equate to 1 if the result is numeric or otherwise. This method allows for
+/// arbitrary label type, to account for situations where a model might produce a String label, an
+/// enum, and so on. Given the arbitrary labeling, the type must implement 'PartialOrd'
+pub fn model_perf_binary_classification<T>(
+    y_true: &[T],
+    y_pred: &[T],
+    positive_label: T,
+) -> Result<BinaryClassificationAnalysisReport, ModelPerformanceError>
+where
+    T: PartialOrd,
+{
+    let report = BinaryClassificationAnalysisResult::new::<T>(y_true, y_pred, positive_label)?;
     Ok(report.generate_report())
 }
 
-pub fn model_perf_regression(
-    y_true: Vec<f32>,
-    y_pred: Vec<f32>,
-) -> Result<LinearRegressionAnalysisReport, ModelPerformanceError> {
-    let perf: LinearRegressionPerf = LinearRegressionPerf::new(y_true, y_pred)?;
-    let report: LinearRegressionAnalysisResult = perf.into();
+pub fn model_perf_regression<T>(
+    y_true: &[T],
+    y_pred: &[T],
+) -> Result<LinearRegressionAnalysisReport, ModelPerformanceError>
+where
+    T: Into<f64> + Copy,
+{
+    let report: LinearRegressionAnalysisResult =
+        LinearRegressionAnalysisResult::new(y_true, y_pred)?;
     Ok(report.generate_report())
 }
 
 pub fn model_perf_logistic_regression(
-    y_true: Vec<f32>,
-    y_proba: Vec<f32>,
+    y_true: &[f32],
+    y_proba: &[f32],
     threshold: f32,
 ) -> Result<LogisticRegressionAnalysisReport, ModelPerformanceError> {
-    let perf: LogisticRegressionPerf = LogisticRegressionPerf::new(y_true, y_proba, threshold)?;
-    let lr_report: LogisticRegressionAnalysisResult = perf.into();
+    let lr_report: LogisticRegressionAnalysisResult =
+        LogisticRegressionAnalysisResult::new(y_true, y_proba, threshold)?;
     Ok(lr_report.generate_report())
 }
 
-struct GeneralClassificationMetrics;
-
-impl GeneralClassificationMetrics {
-    fn balanced_accuracy(rp: f32, rn: f32) -> f32 {
-        rp * rn * 0.5_f32
-    }
-
-    fn precision_positive(y_pred: &[f32], y_true: &[f32]) -> f32 {
-        let total_pred_positives: f32 = y_pred.iter().sum::<f32>();
-        let mut true_positives: f32 = 0_f32;
-        for (t, p) in zip_iters!(y_true, y_pred) {
-            if (*t - 1_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
-                true_positives += 1_f32;
-            }
-        }
-        true_positives / total_pred_positives
-    }
-
-    fn precision_negative(y_pred: &[f32], y_true: &[f32], len: f32) -> f32 {
-        let total_pred_negatives: f32 = len - y_pred.iter().sum::<f32>();
-        let mut true_negatives: f32 = 0_f32;
-        for (t, p) in zip_iters!(y_true, y_pred) {
-            if (*t - 0_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
-                true_negatives += 1_f32;
-            }
-        }
-        true_negatives / total_pred_negatives
-    }
-
-    fn recall_positive(y_pred: &[f32], y_true: &[f32]) -> f32 {
-        let total_true_positives: f32 = y_true.iter().sum::<f32>();
-        let mut true_positives: f32 = 0_f32;
-        for (t, p) in zip_iters!(y_true, y_pred) {
-            if (*t - 1_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
-                true_positives += 1_f32;
-            }
-        }
-        true_positives / total_true_positives
-    }
-
-    fn recall_negative(y_pred: &[f32], y_true: &[f32], len: f32) -> f32 {
-        let total_true_negatives: f32 = len - y_true.iter().sum::<f32>();
-        let mut true_negatives: f32 = 0_f32;
-        for (t, p) in zip_iters!(y_true, y_pred) {
-            if (*t - 0_f32).abs() <= f32::EPSILON && (t - p).abs() <= f32::EPSILON {
-                true_negatives += 1_f32;
-            }
-        }
-        true_negatives / total_true_negatives
-    }
-
-    fn accuracy(y_pred: &Vec<f32>, y_true: &Vec<f32>, mean_f: f32) -> f32 {
-        let mut correct: f32 = 0_f32;
-        for (t, p) in zip_iters!(y_true, y_pred) {
-            if t == p {
-                correct += 1_f32;
-            }
-        }
-        correct * mean_f
-    }
-
-    fn f1_score(rp: f32, pp: f32) -> f32 {
-        2_f32 * rp * pp / (rp + pp)
-    }
-
-    fn log_loss_score(y_proba: &[f32], y_true: &[f32], mean_f: f32) -> f32 {
-        let mut penalties = 0_f32;
-        for (t, p) in zip_iters!(y_true, y_proba) {
-            penalties += t * f32::log10(*p) + (1_f32 - t) * f32::log10(1_f32 - p);
-        }
-        let res = -1_f32 * mean_f * penalties;
-
-        if res.is_nan() {
-            0_f32
-        } else {
-            res
-        }
-    }
-}
-
-// TODO: change to follow the pattern in bias monitors
 pub struct BinaryClassificationAnalysisResult {
     balanced_accuracy: f32,
     precision_positive: f32,
@@ -444,6 +374,47 @@ pub struct BinaryClassificationAnalysisResult {
     recall_negative: f32,
     accuracy: f32,
     f1_score: f32,
+}
+
+impl BinaryClassificationAnalysisResult {
+    pub fn new<T>(
+        y_true: &[T],
+        y_pred: &[T],
+        label: T,
+    ) -> Result<BinaryClassificationAnalysisResult, ModelPerformanceError>
+    where
+        T: PartialOrd,
+    {
+        use statistics::classification_metrics as metrics;
+        let mut c_matrix = ConfusionMatrix::default();
+
+        for (t, p) in zip_iters!(y_true, y_pred) {
+            let is_positive = *p == label;
+            let is_true = *p == *t;
+            c_matrix.true_p += (is_true && is_positive) as i32 as f32;
+            c_matrix.false_p += (!is_true && is_positive) as i32 as f32;
+            c_matrix.true_n += (is_true && !is_positive) as i32 as f32;
+            c_matrix.false_n += (!is_true && !is_positive) as i32 as f32;
+        }
+
+        let accuracy = metrics::accuracy(y_true, y_pred)?;
+        let balanced_accuracy = metrics::balanced_accuracy(&c_matrix);
+        let precision_positive = metrics::precision_positive(&c_matrix);
+        let precision_negative = metrics::precision_negative(&c_matrix);
+        let recall_positive = metrics::recall_positive(&c_matrix);
+        let recall_negative = metrics::recall_negative(&c_matrix);
+        let f1_score = metrics::f1_score(&c_matrix);
+
+        Ok(BinaryClassificationAnalysisResult {
+            balanced_accuracy,
+            precision_positive,
+            precision_negative,
+            recall_positive,
+            recall_negative,
+            accuracy,
+            f1_score,
+        })
+    }
 }
 
 impl BinaryClassificationAnalysisResult {
@@ -590,6 +561,53 @@ pub struct LogisticRegressionAnalysisResult {
     log_loss: f32,
 }
 
+// assume that positive label is 1
+impl LogisticRegressionAnalysisResult {
+    fn new(
+        y_true: &[f32],
+        y_pred: &[f32],
+        threshold: f32,
+    ) -> Result<LogisticRegressionAnalysisResult, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+
+        use statistics::classification_metrics as metrics;
+        let mut c_matrix = ConfusionMatrix::default();
+
+        for (t, p) in zip_iters!(y_true, y_pred) {
+            let label = p.apply_threshold(threshold);
+            let is_positive = label == 1_f32;
+            let is_true = label == *t;
+
+            c_matrix.true_p += (is_true && is_positive) as i32 as f32;
+            c_matrix.false_p += (!is_true && is_positive) as i32 as f32;
+            c_matrix.true_n += (is_true && !is_positive) as i32 as f32;
+            c_matrix.false_n += (!is_true && !is_positive) as i32 as f32;
+        }
+
+        let accuracy = metrics::accuracy(y_true, y_pred)?;
+        let balanced_accuracy = metrics::balanced_accuracy(&c_matrix);
+        let precision_positive = metrics::precision_positive(&c_matrix);
+        let precision_negative = metrics::precision_negative(&c_matrix);
+        let recall_positive = metrics::recall_positive(&c_matrix);
+        let recall_negative = metrics::recall_negative(&c_matrix);
+        let f1_score = metrics::f1_score(&c_matrix);
+        let log_loss = metrics::log_loss_score(y_true, y_pred)?;
+
+        Ok(LogisticRegressionAnalysisResult {
+            balanced_accuracy,
+            precision_positive,
+            precision_negative,
+            recall_positive,
+            recall_negative,
+            accuracy,
+            f1_score,
+            log_loss,
+        })
+    }
+}
+
 impl LogisticRegressionAnalysisResult {
     pub fn generate_report(&self) -> LogisticRegressionAnalysisReport {
         use ClassificationEvaluationMetric as M;
@@ -726,143 +744,6 @@ impl LogisticRegressionAnalysisResult {
     }
 }
 
-pub struct ClassificationPerf {
-    len: f32,
-    mean_f: f32,
-    y_pred: Vec<f32>,
-    y_true: Vec<f32>,
-}
-
-impl Into<BinaryClassificationAnalysisResult> for ClassificationPerf {
-    fn into(self) -> BinaryClassificationAnalysisResult {
-        let recall_positive =
-            GeneralClassificationMetrics::recall_positive(&self.y_pred, &self.y_true);
-        let precision_positive =
-            GeneralClassificationMetrics::precision_positive(&self.y_pred, &self.y_true);
-        let recall_negative =
-            GeneralClassificationMetrics::recall_negative(&self.y_pred, &self.y_true, self.len);
-        BinaryClassificationAnalysisResult {
-            balanced_accuracy: GeneralClassificationMetrics::balanced_accuracy(
-                recall_positive,
-                recall_negative,
-            ),
-            precision_positive,
-            precision_negative: GeneralClassificationMetrics::precision_negative(
-                &self.y_pred,
-                &self.y_true,
-                self.len,
-            ),
-            recall_positive,
-            recall_negative,
-            accuracy: GeneralClassificationMetrics::accuracy(
-                &self.y_pred,
-                &self.y_true,
-                self.mean_f,
-            ),
-            f1_score: GeneralClassificationMetrics::f1_score(recall_positive, precision_positive),
-        }
-    }
-}
-
-impl ClassificationPerf {
-    pub fn new(
-        y_true: Vec<f32>,
-        y_pred: Vec<f32>,
-    ) -> Result<ClassificationPerf, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
-        if y_pred.len() == 0 {
-            return Err(ModelPerformanceError::EmptyDataVector);
-        }
-        let len: f32 = y_pred.len() as f32;
-        let mean_f: f32 = 1_f32 / len;
-        Ok(ClassificationPerf {
-            y_true,
-            y_pred,
-            mean_f,
-            len,
-        })
-    }
-}
-
-//TODO: update to only hold 1 vec for proba
-//compute label inline
-struct LogisticRegressionPerf {
-    y_true: Vec<f32>,
-    y_pred: Vec<f32>,
-    y_proba: Vec<f32>,
-    mean_f: f32,
-    len: f32,
-}
-
-impl LogisticRegressionPerf {
-    pub fn new(
-        y_true: Vec<f32>,
-        y_proba: Vec<f32>,
-        threshold: f32,
-    ) -> Result<LogisticRegressionPerf, ModelPerformanceError> {
-        if y_true.len() != y_proba.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
-
-        if y_proba.len() == 0 {
-            return Err(ModelPerformanceError::EmptyDataVector);
-        }
-        let y_pred = y_proba
-            .clone()
-            .iter()
-            .map(|x| if *x >= threshold { 1_f32 } else { 0_f32 })
-            .collect::<Vec<f32>>();
-
-        let len: f32 = y_true.len() as f32;
-
-        Ok(LogisticRegressionPerf {
-            y_true,
-            y_pred,
-            y_proba,
-            mean_f: 1_f32 / len,
-            len,
-        })
-    }
-}
-
-impl Into<LogisticRegressionAnalysisResult> for LogisticRegressionPerf {
-    fn into(self) -> LogisticRegressionAnalysisResult {
-        let recall_positive =
-            GeneralClassificationMetrics::recall_positive(&self.y_pred, &self.y_true);
-        let precision_positive =
-            GeneralClassificationMetrics::precision_positive(&self.y_pred, &self.y_true);
-        let recall_negative =
-            GeneralClassificationMetrics::recall_negative(&self.y_pred, &self.y_true, self.len);
-        LogisticRegressionAnalysisResult {
-            balanced_accuracy: GeneralClassificationMetrics::balanced_accuracy(
-                recall_positive,
-                recall_negative,
-            ),
-            precision_positive,
-            precision_negative: GeneralClassificationMetrics::precision_negative(
-                &self.y_pred,
-                &self.y_true,
-                self.len,
-            ),
-            recall_positive,
-            recall_negative,
-            accuracy: GeneralClassificationMetrics::accuracy(
-                &self.y_pred,
-                &self.y_true,
-                self.mean_f,
-            ),
-            f1_score: GeneralClassificationMetrics::f1_score(recall_positive, precision_positive),
-            log_loss: GeneralClassificationMetrics::log_loss_score(
-                &self.y_proba,
-                &self.y_true,
-                self.mean_f,
-            ),
-        }
-    }
-}
-
 pub struct LinearRegressionAnalysisResult {
     rmse: f32,
     mse: f32,
@@ -872,6 +753,65 @@ pub struct LinearRegressionAnalysisResult {
     msle: f32,
     rmsle: f32,
     mape: f32,
+}
+
+impl LinearRegressionAnalysisResult {
+    pub fn new<T>(
+        y_true: &[T],
+        y_pred: &[T],
+    ) -> Result<LinearRegressionAnalysisResult, ModelPerformanceError>
+    where
+        T: Into<f64> + Copy,
+    {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        if y_true.len() == 0 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+
+        let n = y_true.len() as f64;
+
+        let mut squared_error_sum = 0_f64;
+        let mut abs_error_sum = 0_f64;
+        let mut max_error = 0_f64;
+        let mut log_error_sum = 0_f64;
+        let mut abs_percent_error_sum = 0_f64;
+        let mut y_true_sum = 0_f64;
+
+        for (t_ref, p_ref) in zip_iters!(y_true, y_pred) {
+            let t: f64 = (*t_ref).into();
+            let p: f64 = (*p_ref).into();
+
+            y_true_sum += t;
+            squared_error_sum += (t - p).powi(2);
+            abs_error_sum += (t - p).abs();
+            max_error = max_error.max((t - p).abs());
+            log_error_sum += (1_f64 + t).log10() - (1_f64 + p).log10();
+            abs_percent_error_sum += (t - p).abs() / t;
+        }
+
+        let mut ss_total = 0_f64;
+        let y_true_mean = y_true_sum / n;
+        for t_ref in y_true.iter() {
+            let t: f64 = (*t_ref).into();
+            ss_total += (t - y_true_mean).powi(2);
+        }
+
+        let mse = squared_error_sum / n;
+        let msle = log_error_sum / n;
+
+        Ok(LinearRegressionAnalysisResult {
+            r_squared: (1_f64 - (squared_error_sum / ss_total)) as f32,
+            rmse: (mse).powf(0_f64) as f32,
+            mse: mse as f32,
+            mae: (abs_error_sum / n) as f32,
+            max_error: max_error as f32,
+            msle: msle as f32,
+            rmsle: (msle.powf(0.5_f64)) as f32,
+            mape: (abs_percent_error_sum / n) as f32,
+        })
+    }
 }
 
 impl TryFrom<&LinearRegressionAnalysisReport> for LinearRegressionAnalysisResult {
@@ -991,116 +931,5 @@ impl LinearRegressionAnalysisResult {
             }
         }
         res
-    }
-}
-
-pub struct LinearRegressionPerf {
-    y_pred: Vec<f32>,
-    y_true: Vec<f32>,
-    mean_f: f32,
-}
-
-impl Into<LinearRegressionAnalysisResult> for LinearRegressionPerf {
-    fn into(self) -> LinearRegressionAnalysisResult {
-        LinearRegressionAnalysisResult {
-            rmse: self.root_mean_squared_error(),
-            mse: self.mean_squared_error(),
-            mae: self.mean_absolute_error(),
-            r_squared: self.r_squared(),
-            max_error: self.max_error(),
-            msle: self.mean_squared_log_error(),
-            rmsle: self.root_mean_squared_log_error(),
-            mape: self.mean_absolute_percentage_error(),
-        }
-    }
-}
-
-impl LinearRegressionPerf {
-    pub fn new(
-        y_true: Vec<f32>,
-        y_pred: Vec<f32>,
-    ) -> Result<LinearRegressionPerf, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
-        if y_true.len() == 0 {
-            return Err(ModelPerformanceError::EmptyDataVector);
-        }
-        let mean_f: f32 = 1_f32 / y_pred.len() as f32;
-        Ok(LinearRegressionPerf {
-            y_true,
-            y_pred,
-            mean_f,
-        })
-    }
-
-    fn root_mean_squared_error(&self) -> f32 {
-        let mut errors = 0_f32;
-        for (t, p) in zip_iters!(self.y_true, &self.y_pred) {
-            errors += (t - p).powi(2);
-        }
-        (errors * self.mean_f).powf(0.5_f32)
-    }
-
-    fn mean_squared_error(&self) -> f32 {
-        let mut errors = 0_f32;
-        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
-            errors += (t - p).powi(2);
-        }
-        errors * self.mean_f
-    }
-
-    fn mean_absolute_error(&self) -> f32 {
-        let mut errors = 0_f32;
-        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
-            errors += (t - p).abs();
-        }
-        errors * self.mean_f
-    }
-
-    fn r_squared(&self) -> f32 {
-        let y_mean: f32 = self.y_true.iter().sum::<f32>() * self.mean_f;
-        let mut ss_regression: f32 = 0_f32;
-        for (t, p) in zip_iters!(self.y_true, &self.y_pred) {
-            ss_regression += (t - p).powi(2);
-        }
-        let ss_total: f32 = self
-            .y_true
-            .iter()
-            .map(|y| (y - y_mean).powi(2))
-            .sum::<f32>();
-        ss_regression / ss_total
-    }
-
-    fn max_error(&self) -> f32 {
-        let mut res = 0_f32;
-        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
-            res = f32::max(t - p, res);
-        }
-        res
-    }
-
-    fn mean_squared_log_error(&self) -> f32 {
-        let mut sum = 0_f32;
-        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
-            sum += (1_f32 + t).log10() - (1_f32 + p).log10();
-        }
-        sum.powi(2) / self.mean_f
-    }
-
-    fn root_mean_squared_log_error(&self) -> f32 {
-        let mut sum = 0_f32;
-        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
-            sum += (1_f32 + t).log10() - (1_f32 + p).log10();
-        }
-        sum.powi(2).sqrt() / self.mean_f
-    }
-
-    fn mean_absolute_percentage_error(&self) -> f32 {
-        let mut sum = 0_f32;
-        for (t, p) in zip_iters!(&self.y_true, &self.y_pred) {
-            sum += (t - p).abs() / t;
-        }
-        sum * self.mean_f * 100_f32
     }
 }
