@@ -1,4 +1,4 @@
-use crate::data_handler::{BiasDataPayload, ConfusionMatrix};
+use crate::data_handler::{BiasDataPayload, BiasSegmentationCriteria, ConfusionMatrix};
 use crate::errors::{BiasError, ModelBiasRuntimeError};
 use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
 use crate::runtime::ModelBiasRuntime;
@@ -8,11 +8,12 @@ pub(crate) mod core;
 pub mod statistics;
 use crate::reporting::{DriftReport, ModelBiasAnalysisReport};
 use core::post_training_bias;
+pub mod streaming;
 
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
     use super::core::post_training_bias;
-    use super::PostTrainingData;
+    use super::PostTraining;
     use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict};
     use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
     use crate::reporting::DriftReport;
@@ -111,7 +112,7 @@ pub(crate) mod py_api {
             Err(err) => return Err(PyTypeError::new_err(err.to_string())),
         };
 
-        let post_training_data = PostTrainingData::new(&feats, &preds, &gt);
+        let post_training_data = PostTraining::new(&feats, &preds, &gt);
 
         let analysis_res = post_training_bias(&post_training_data);
 
@@ -171,10 +172,51 @@ where
     let labeled_gt = ground_truth.generate_labeled_data();
     let labeled_preds = predictions.generate_labeled_data();
 
-    let post_training_base = PostTrainingData::new(&labeled_features, &labeled_preds, &labeled_gt);
+    let post_training_base = PostTraining::new(&labeled_features, &labeled_preds, &labeled_gt);
 
     let analysis_res = post_training_bias(&post_training_base);
     Ok(analysis_res)
+}
+
+#[derive(Default)]
+pub(crate) struct BucketGeneralizedEntropy {
+    count_0: u64,
+    count_1: u64,
+    count_2: u64,
+}
+
+impl BucketGeneralizedEntropy {
+    pub(crate) fn accumulate<T, P>(
+        &mut self,
+        y_true: &[T],
+        true_seg: &BiasSegmentationCriteria<T>,
+        y_pred: &[P],
+        pred_seg: &BiasSegmentationCriteria<P>,
+    ) where
+        T: PartialOrd,
+        P: PartialOrd,
+    {
+        for (t, p) in zip_iters!(y_true, y_pred) {
+            let t_label = true_seg.label(t);
+            let p_label = pred_seg.label(p);
+            if !p_label && t_label {
+                self.count_0 += 1;
+            } else if p_label && t_label {
+                self.count_1 += 1;
+            } else {
+                self.count_2 += 1
+            }
+        }
+    }
+
+    pub(crate) fn ge_snapshot(&self) -> f32 {
+        let n = (self.count_0 + self.count_1 + self.count_2) as f32;
+        // total benefits sum
+        let s1 = (self.count_1 + (2 * self.count_2)) as f32;
+        // squared benefits sum
+        let s2 = (self.count_1 + (4 * self.count_2)) as f32;
+        ((n.powi(2)) / (s1.powi(2))) * s2 - n
+    }
 }
 
 #[derive(Default)]
@@ -184,7 +226,7 @@ pub(crate) struct PostTrainingDistribution {
     positive_pred: u64,
 }
 
-pub(crate) struct PostTrainingData {
+pub(crate) struct PostTraining {
     pub confusion_a: ConfusionMatrix,
     pub confusion_d: ConfusionMatrix,
     pub dist_a: PostTrainingDistribution,
@@ -192,12 +234,12 @@ pub(crate) struct PostTrainingData {
     pub ge: f32,
 }
 
-impl PostTrainingData {
+impl PostTraining {
     fn new(
         labeled_feature: &[i16],
         labeled_prediction: &[i16],
         labeled_gt: &[i16],
-    ) -> PostTrainingData {
+    ) -> PostTraining {
         let mut confusion_a = ConfusionMatrix::default();
         let mut confusion_d = ConfusionMatrix::default();
         let mut dist_a = PostTrainingDistribution::default();
@@ -236,7 +278,7 @@ impl PostTrainingData {
 
         let ge = statistics::inner::generalized_entropy(labeled_prediction, labeled_gt);
 
-        PostTrainingData {
+        PostTraining {
             confusion_a,
             confusion_d,
             dist_d,

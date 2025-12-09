@@ -1,8 +1,8 @@
-use super::{ModelBiasAnalysisReport, PostTrainingData};
+use super::{ModelBiasAnalysisReport, PostTraining};
 use crate::metrics::ModelBiasMetric;
 use std::collections::HashMap;
 
-pub fn post_training_bias(data: &PostTrainingData) -> ModelBiasAnalysisReport {
+pub fn post_training_bias(data: &PostTraining) -> ModelBiasAnalysisReport {
     use super::statistics::inner as stats;
     use ModelBiasMetric as M;
     let mut result: HashMap<ModelBiasMetric, f32> = HashMap::with_capacity(12);

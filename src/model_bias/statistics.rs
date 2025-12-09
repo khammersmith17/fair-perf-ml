@@ -1,4 +1,4 @@
-use super::{ConfusionMatrix, PostTrainingData};
+use super::{ConfusionMatrix, PostTraining};
 use crate::data_handler::BiasSegmentationCriteria;
 use crate::errors::BiasError;
 use crate::zip_iters;
@@ -428,17 +428,17 @@ where
 }
 
 pub(crate) mod inner {
-    use super::PostTrainingData;
+    use super::PostTraining;
     use crate::zip_iters;
 
-    pub(crate) fn diff_in_pos_proportion_in_pred_labels(data: &PostTrainingData) -> f32 {
+    pub(crate) fn diff_in_pos_proportion_in_pred_labels(data: &PostTraining) -> f32 {
         let q_prime_a: f32 = data.dist_a.positive_pred as f32 / data.dist_a.positive_gt as f32;
         let q_prime_d: f32 = data.dist_d.positive_pred as f32 / data.dist_d.positive_gt as f32;
 
         q_prime_a - q_prime_d
     }
 
-    pub(crate) fn disparate_impact(data: &PostTrainingData) -> f32 {
+    pub(crate) fn disparate_impact(data: &PostTraining) -> f32 {
         let q_prime_a: f32 = data.dist_a.positive_pred as f32 / data.dist_d.positive_gt as f32;
         let q_prime_d: f32 = data.dist_d.positive_pred as f32 / data.dist_a.positive_gt as f32;
 
@@ -448,7 +448,7 @@ pub(crate) mod inner {
         q_prime_a / q_prime_d
     }
 
-    pub(crate) fn accuracy_difference(data: &PostTrainingData) -> f32 {
+    pub(crate) fn accuracy_difference(data: &PostTraining) -> f32 {
         let acc_a =
             (data.confusion_a.true_p + data.confusion_a.true_n) as f32 / data.dist_a.len as f32;
 
@@ -458,7 +458,7 @@ pub(crate) mod inner {
         acc_a - acc_d
     }
 
-    pub(crate) fn recall_difference(data: &PostTrainingData) -> f32 {
+    pub(crate) fn recall_difference(data: &PostTraining) -> f32 {
         let recall_a: f32 =
             data.confusion_a.true_p / data.confusion_a.true_p + data.confusion_a.false_n;
 
@@ -468,14 +468,14 @@ pub(crate) mod inner {
         recall_a - recall_d
     }
 
-    pub(crate) fn diff_in_cond_acceptance(data: &PostTrainingData) -> f32 {
+    pub(crate) fn diff_in_cond_acceptance(data: &PostTraining) -> f32 {
         let c_facet_a: f32 = data.dist_a.positive_pred as f32 / data.dist_a.positive_gt as f32;
         let c_facet_d: f32 = data.dist_d.positive_pred as f32 / data.dist_d.positive_gt as f32;
 
         c_facet_a - c_facet_d
     }
 
-    pub(crate) fn diff_in_acceptance_rate(data: &PostTrainingData) -> f32 {
+    pub(crate) fn diff_in_acceptance_rate(data: &PostTraining) -> f32 {
         // difference in precision across the 2 facets
         let pa: f32 =
             data.confusion_a.true_p / (data.confusion_a.true_p + data.confusion_a.false_p);
@@ -485,7 +485,7 @@ pub(crate) mod inner {
         pa - pd
     }
 
-    pub(crate) fn specailty_difference(data: &PostTrainingData) -> f32 {
+    pub(crate) fn specailty_difference(data: &PostTraining) -> f32 {
         // difference in true negative rate
         let tnr_a: f32 =
             data.confusion_a.true_n / (data.confusion_a.true_n + data.confusion_a.false_p);
@@ -495,7 +495,7 @@ pub(crate) mod inner {
         tnr_d - tnr_a
     }
 
-    pub(crate) fn diff_in_cond_rejection(data: &PostTrainingData) -> f32 {
+    pub(crate) fn diff_in_cond_rejection(data: &PostTraining) -> f32 {
         // difference in ratio of observed negatives to predicted negatives
         let r_a: f32 = (data.dist_a.len - data.dist_a.positive_gt) as f32
             / (data.dist_a.len - data.dist_a.positive_pred) as f32;
@@ -506,7 +506,7 @@ pub(crate) mod inner {
         r_d - r_a
     }
 
-    pub(crate) fn diff_in_rejection_rate(data: &PostTrainingData) -> f32 {
+    pub(crate) fn diff_in_rejection_rate(data: &PostTraining) -> f32 {
         // difference in correct rejection rate
 
         let rr_a: f32 =
@@ -517,7 +517,7 @@ pub(crate) mod inner {
         rr_d - rr_a
     }
 
-    pub(crate) fn treatment_equity(data: &PostTrainingData) -> f32 {
+    pub(crate) fn treatment_equity(data: &PostTraining) -> f32 {
         // difference in ratio of fn/fp
         let ta: f32 = data.confusion_a.false_n / data.confusion_a.false_p;
         let td: f32 = data.confusion_d.false_n / data.confusion_d.false_p;
@@ -525,7 +525,7 @@ pub(crate) mod inner {
         td - ta
     }
 
-    pub(crate) fn cond_dem_desp_in_pred_labels(data: &PostTrainingData) -> f32 {
+    pub(crate) fn cond_dem_desp_in_pred_labels(data: &PostTraining) -> f32 {
         // difference in population negative p
 
         let total_n = data.dist_a.len + data.dist_d.len;
@@ -558,10 +558,6 @@ pub(crate) mod inner {
         ((data.dist_a.len as f32 * ddpl_a) + (data.dist_d.len as f32 * ddpl_d)) / total_n as f32
     }
 
-    /*
-
-    */
-
     pub(crate) fn generalized_entropy(y_true: &[i16], y_pred: &[i16]) -> f32 {
         let mut benefits_sum = 0_f32;
         let n = y_true.len();
@@ -579,6 +575,7 @@ pub(crate) mod inner {
             benefits_vec.push(b);
         }
 
+        // inverse of mean for repeated multiplication
         let m = 1_f32 / (benefits_sum / n as f32);
 
         benefits_vec
