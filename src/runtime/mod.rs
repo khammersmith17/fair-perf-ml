@@ -1,6 +1,7 @@
 use crate::data_bias::PreTraining;
 use crate::errors::{DataBiasRuntimeError, ModelBiasRuntimeError};
 use crate::metrics::{DataBiasMetric, ModelBiasMetric};
+use crate::model_bias::PostTraining;
 use crate::reporting::{
     DataBiasAnalysisReport, DataBiasRuntimeReport, ModelBiasAnalysisReport, ModelBiasRuntimeReport,
 };
@@ -179,24 +180,37 @@ impl DataBiasRuntime {
         result
     }
 
+    // TODO: determine how to compute the drift here, ie should it be based on abs diff etc...
     pub fn runtime_drift_report(&self, baseline: &DataBiasRuntime) -> DataBiasRuntimeReport {
         let mut result = DataBiasRuntimeReport::with_capacity(7);
         result.insert(
             DataBiasMetric::ClassImbalance,
-            (self.ci.abs() - baseline.ci.abs()).abs(),
+            ((self.ci - baseline.ci).abs()) / baseline.ci.abs(),
         );
         result.insert(
             DataBiasMetric::DifferenceInProportionOfLabels,
-            (self.dpl.abs() - baseline.dpl.abs()).abs(),
+            ((self.dpl - baseline.dpl).abs()) / baseline.dpl.abs(),
         );
-        result.insert(DataBiasMetric::KlDivergence, self.kl - baseline.kl);
-        result.insert(DataBiasMetric::JsDivergence, self.js - baseline.js);
-        result.insert(DataBiasMetric::LpNorm, self.lpnorm - baseline.lpnorm);
+        result.insert(
+            DataBiasMetric::KlDivergence,
+            (self.kl - baseline.kl).abs() / baseline.kl.abs(),
+        );
+        result.insert(
+            DataBiasMetric::JsDivergence,
+            (self.js - baseline.js).abs() / baseline.js.abs(),
+        );
+        result.insert(
+            DataBiasMetric::LpNorm,
+            (self.lpnorm - baseline.lpnorm).abs() / baseline.lpnorm.abs(),
+        );
         result.insert(
             DataBiasMetric::TotalVariationDistance,
-            self.tvd - baseline.tvd,
+            (self.tvd - baseline.tvd).abs() / baseline.tvd.abs(),
         );
-        result.insert(DataBiasMetric::KolmorogvSmirnov, self.tvd - baseline.tvd);
+        result.insert(
+            DataBiasMetric::KolmorogvSmirnov,
+            (self.ks - baseline.ks).abs() / baseline.ks.abs(),
+        );
 
         result
     }
@@ -215,6 +229,83 @@ pub struct ModelBiasRuntime {
     te: f32,
     ccdpl: f32,
     ge: f32,
+}
+
+impl ModelBiasRuntime {
+    pub(crate) fn new_from_post_training(
+        post_training: &PostTraining,
+        ge: f32,
+    ) -> ModelBiasRuntime {
+        use crate::model_bias::statistics::inner as stats;
+
+        ModelBiasRuntime {
+            ddpl: stats::diff_in_pos_proportion_in_pred_labels(&post_training),
+            di: stats::disparate_impact(post_training),
+            ad: stats::accuracy_difference(post_training),
+            rd: stats::recall_difference(post_training),
+            cdacc: stats::diff_in_cond_acceptance(post_training),
+            dar: stats::diff_in_acceptance_rate(post_training),
+            sd: stats::specailty_difference(post_training),
+            dcr: stats::diff_in_cond_rejection(post_training),
+            drr: stats::diff_in_rejection_rate(post_training),
+            te: stats::treatment_equity(post_training),
+            ccdpl: stats::cond_dem_desp_in_pred_labels(post_training),
+            ge,
+        }
+    }
+
+    pub(crate) fn runtime_drift_report(&self, bl: &Self) -> ModelBiasRuntimeReport {
+        let mut report = ModelBiasRuntimeReport::with_capacity(12);
+        report.insert(
+            ModelBiasMetric::DifferenceInPositivePredictedLabels,
+            (self.ddpl - bl.ddpl).abs() / bl.ddpl.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::DisparateImpact,
+            (self.di - bl.di).abs() / bl.di.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::AccuracyDifference,
+            (self.ad - bl.ad).abs() / bl.ad.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::RecallDifference,
+            (self.rd - bl.rd).abs() / bl.rd.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels,
+            (self.cdacc - bl.cdacc).abs() / bl.cdacc.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::DifferenceInAcceptanceRate,
+            (self.dar - bl.dar).abs() / bl.dar.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::SpecialityDifference,
+            (self.sd - bl.sd).abs() / bl.sd.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::DifferenceInConditionalRejection,
+            (self.dcr - bl.dcr).abs() / bl.dcr.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::DifferenceInRejectionRate,
+            (self.drr - bl.drr).abs() / bl.drr.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::TreatmentEquity,
+            (self.te - bl.te).abs() / bl.te.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels,
+            (self.ccdpl - bl.ccdpl).abs() / bl.ccdpl.abs(),
+        );
+        report.insert(
+            ModelBiasMetric::GeneralizedEntropy,
+            (self.ge - bl.ge).abs() / bl.ge.abs(),
+        );
+        report
+    }
 }
 
 impl TryFrom<ModelBiasAnalysisReport> for ModelBiasRuntime {

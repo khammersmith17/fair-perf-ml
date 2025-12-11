@@ -68,6 +68,10 @@ where
         );
     }
 
+    pub fn flush(&mut self) {
+        let _ = std::mem::take(&mut self.rt);
+    }
+
     /// Reset the baseline data. This may be used to refresh the data on a retraining, or to move
     /// forward in time from a given baseline set if data drifts. This method will clear all
     /// runtime data.

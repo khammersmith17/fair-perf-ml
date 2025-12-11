@@ -378,7 +378,7 @@ where
     Ok(value_d - value_a)
 }
 
-pub fn generalized_entropy_v1<F, P, G>(
+pub fn generalized_entropy<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
     pred: &[P],

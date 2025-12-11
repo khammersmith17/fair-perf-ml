@@ -13,7 +13,7 @@ pub mod streaming;
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
     use super::core::post_training_bias;
-    use super::PostTraining;
+    use super::DiscretePostTraining;
     use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict};
     use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
     use crate::reporting::DriftReport;
@@ -112,7 +112,7 @@ pub(crate) mod py_api {
             Err(err) => return Err(PyTypeError::new_err(err.to_string())),
         };
 
-        let post_training_data = PostTraining::new(&feats, &preds, &gt);
+        let post_training_data = DiscretePostTraining::new(&feats, &preds, &gt);
 
         let analysis_res = post_training_bias(&post_training_data);
 
@@ -172,7 +172,8 @@ where
     let labeled_gt = ground_truth.generate_labeled_data();
     let labeled_preds = predictions.generate_labeled_data();
 
-    let post_training_base = PostTraining::new(&labeled_features, &labeled_preds, &labeled_gt);
+    let post_training_base =
+        DiscretePostTraining::new(&labeled_features, &labeled_preds, &labeled_gt);
 
     let analysis_res = post_training_bias(&post_training_base);
     Ok(analysis_res)
@@ -209,6 +210,12 @@ impl BucketGeneralizedEntropy {
         }
     }
 
+    pub(crate) fn clear(&mut self) {
+        self.count_0 = 0;
+        self.count_1 = 0;
+        self.count_2 = 0;
+    }
+
     pub(crate) fn ge_snapshot(&self) -> f32 {
         let n = (self.count_0 + self.count_1 + self.count_2) as f32;
         // total benefits sum
@@ -226,16 +233,44 @@ pub(crate) struct PostTrainingDistribution {
     positive_pred: u64,
 }
 
+impl PostTrainingDistribution {
+    pub(crate) fn clear(&mut self) {
+        self.len = 0;
+        self.positive_gt = 0;
+        self.positive_pred = 0;
+    }
+}
+
+#[derive(Default)]
 pub(crate) struct PostTraining {
     pub confusion_a: ConfusionMatrix,
     pub confusion_d: ConfusionMatrix,
     pub dist_a: PostTrainingDistribution,
     pub dist_d: PostTrainingDistribution,
-    pub ge: f32,
+}
+
+pub(crate) struct DiscretePostTraining {
+    post_training: PostTraining,
+    ge: f32,
+}
+
+impl DiscretePostTraining {
+    pub(crate) fn new(
+        labeled_feature: &[i16],
+        labeled_prediction: &[i16],
+        labeled_gt: &[i16],
+    ) -> DiscretePostTraining {
+        let post_training =
+            PostTraining::new_from_labeled_data(labeled_feature, labeled_prediction, labeled_gt);
+
+        let ge = statistics::inner::generalized_entropy(labeled_gt, labeled_prediction);
+
+        DiscretePostTraining { post_training, ge }
+    }
 }
 
 impl PostTraining {
-    fn new(
+    fn new_from_labeled_data(
         labeled_feature: &[i16],
         labeled_prediction: &[i16],
         labeled_gt: &[i16],
@@ -276,14 +311,83 @@ impl PostTraining {
             confusion_d.false_n += (grp * r#fn) as f32;
         }
 
-        let ge = statistics::inner::generalized_entropy(labeled_prediction, labeled_gt);
-
         PostTraining {
             confusion_a,
             confusion_d,
             dist_d,
             dist_a,
-            ge,
+        }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.confusion_a.clear();
+        self.confusion_d.clear();
+        self.dist_a.clear();
+        self.dist_d.clear();
+    }
+}
+
+impl PostTraining {
+    pub(crate) fn new_from_segmentation_criteria<F, P, G>(
+        features: &[F],
+        feat_seg: &BiasSegmentationCriteria<F>,
+        preds: &[P],
+        pred_seg: &BiasSegmentationCriteria<P>,
+        gt: &[G],
+        gt_seg: &BiasSegmentationCriteria<G>,
+    ) -> PostTraining
+    where
+        F: PartialOrd,
+        P: PartialOrd,
+        G: PartialOrd,
+    {
+        let mut post_t = PostTraining::default();
+        post_t.accumulate(features, feat_seg, preds, pred_seg, gt, gt_seg);
+        post_t
+    }
+
+    pub(crate) fn accumulate<F, P, G>(
+        &mut self,
+        features: &[F],
+        feat_seg: &BiasSegmentationCriteria<F>,
+        preds: &[P],
+        pred_seg: &BiasSegmentationCriteria<P>,
+        gt: &[G],
+        gt_seg: &BiasSegmentationCriteria<G>,
+    ) where
+        F: PartialOrd,
+        P: PartialOrd,
+        G: PartialOrd,
+    {
+        for (f, (p, gt)) in zip_iters!(features, preds, gt) {
+            let is_a = feat_seg.label(f);
+            let pred_is_positive = pred_seg.label(p);
+            let gt_is_positive = gt_seg.label(gt);
+            self.dist_a.len += is_a as u64;
+            self.dist_a.positive_pred += (is_a as usize * pred_is_positive as usize) as u64;
+            self.dist_a.positive_gt += (is_a as usize * gt_is_positive as usize) as u64;
+
+            self.dist_d.len += !is_a as u64;
+            self.dist_d.positive_pred += (!is_a as usize * pred_is_positive as usize) as u64;
+            self.dist_d.positive_gt += (!is_a as usize * gt_is_positive as usize) as u64;
+
+            let is_true = pred_is_positive == gt_is_positive;
+            let tp = (pred_is_positive && is_true) as usize;
+            let tn = (!pred_is_positive && is_true) as usize;
+            let fp = (pred_is_positive && !is_true) as usize;
+            let r#fn = (!pred_is_positive && !is_true) as usize;
+
+            let grp = is_a as usize;
+
+            self.confusion_a.true_p += (grp * tp) as f32;
+            self.confusion_a.true_n += (grp * tn) as f32;
+            self.confusion_a.false_p += (grp * fp) as f32;
+            self.confusion_a.false_n += (grp * r#fn) as f32;
+
+            self.confusion_d.true_p += (grp * tp) as f32;
+            self.confusion_d.true_n += (grp * tn) as f32;
+            self.confusion_d.false_p += (grp * fp) as f32;
+            self.confusion_d.false_n += (grp * r#fn) as f32;
         }
     }
 }

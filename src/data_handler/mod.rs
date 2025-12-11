@@ -146,10 +146,19 @@ impl ApplyThreshold for f32 {
 // computation of many of the classic classification metrics
 #[derive(Default)]
 pub(crate) struct ConfusionMatrix {
-    pub true_p: f32,
-    pub false_p: f32,
-    pub true_n: f32,
-    pub false_n: f32,
+    pub(crate) true_p: f32,
+    pub(crate) false_p: f32,
+    pub(crate) true_n: f32,
+    pub(crate) false_n: f32,
+}
+
+impl ConfusionMatrix {
+    pub(crate) fn clear(&mut self) {
+        self.true_p = 0_f32;
+        self.false_p = 0_f32;
+        self.false_n = 0_f32;
+        self.true_n = 0_f32;
+    }
 }
 
 /// Enum to differentiate between an array that is going to be segmented by label versus by a
