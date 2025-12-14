@@ -1,4 +1,4 @@
-use crate::drift::psi::StringLike;
+use crate::drift::StringLike;
 use crate::errors::InvalidMetricError;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;

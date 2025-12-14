@@ -13,7 +13,7 @@ pub enum BiasError {
 }
 
 #[derive(Debug, Error)]
-pub enum PSIError {
+pub enum DriftError {
     #[error("Data used for runtime drift analysis must be non empty")]
     EmptyRuntimeData,
     #[error("Unable to convert internal timestamp into DateTime object")]
@@ -120,7 +120,7 @@ pub(crate) mod py_errors {
         }
     }
 
-    impl Into<PyErr> for PSIError {
+    impl Into<PyErr> for DriftError {
         fn into(self) -> PyErr {
             let err_message = self.to_string();
             match self {

@@ -1,31 +1,15 @@
-use crate::errors::PSIError;
+use super::{
+    compute_psi, BaselineCategoricalBins, BaselineContinuousBins, StringLike, DEFAULT_STREAM_FLUSH,
+    MAX_STREAM_SIZE,
+};
+use crate::errors::DriftError;
 use ahash::{HashMap, HashMapExt};
 use chrono::{DateTime, Utc};
-use once_cell::sync::Lazy;
-use std::cmp::Ordering;
-use std::hash::Hash;
-use uuid::Uuid;
 
 /*
 * All types in this module provide core logic implementation in rust and expose
 * an api to Python contexts via a pyclass wrapper
 * */
-
-pub trait StringLike: AsRef<str> + Eq + Hash + ToString {}
-impl<T> StringLike for T where T: AsRef<str> + Eq + Hash + ToString {}
-
-const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
-const MAX_STREAM_SIZE: usize = 1_000_000;
-// read in from user defined env var or set to default epsilon
-// optional user config
-const STABILITY_EPS: Lazy<f64> = Lazy::new(|| {
-    let default = 1e-12;
-    let Ok(var) = std::env::var("FAIR_PERF_STABILITY_EPS") else {
-        return default;
-    };
-
-    var.parse::<f64>().unwrap_or_else(|_| default)
-});
 
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
@@ -35,7 +19,7 @@ pub(crate) mod py_api {
     use pyo3::{prelude::*, pyclass, pymethods};
 
     use super::{
-        CategoricalPSI, ContinuousPSI, PSIError, StreamingCategoricalPSI, StreamingContinuousPSI,
+        CategoricalPSI, ContinuousPSI, DriftError, StreamingCategoricalPSI, StreamingContinuousPSI,
     };
 
     #[pyclass]
@@ -152,7 +136,7 @@ pub(crate) mod py_api {
         #[getter]
         fn last_flush(&self) -> PyResult<DateTime<Utc>> {
             let Ok(ts) = self.inner.last_flush() else {
-                return Err(PSIError::DateTimeError.into());
+                return Err(DriftError::DateTimeError.into());
             };
             Ok(ts)
         }
@@ -253,7 +237,7 @@ pub(crate) mod py_api {
         #[getter]
         fn last_flush(&self) -> PyResult<DateTime<Utc>> {
             let Ok(ts) = self.inner.last_flush() else {
-                return Err(PSIError::DateTimeError.into());
+                return Err(DriftError::DateTimeError.into());
             };
             Ok(ts)
         }
@@ -273,155 +257,17 @@ pub(crate) mod py_api {
     }
 }
 
-#[inline]
-fn compute_new_hist_prob(num_items: usize, hist: &[f64]) -> Result<Vec<f64>, PSIError> {
-    let total_n = num_items as f64;
-    if total_n == 0_f64 {
-        return Err(PSIError::EmptyRuntimeData);
-    }
-    let bl_hist = hist.iter().map(|n| *n / total_n).collect::<Vec<f64>>();
-    Ok(bl_hist)
-}
-
 // lazily evaluate bin ratio
 // cheap computation and saves space/memory lookup
-#[inline]
-fn compute_psi(baseline_hist: &[f64], runtime_bins: &[f64], n: f64) -> f64 {
-    debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
-    let mut psi: f64 = 0_f64;
-    let eps = *STABILITY_EPS;
-    for i in 0..baseline_hist.len() {
-        // cheap clone, unsafe to skip bounds checks
-        let mut b = unsafe { *baseline_hist.get_unchecked(i) };
-        b = (b + eps).max(eps);
-        let mut r = unsafe { *runtime_bins.get_unchecked(i) };
-        r = r / n;
-        r = (r + eps).max(eps);
-        psi += (b - r) * (b / r).ln();
-    }
-
-    psi
-}
-
-// break out baseline to have shared logic between the discrete and the streaming variants of PSI
-// allows for more elegant composition of different usage
-struct BaselineContinuousPSI {
-    n_bins: usize,
-    bin_edges: Vec<f64>,
-    baseline_hist: Vec<f64>,
-}
-
-impl BaselineContinuousPSI {
-    fn new(n_bins: usize, baseline_data: &[f64]) -> Result<BaselineContinuousPSI, PSIError> {
-        let mut obj = BaselineContinuousPSI {
-            n_bins,
-            bin_edges: Vec::new(),
-            baseline_hist: Vec::new(),
-        };
-
-        obj.init_baseline_hist(baseline_data)?;
-        Ok(obj)
-    }
-
-    // init method moved out of constructor to be reusable across new initialization as well as
-    // when reseting the baseline
-    fn init_baseline_hist(&mut self, baseline_data: &[f64]) -> Result<(), PSIError> {
-        self.define_bins(baseline_data)?;
-        let (bl_count, bl_hist) = self.build_bl_hist(baseline_data);
-        match compute_new_hist_prob(bl_count, &bl_hist) {
-            Ok(processed_bl_hist) => {
-                self.baseline_hist = processed_bl_hist;
-                Ok(())
-            }
-            Err(_) => Err(PSIError::EmptyBaselineData.into()),
-        }
-    }
-
-    fn build_bl_hist(&self, data_slice: &[f64]) -> (usize, Vec<f64>) {
-        let bl_count = data_slice.len();
-        let mut hist = vec![0_f64; self.bin_edges.len() - 1];
-        let n_bins = self.bin_edges.len() - 1;
-        for item in data_slice {
-            let i = self.bin_edges.partition_point(|edge| *item >= *edge);
-            let idx = i.saturating_sub(1).min(n_bins - 1);
-            hist[idx] += 1_f64;
-        }
-
-        (bl_count, hist)
-    }
-
-    fn define_bins(&mut self, data: &[f64]) -> Result<(), PSIError> {
-        // sort baseline data for more efficient bin edge computation
-        let mut sorted_baseline: Vec<f64> = data.to_vec();
-
-        // baselining requires > 1 baseline sample
-        if sorted_baseline.len() <= 1 {
-            return Err(PSIError::EmptyBaselineData);
-        }
-
-        // do not accept NaNs
-        if sorted_baseline.iter().any(|value| value.is_nan()) {
-            return Err(PSIError::NaNValueError);
-        }
-
-        sorted_baseline.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(Ordering::Equal));
-
-        self.bin_edges.clear();
-
-        // if all sorted items in the baseline sample are equal, one logical bin
-        // safe unwrap because we know there are items in the array
-        if sorted_baseline.first().unwrap() == sorted_baseline.last().unwrap() {
-            self.bin_edges
-                .extend(vec![sorted_baseline[0], sorted_baseline[0]]);
-            return Ok(());
-        }
-
-        let n_bl_samples = sorted_baseline.len();
-        let n_bins = self.n_bins.min(n_bl_samples - 1).max(1);
-        let bin_size = sorted_baseline.len() / n_bins;
-
-        // set population left edge
-        self.bin_edges.push(sorted_baseline[0]);
-
-        // set bins using an O(number of bins) loop
-        // index in bin_size * 1
-        // creates bins of [sorted_baseline[(i - 1) * bin_size], sorted_baseline[i * bin_size]]
-        for i in 1..(n_bins) {
-            let idx = i * bin_size;
-            if idx < n_bl_samples {
-                self.bin_edges.push(sorted_baseline[idx - 1]);
-            }
-        }
-
-        // set population right edge
-        self.bin_edges.push(sorted_baseline[n_bl_samples - 1]);
-        self.n_bins = n_bins;
-        Ok(())
-    }
-
-    #[inline]
-    fn resolve_bin(&self, sample: f64) -> usize {
-        // find "pivot" point
-        // ie the bin where value >= left and < right
-        let i = self.bin_edges.partition_point(|edge| sample >= *edge);
-        i.saturating_sub(1).clamp(0, self.n_bins - 1)
-    }
-
-    // call into init method
-    fn reset(&mut self, baseline_data: &[f64]) -> Result<(), PSIError> {
-        self.init_baseline_hist(baseline_data)?;
-        Ok(())
-    }
-}
 
 pub struct ContinuousPSI {
-    baseline: BaselineContinuousPSI,
+    baseline: BaselineContinuousBins,
     rt_bins: Vec<f64>,
 }
 
 impl ContinuousPSI {
-    pub fn new_from_baseline(n_bins: usize, bl_slice: &[f64]) -> Result<ContinuousPSI, PSIError> {
-        let baseline = BaselineContinuousPSI::new(n_bins, &bl_slice)?;
+    pub fn new_from_baseline(n_bins: usize, bl_slice: &[f64]) -> Result<ContinuousPSI, DriftError> {
+        let baseline = BaselineContinuousBins::new(n_bins, &bl_slice)?;
         let mut obj = ContinuousPSI {
             baseline,
             rt_bins: Vec::new(),
@@ -447,7 +293,7 @@ impl ContinuousPSI {
         self.rt_bins = vec![0_f64; len];
     }
 
-    pub fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), PSIError> {
+    pub fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), DriftError> {
         if let Err(e) = self.baseline.reset(baseline_slice) {
             return Err(e.into());
         };
@@ -455,10 +301,10 @@ impl ContinuousPSI {
         Ok(())
     }
 
-    pub fn compute_psi_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, PSIError> {
+    pub fn compute_psi_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError> {
         let n = runtime_slice.len() as f64;
         if n == 0_f64 {
-            return Err(PSIError::EmptyRuntimeData);
+            return Err(DriftError::EmptyRuntimeData);
         }
 
         self.build_rt_hist(runtime_slice);
@@ -475,7 +321,7 @@ impl ContinuousPSI {
 }
 
 pub struct StreamingContinuousPSI {
-    baseline: BaselineContinuousPSI,
+    baseline: BaselineContinuousBins,
     stream_bins: Vec<f64>,
     total_stream_size: usize,
     last_flush_ts: i64,
@@ -487,9 +333,9 @@ impl StreamingContinuousPSI {
         n_bins: usize,
         baseline_slice: &[f64],
         flush_cadence: Option<i64>,
-    ) -> Result<StreamingContinuousPSI, PSIError> {
+    ) -> Result<StreamingContinuousPSI, DriftError> {
         let flush_rate = flush_cadence.unwrap_or_else(|| DEFAULT_STREAM_FLUSH);
-        let baseline = match BaselineContinuousPSI::new(n_bins, baseline_slice) {
+        let baseline = match BaselineContinuousBins::new(n_bins, baseline_slice) {
             Ok(bl) => bl,
             Err(e) => return Err(e.into()),
         };
@@ -508,7 +354,7 @@ impl StreamingContinuousPSI {
         })
     }
 
-    pub fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), PSIError> {
+    pub fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), DriftError> {
         if let Err(e) = self.baseline.reset(baseline_slice) {
             return Err(e.into());
         };
@@ -518,9 +364,9 @@ impl StreamingContinuousPSI {
         Ok(())
     }
 
-    pub fn update_stream(&mut self, runtime_slice: &[f64]) -> Result<f64, PSIError> {
+    pub fn update_stream(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError> {
         if runtime_slice.len() == 0 {
-            return Err(PSIError::EmptyRuntimeData);
+            return Err(DriftError::EmptyRuntimeData);
         }
 
         let curr_ts: i64 = Utc::now().timestamp();
@@ -546,9 +392,9 @@ impl StreamingContinuousPSI {
         self.total_stream_size
     }
 
-    pub fn last_flush(&self) -> Result<DateTime<Utc>, PSIError> {
+    pub fn last_flush(&self) -> Result<DateTime<Utc>, DriftError> {
         let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
-            return Err(PSIError::DateTimeError);
+            return Err(DriftError::DateTimeError);
         };
         Ok(ts)
     }
@@ -583,7 +429,7 @@ impl StreamingContinuousPSI {
     }
 
     #[inline]
-    fn normalize(&mut self) -> Result<f64, PSIError> {
+    fn normalize(&mut self) -> Result<f64, DriftError> {
         let psi = compute_psi(
             &self.baseline.baseline_hist,
             &self.stream_bins,
@@ -594,114 +440,22 @@ impl StreamingContinuousPSI {
 }
 
 // using a log scaling heuristic to preallocate
-fn compute_expected_categorical_bins(n: f64) -> usize {
-    n.powf(0.7).ceil() as usize
-}
-
-// let user specify other label
-// otherwise use preset label with uuid to be sure
-
-fn construct_other_label() -> String {
-    if let Ok(var) = std::env::var("FAIR_PERF_OTHER_LABEL") {
-        return var;
-    } else {
-        let uuid = Uuid::new_v4();
-        format!("__fairperf_othercat__{}", uuid)
-    }
-}
 
 // store bins as vec for better performance on psi computation and bin accumulation
 // store cat label to index in map
-struct BaselineCategoricalPSI {
-    idx_map: HashMap<String, usize>,
-    baseline_bins: Vec<f64>,
-    other_label: String,
-}
-
-impl BaselineCategoricalPSI {
-    fn new<S: StringLike>(baseline_data: &[S]) -> BaselineCategoricalPSI {
-        let n = baseline_data.len() as f64;
-        let other_label = construct_other_label();
-
-        let predicted_capacity = compute_expected_categorical_bins(n);
-        let mut initial_bins: HashMap<String, f64> = HashMap::with_capacity(predicted_capacity);
-
-        for cat in baseline_data.iter() {
-            if let Some(count) = initial_bins.get_mut(cat.as_ref()) {
-                *count += 1_f64;
-            } else {
-                initial_bins.insert(cat.to_string(), 1_f64);
-            }
-        }
-        initial_bins.insert(other_label.clone(), 0_f64);
-
-        let mut idx_map: HashMap<String, usize> = HashMap::with_capacity(initial_bins.len());
-        let mut baseline_bins: Vec<f64> = Vec::with_capacity(initial_bins.len());
-
-        let mut i = 0_usize;
-        for (key, count) in initial_bins.into_iter() {
-            idx_map.insert(key, i);
-            baseline_bins.push(count / n);
-            i += 1;
-        }
-
-        BaselineCategoricalPSI {
-            idx_map,
-            baseline_bins,
-            other_label,
-        }
-    }
-
-    fn export_baseline(&self) -> HashMap<String, f64> {
-        self.idx_map
-            .iter()
-            .map(|(feat_name, i)| (feat_name.clone(), self.baseline_bins[*i]))
-            .collect()
-    }
-
-    fn reset<S: StringLike>(&mut self, baseline_data: &[S]) {
-        let n = baseline_data.len() as f64;
-        let new_predicted_capacity = compute_expected_categorical_bins(n);
-
-        self.idx_map.clear();
-
-        let mut initial_bins: HashMap<String, f64> = HashMap::with_capacity(new_predicted_capacity);
-        for cat in baseline_data.iter() {
-            if let Some(count) = initial_bins.get_mut(cat.as_ref()) {
-                *count += 1_f64;
-            } else {
-                initial_bins.insert(cat.to_string(), 1_f64);
-            }
-        }
-        initial_bins.insert(self.other_label.clone(), 0_f64);
-
-        self.baseline_bins.clear();
-        let mut i = 0_usize;
-        for (key, count) in initial_bins.into_iter() {
-            self.idx_map.insert(key, i);
-            self.baseline_bins.push(count / n);
-            i += 1;
-        }
-    }
-
-    #[inline]
-    fn normalize(&self, rt_bins: &[f64], n: f64) -> f64 {
-        compute_psi(&self.baseline_bins, rt_bins, n)
-    }
-}
 
 pub struct CategoricalPSI {
-    baseline: BaselineCategoricalPSI,
+    baseline: BaselineCategoricalBins,
     rt_bins: Vec<f64>,
 }
 
 impl CategoricalPSI {
-    pub fn new<S: StringLike>(baseline_data: &[S]) -> Result<CategoricalPSI, PSIError> {
+    pub fn new<S: StringLike>(baseline_data: &[S]) -> Result<CategoricalPSI, DriftError> {
         if baseline_data.is_empty() {
-            return Err(PSIError::EmptyBaselineData);
+            return Err(DriftError::EmptyBaselineData);
         }
 
-        let baseline = BaselineCategoricalPSI::new(baseline_data);
+        let baseline = BaselineCategoricalBins::new(baseline_data);
         let num_bins = baseline.baseline_bins.len();
         let rt_bins: Vec<f64> = vec![0_f64; num_bins];
 
@@ -741,14 +495,14 @@ impl CategoricalPSI {
     pub fn compute_psi_drift<S: StringLike>(
         &mut self,
         runtime_data: &[S],
-    ) -> Result<f64, PSIError> {
+    ) -> Result<f64, DriftError> {
         // will not compute on empty data
         if runtime_data.is_empty() {
-            return Err(PSIError::EmptyRuntimeData.into());
+            return Err(DriftError::EmptyRuntimeData.into());
         }
         let psi = match self.compute_rt(runtime_data) {
             Some(res) => Ok(res),
-            None => Err(PSIError::MalformedRuntimeData.into()),
+            None => Err(DriftError::MalformedRuntimeData.into()),
         };
 
         self.clear_rt();
@@ -765,7 +519,7 @@ impl CategoricalPSI {
 }
 
 pub struct StreamingCategoricalPSI {
-    baseline: BaselineCategoricalPSI,
+    baseline: BaselineCategoricalBins,
     stream_bins: Vec<f64>,
     total_stream_size: usize,
     last_flush_ts: i64,
@@ -776,8 +530,8 @@ impl StreamingCategoricalPSI {
     pub fn new<S: StringLike>(
         baseline_data: &[S],
         user_flush_rate: Option<i64>,
-    ) -> Result<StreamingCategoricalPSI, PSIError> {
-        let baseline = BaselineCategoricalPSI::new(baseline_data);
+    ) -> Result<StreamingCategoricalPSI, DriftError> {
+        let baseline = BaselineCategoricalBins::new(baseline_data);
         let flush_rate = user_flush_rate.unwrap_or_else(|| DEFAULT_STREAM_FLUSH);
         let n_bins = baseline.baseline_bins.len();
         let stream_bins: Vec<f64> = vec![0_f64; n_bins];
@@ -823,9 +577,9 @@ impl StreamingCategoricalPSI {
         self.total_stream_size
     }
 
-    pub fn last_flush(&self) -> Result<DateTime<Utc>, PSIError> {
+    pub fn last_flush(&self) -> Result<DateTime<Utc>, DriftError> {
         let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
-            return Err(PSIError::DateTimeError);
+            return Err(DriftError::DateTimeError);
         };
         Ok(ts)
     }
