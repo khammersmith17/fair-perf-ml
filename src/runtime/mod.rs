@@ -773,6 +773,39 @@ impl BinaryClassificationRuntime {
 
         res
     }
+
+    pub(crate) fn runtime_drift_report(
+        &self,
+        baseline: &BinaryClassificationRuntime,
+    ) -> BinaryClassificationRuntimeReport {
+        use crate::metrics::ClassificationEvaluationMetric as C;
+        let mut report = BinaryClassificationRuntimeReport::with_capacity(7);
+        report.insert(
+            C::BalancedAccuracy,
+            baseline.balanced_accuracy - self.balanced_accuracy,
+        );
+        report.insert(
+            C::PrecisionPositive,
+            baseline.precision_positive - self.precision_positive,
+        );
+        report.insert(
+            C::PrecisionNegative,
+            baseline.precision_negative - self.precision_negative,
+        );
+
+        report.insert(
+            C::RecallPositive,
+            baseline.recall_positive - self.recall_positive,
+        );
+        report.insert(
+            C::RecallNegative,
+            baseline.recall_negative - self.recall_negative,
+        );
+        report.insert(C::Accuracy, baseline.accuracy - self.accuracy);
+        report.insert(C::F1Score, baseline.f1_score - self.f1_score);
+
+        report
+    }
 }
 
 pub struct LogisticRegressionRuntime {
