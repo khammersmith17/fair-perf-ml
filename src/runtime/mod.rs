@@ -7,6 +7,7 @@ use crate::{
         ModelBiasMetric,
     },
     model_bias::PostTraining,
+    model_perf::streaming::LinearRegressionErrorBuckets,
     reporting::{
         BinaryClassificationAnalysisReport, BinaryClassificationRuntimeReport,
         DataBiasAnalysisReport, DataBiasRuntimeReport, LinearRegressionAnalysisReport,
@@ -640,70 +641,7 @@ impl BinaryClassificationRuntime {
             f1_score,
         }
     }
-}
 
-impl BinaryClassificationRuntime {
-    pub fn generate_report(&self) -> BinaryClassificationAnalysisReport {
-        use ClassificationEvaluationMetric as C;
-        let mut map: HashMap<C, f32> = HashMap::with_capacity(7);
-        map.insert(C::BalancedAccuracy, self.balanced_accuracy);
-        map.insert(C::PrecisionPositive, self.precision_positive);
-        map.insert(C::PrecisionNegative, self.precision_negative);
-        map.insert(C::RecallPositive, self.recall_positive);
-        map.insert(C::RecallNegative, self.recall_negative);
-        map.insert(C::Accuracy, self.accuracy);
-        map.insert(C::F1Score, self.f1_score);
-        map
-    }
-}
-
-impl TryFrom<&BinaryClassificationAnalysisReport> for BinaryClassificationRuntime {
-    type Error = ModelPerformanceError;
-    fn try_from(payload: &BinaryClassificationAnalysisReport) -> Result<Self, Self::Error> {
-        use ClassificationEvaluationMetric as C;
-        let value_fetcher = |p: &BinaryClassificationAnalysisReport, key: C| {
-            let Some(v) = p.get(&key) else {
-                return Err(ModelPerformanceError::InvalidAnalysisReport);
-            };
-
-            Ok(*v)
-        };
-        Ok(BinaryClassificationRuntime {
-            balanced_accuracy: value_fetcher(&payload, C::BalancedAccuracy)?,
-            precision_positive: value_fetcher(&payload, C::PrecisionPositive)?,
-            precision_negative: value_fetcher(&payload, C::PrecisionNegative)?,
-            recall_positive: value_fetcher(&payload, C::RecallPositive)?,
-            recall_negative: value_fetcher(&payload, C::RecallNegative)?,
-            accuracy: value_fetcher(&payload, C::Accuracy)?,
-            f1_score: value_fetcher(&payload, C::F1Score)?,
-        })
-    }
-}
-
-impl TryFrom<HashMap<String, f32>> for BinaryClassificationRuntime {
-    type Error = ModelPerformanceError;
-    fn try_from(mut payload: HashMap<String, f32>) -> Result<Self, Self::Error> {
-        let value_fetcher = |p: &mut HashMap<String, f32>, key: &str| {
-            let Some(v) = p.remove(key) else {
-                return Err(ModelPerformanceError::InvalidAnalysisReport);
-            };
-
-            Ok(v)
-        };
-
-        Ok(BinaryClassificationRuntime {
-            balanced_accuracy: value_fetcher(&mut payload, "BalancedAccuracy")?,
-            precision_positive: value_fetcher(&mut payload, "PrecisionPositive")?,
-            precision_negative: value_fetcher(&mut payload, "PrecisionNegative")?,
-            recall_positive: value_fetcher(&mut payload, "RecallPositive")?,
-            recall_negative: value_fetcher(&mut payload, "RecallNegative")?,
-            accuracy: value_fetcher(&mut payload, "Accuracy")?,
-            f1_score: value_fetcher(&mut payload, "F1Score")?,
-        })
-    }
-}
-
-impl BinaryClassificationRuntime {
     pub fn compare_to_baseline(
         &self,
         metrics: &[ClassificationEvaluationMetric],
@@ -807,6 +745,69 @@ impl BinaryClassificationRuntime {
         report
     }
 }
+
+impl BinaryClassificationRuntime {
+    pub fn generate_report(&self) -> BinaryClassificationAnalysisReport {
+        use ClassificationEvaluationMetric as C;
+        let mut map: HashMap<C, f32> = HashMap::with_capacity(7);
+        map.insert(C::BalancedAccuracy, self.balanced_accuracy);
+        map.insert(C::PrecisionPositive, self.precision_positive);
+        map.insert(C::PrecisionNegative, self.precision_negative);
+        map.insert(C::RecallPositive, self.recall_positive);
+        map.insert(C::RecallNegative, self.recall_negative);
+        map.insert(C::Accuracy, self.accuracy);
+        map.insert(C::F1Score, self.f1_score);
+        map
+    }
+}
+
+impl TryFrom<&BinaryClassificationAnalysisReport> for BinaryClassificationRuntime {
+    type Error = ModelPerformanceError;
+    fn try_from(payload: &BinaryClassificationAnalysisReport) -> Result<Self, Self::Error> {
+        use ClassificationEvaluationMetric as C;
+        let value_fetcher = |p: &BinaryClassificationAnalysisReport, key: C| {
+            let Some(v) = p.get(&key) else {
+                return Err(ModelPerformanceError::InvalidAnalysisReport);
+            };
+
+            Ok(*v)
+        };
+        Ok(BinaryClassificationRuntime {
+            balanced_accuracy: value_fetcher(&payload, C::BalancedAccuracy)?,
+            precision_positive: value_fetcher(&payload, C::PrecisionPositive)?,
+            precision_negative: value_fetcher(&payload, C::PrecisionNegative)?,
+            recall_positive: value_fetcher(&payload, C::RecallPositive)?,
+            recall_negative: value_fetcher(&payload, C::RecallNegative)?,
+            accuracy: value_fetcher(&payload, C::Accuracy)?,
+            f1_score: value_fetcher(&payload, C::F1Score)?,
+        })
+    }
+}
+
+impl TryFrom<HashMap<String, f32>> for BinaryClassificationRuntime {
+    type Error = ModelPerformanceError;
+    fn try_from(mut payload: HashMap<String, f32>) -> Result<Self, Self::Error> {
+        let value_fetcher = |p: &mut HashMap<String, f32>, key: &str| {
+            let Some(v) = p.remove(key) else {
+                return Err(ModelPerformanceError::InvalidAnalysisReport);
+            };
+
+            Ok(v)
+        };
+
+        Ok(BinaryClassificationRuntime {
+            balanced_accuracy: value_fetcher(&mut payload, "BalancedAccuracy")?,
+            precision_positive: value_fetcher(&mut payload, "PrecisionPositive")?,
+            precision_negative: value_fetcher(&mut payload, "PrecisionNegative")?,
+            recall_positive: value_fetcher(&mut payload, "RecallPositive")?,
+            recall_negative: value_fetcher(&mut payload, "RecallNegative")?,
+            accuracy: value_fetcher(&mut payload, "Accuracy")?,
+            f1_score: value_fetcher(&mut payload, "F1Score")?,
+        })
+    }
+}
+
+impl BinaryClassificationRuntime {}
 
 pub struct LogisticRegressionRuntime {
     balanced_accuracy: f32,
@@ -1033,7 +1034,7 @@ impl LinearRegressionRuntime {
         let mut squared_error_sum = 0_f64;
         let mut abs_error_sum = 0_f64;
         let mut max_error = 0_f64;
-        let mut log_error_sum = 0_f64;
+        let mut sqaured_log_error_sum = 0_f64;
         let mut abs_percent_error_sum = 0_f64;
         let mut y_true_sum = 0_f64;
 
@@ -1045,7 +1046,7 @@ impl LinearRegressionRuntime {
             squared_error_sum += (t - p).powi(2);
             abs_error_sum += (t - p).abs();
             max_error = max_error.max((t - p).abs());
-            log_error_sum += (1_f64 + t).log10() - (1_f64 + p).log10();
+            sqaured_log_error_sum += ((1_f64 + t).log10() - (1_f64 + p).log10()).powi(2);
             abs_percent_error_sum += (t - p).abs() / t;
         }
 
@@ -1057,7 +1058,7 @@ impl LinearRegressionRuntime {
         }
 
         let mse = squared_error_sum / n;
-        let msle = log_error_sum / n;
+        let msle = sqaured_log_error_sum / n;
 
         Ok(LinearRegressionRuntime {
             r_squared: (1_f64 - (squared_error_sum / ss_total)) as f32,
@@ -1069,6 +1070,98 @@ impl LinearRegressionRuntime {
             rmsle: (msle.powf(0.5_f64)) as f32,
             mape: (abs_percent_error_sum / n) as f32,
         })
+    }
+
+    pub(crate) fn from_parts(
+        parts: &LinearRegressionErrorBuckets,
+    ) -> Result<LinearRegressionRuntime, ModelPerformanceError> {
+        let n = parts.len;
+        if n == 0_f64 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+
+        let mse = (parts.squared_error_sum / n) as f32;
+        let msle = (parts.squared_log_error_sum / n) as f32;
+
+        Ok(LinearRegressionRuntime {
+            r_squared: parts.r2_snapshot() as f32,
+            mse,
+            rmse: mse.powf(0.5_f32),
+            max_error: parts.max_error as f32,
+            mae: (parts.abs_error_sum / n) as f32,
+            msle,
+            rmsle: msle.powf(0.5_f32),
+            mape: (parts.abs_percent_error_sum / n) as f32,
+        })
+    }
+
+    pub fn compare_to_baseline(
+        &self,
+        metrics: &[LinearRegressionEvaluationMetric],
+        baseline: &LinearRegressionRuntime,
+        drift_threshold: f32,
+    ) -> LinearRegressionRuntimeReport {
+        use LinearRegressionEvaluationMetric as L;
+        let mut res: HashMap<L, f32> = HashMap::with_capacity(8);
+        for m in metrics.iter() {
+            match *m {
+                L::RootMeanSquaredError => {
+                    if self.rmse > baseline.rmse * (1_f32 + drift_threshold) {
+                        res.insert(L::RootMeanSquaredError, self.rmse - baseline.rmse);
+                    }
+                }
+                L::MeanSquaredError => {
+                    if self.mse > baseline.mse * (1_f32 + drift_threshold) {
+                        res.insert(L::MeanSquaredError, self.mse - baseline.mse);
+                    }
+                }
+                L::MeanAbsoluteError => {
+                    if self.mae > baseline.mae * (1_f32 + drift_threshold) {
+                        res.insert(L::MeanAbsoluteError, self.mae - baseline.mae);
+                    }
+                }
+                L::RSquared => {
+                    if self.r_squared > baseline.r_squared * (1_f32 + drift_threshold) {
+                        res.insert(L::RSquared, self.r_squared - baseline.r_squared);
+                    }
+                }
+                L::MaxError => {
+                    if self.max_error > baseline.max_error * (1_f32 + drift_threshold) {
+                        res.insert(L::MaxError, self.max_error - baseline.max_error);
+                    }
+                }
+                L::MeanSquaredLogError => {
+                    if self.msle > baseline.msle * (1_f32 + drift_threshold) {
+                        res.insert(L::MeanSquaredLogError, self.msle - baseline.msle);
+                    }
+                }
+                L::RootMeanSquaredLogError => {
+                    if self.rmsle > baseline.rmsle * (1_f32 + drift_threshold) {
+                        res.insert(L::RootMeanSquaredLogError, self.rmsle - baseline.rmsle);
+                    }
+                }
+                L::MeanAbsolutePercentageError => {
+                    if self.mape > baseline.mape * (1_f32 + drift_threshold) {
+                        res.insert(L::MeanAbsolutePercentageError, self.mape - baseline.mape);
+                    }
+                }
+            }
+        }
+        res
+    }
+
+    pub fn runtime_drift_report(&self, bl: &Self) -> LinearRegressionRuntimeReport {
+        use crate::metrics::LinearRegressionEvaluationMetric as L;
+        let mut result = LinearRegressionRuntimeReport::with_capacity(8);
+        result.insert(L::RootMeanSquaredError, (bl.rmse - self.rmse).abs());
+        result.insert(L::MeanSquaredError, (bl.mse - self.mse).abs());
+        result.insert(L::MeanAbsoluteError, (bl.mae - self.mae).abs());
+        result.insert(L::RSquared, (bl.r_squared - self.r_squared).abs());
+        result.insert(L::MaxError, (bl.max_error - self.max_error).abs());
+        result.insert(L::MeanSquaredLogError, (bl.msle - self.msle).abs());
+        result.insert(L::RootMeanSquaredLogError, (bl.rmsle - self.rmsle).abs());
+        result.insert(L::MeanAbsolutePercentageError, (bl.mape - self.mape).abs());
+        result
     }
 }
 
@@ -1132,62 +1225,5 @@ impl LinearRegressionRuntime {
         map.insert(L::RootMeanSquaredLogError, self.rmsle);
         map.insert(L::MeanAbsolutePercentageError, self.mape);
         map
-    }
-}
-
-impl LinearRegressionRuntime {
-    pub fn compare_to_baseline(
-        &self,
-        metrics: &[LinearRegressionEvaluationMetric],
-        baseline: &LinearRegressionRuntime,
-        drift_threshold: f32,
-    ) -> LinearRegressionRuntimeReport {
-        use LinearRegressionEvaluationMetric as L;
-        let mut res: HashMap<L, f32> = HashMap::with_capacity(8);
-        for m in metrics.iter() {
-            match *m {
-                L::RootMeanSquaredError => {
-                    if self.rmse > baseline.rmse * (1_f32 + drift_threshold) {
-                        res.insert(L::RootMeanSquaredError, self.rmse - baseline.rmse);
-                    }
-                }
-                L::MeanSquaredError => {
-                    if self.mse > baseline.mse * (1_f32 + drift_threshold) {
-                        res.insert(L::MeanSquaredError, self.mse - baseline.mse);
-                    }
-                }
-                L::MeanAbsoluteError => {
-                    if self.mae > baseline.mae * (1_f32 + drift_threshold) {
-                        res.insert(L::MeanAbsoluteError, self.mae - baseline.mae);
-                    }
-                }
-                L::RSquared => {
-                    if self.r_squared > baseline.r_squared * (1_f32 + drift_threshold) {
-                        res.insert(L::RSquared, self.r_squared - baseline.r_squared);
-                    }
-                }
-                L::MaxError => {
-                    if self.max_error > baseline.max_error * (1_f32 + drift_threshold) {
-                        res.insert(L::MaxError, self.max_error - baseline.max_error);
-                    }
-                }
-                L::MeanSquaredLogError => {
-                    if self.msle > baseline.msle * (1_f32 + drift_threshold) {
-                        res.insert(L::MeanSquaredLogError, self.msle - baseline.msle);
-                    }
-                }
-                L::RootMeanSquaredLogError => {
-                    if self.rmsle > baseline.rmsle * (1_f32 + drift_threshold) {
-                        res.insert(L::RootMeanSquaredLogError, self.rmsle - baseline.rmsle);
-                    }
-                }
-                L::MeanAbsolutePercentageError => {
-                    if self.mape > baseline.mape * (1_f32 + drift_threshold) {
-                        res.insert(L::MeanAbsolutePercentageError, self.mape - baseline.mape);
-                    }
-                }
-            }
-        }
-        res
     }
 }

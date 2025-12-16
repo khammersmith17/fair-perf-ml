@@ -1,7 +1,7 @@
 pub mod psi;
 use crate::errors::DriftError;
+use crate::metrics::STABILITY_EPS;
 use ahash::{HashMap, HashMapExt};
-use once_cell::sync::Lazy;
 use std::cmp::Ordering;
 use std::hash::Hash;
 use uuid::Uuid;
@@ -16,14 +16,6 @@ const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
 const MAX_STREAM_SIZE: usize = 1_000_000;
 // read in from user defined env var or set to default epsilon
 // optional user config
-const STABILITY_EPS: Lazy<f64> = Lazy::new(|| {
-    let default = 1e-12;
-    let Ok(var) = std::env::var("FAIR_PERF_STABILITY_EPS") else {
-        return default;
-    };
-
-    var.parse::<f64>().unwrap_or_else(|_| default)
-});
 
 // Break out baseline to have shared logic between the discrete and the streaming variants of drift
 // utilities.

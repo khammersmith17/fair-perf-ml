@@ -1,7 +1,19 @@
 use crate::drift::StringLike;
 use crate::errors::InvalidMetricError;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
+
+/// Epsilon for numeric stability. This is configurable by users by setting FAIR_PERF_STABILITY_EPS
+/// environment variable to the user desired epsilon value. The default is 1e-12.
+pub const STABILITY_EPS: Lazy<f64> = Lazy::new(|| {
+    let default = 1e-12;
+    let Ok(var) = std::env::var("FAIR_PERF_STABILITY_EPS") else {
+        return default;
+    };
+
+    var.parse::<f64>().unwrap_or_else(|_| default)
+});
 
 /// Trait to enfore trait bounds around what is a crate supported machine learning/data metric.
 pub trait MachineLearningMetric {}
