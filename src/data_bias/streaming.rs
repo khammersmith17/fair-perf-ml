@@ -2,7 +2,7 @@ use super::PreTraining;
 use crate::data_handler::BiasSegmentationCriteria;
 use crate::errors::ModelPerformanceError;
 use crate::metrics::DataBiasMetric;
-use crate::reporting::DriftReport;
+use crate::reporting::{DataBiasAnalysisReport, DriftReport};
 use crate::runtime::DataBiasRuntime;
 
 /// A streaming data bias manager. At construction, baseline data is required, then through the
@@ -90,15 +90,21 @@ where
     /// Method to generate a point in time drift snapshot. This method will report out the current
     /// drift across all metrics in 'metrics::DataBiasMetric'. Returns an error when there the
     /// runtime bins are empty.
-    pub fn generate_drift_snapshot(
-        &self,
-    ) -> Result<DriftReport<DataBiasMetric>, ModelPerformanceError> {
+    pub fn drift_snapshot(&self) -> Result<DriftReport<DataBiasMetric>, ModelPerformanceError> {
         if self.rt.size() == 0_u64 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
         let curr_rt = DataBiasRuntime::new_from_pre_training(&self.rt);
         let rt_report = curr_rt.runtime_drift_report(&self.baseline_report);
         Ok(DriftReport::from_runtime(rt_report))
+    }
+
+    pub fn perforance_snapshot(&self) -> Result<DataBiasAnalysisReport, ModelPerformanceError> {
+        if self.rt.size() == 0_u64 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        let curr_rt = DataBiasRuntime::new_from_pre_training(&self.rt);
+        Ok(curr_rt.generate_report())
     }
 }
 

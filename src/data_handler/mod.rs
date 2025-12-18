@@ -159,6 +159,18 @@ impl ConfusionMatrix {
         self.false_n = 0_f32;
         self.true_n = 0_f32;
     }
+
+    pub(crate) fn len(&self) -> f32 {
+        self.true_p + self.false_p + self.false_n + self.true_n
+    }
+
+    #[inline]
+    pub(crate) fn push(&mut self, true_gt: bool, true_pred: bool) {
+        self.true_p = ((true_gt && true_pred) as usize) as f32;
+        self.false_p = ((true_gt && !true_pred) as usize) as f32;
+        self.true_n = ((!true_gt && true_pred) as usize) as f32;
+        self.false_n = ((!true_gt && !true_pred) as usize) as f32;
+    }
 }
 
 /// Enum to differentiate between an array that is going to be segmented by label versus by a

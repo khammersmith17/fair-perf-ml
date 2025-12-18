@@ -225,6 +225,18 @@ impl DataBiasRuntime {
 
         result
     }
+
+    pub(crate) fn generate_report(&self) -> DataBiasAnalysisReport {
+        let mut result = DataBiasAnalysisReport::with_capacity(7);
+        result.insert(DataBiasMetric::ClassImbalance, self.ci);
+        result.insert(DataBiasMetric::DifferenceInProportionOfLabels, self.dpl);
+        result.insert(DataBiasMetric::KlDivergence, self.kl);
+        result.insert(DataBiasMetric::JsDivergence, self.js);
+        result.insert(DataBiasMetric::LpNorm, self.lpnorm);
+        result.insert(DataBiasMetric::TotalVariationDistance, self.tvd);
+        result.insert(DataBiasMetric::KolmorogvSmirnov, self.ks);
+        result
+    }
 }
 
 pub struct ModelBiasRuntime {
@@ -618,7 +630,9 @@ impl BinaryClassificationRuntime {
         })
     }
 
-    pub(crate) fn from_confusion_and_accuracy(
+    // Utlity to easliy compute the current model performance runtime state from the bucketing
+    // style containers used in the stream variants
+    pub(crate) fn runtime_from_parts(
         c_matrix: &ConfusionMatrix,
         accuracy: f32,
     ) -> BinaryClassificationRuntime {
@@ -865,6 +879,65 @@ impl LogisticRegressionRuntime {
             log_loss,
         })
     }
+    // Utlity to easliy compute the current model performance runtime state from the bucketing
+    // style containers used in the stream variants
+    pub(crate) fn runtime_from_parts(
+        c_matrix: &ConfusionMatrix,
+        accuracy: f32,
+        log_loss: f32,
+    ) -> Result<LogisticRegressionRuntime, ModelPerformanceError> {
+        if c_matrix.len() == 0_f32 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        };
+        use crate::model_perf::statistics::classification_metrics as metrics;
+        Ok(LogisticRegressionRuntime {
+            balanced_accuracy: metrics::balanced_accuracy(c_matrix),
+            precision_positive: metrics::precision_positive(c_matrix),
+            precision_negative: metrics::precision_negative(c_matrix),
+            recall_positive: metrics::recall_positive(c_matrix),
+            recall_negative: metrics::recall_negative(c_matrix),
+            f1_score: metrics::f1_score(c_matrix),
+            log_loss,
+            accuracy,
+        })
+    }
+
+    pub(crate) fn runtime_drift_report(&self, bl: &Self) -> LogisticRegressionRuntimeReport {
+        let mut report = LogisticRegressionAnalysisReport::with_capacity(8);
+        report.insert(
+            ClassificationEvaluationMetric::Accuracy,
+            bl.accuracy - self.accuracy,
+        );
+        report.insert(
+            ClassificationEvaluationMetric::BalancedAccuracy,
+            bl.balanced_accuracy - self.balanced_accuracy,
+        );
+        report.insert(
+            ClassificationEvaluationMetric::PrecisionPositive,
+            bl.precision_positive - self.precision_positive,
+        );
+        report.insert(
+            ClassificationEvaluationMetric::PrecisionNegative,
+            bl.precision_negative - self.precision_negative,
+        );
+        report.insert(
+            ClassificationEvaluationMetric::RecallPositive,
+            bl.recall_positive - self.recall_positive,
+        );
+        report.insert(
+            ClassificationEvaluationMetric::RecallNegative,
+            bl.recall_negative - self.recall_negative,
+        );
+        report.insert(
+            ClassificationEvaluationMetric::F1Score,
+            bl.f1_score - self.f1_score,
+        );
+        report.insert(
+            ClassificationEvaluationMetric::LogLoss,
+            bl.log_loss - self.log_loss,
+        );
+        todo!()
+    }
 }
 
 impl LogisticRegressionRuntime {
@@ -1072,7 +1145,9 @@ impl LinearRegressionRuntime {
         })
     }
 
-    pub(crate) fn from_parts(
+    // Utlity to easliy compute the current model performance runtime state from the bucketing
+    // style containers used in the stream variants
+    pub(crate) fn runtime_from_parts(
         parts: &LinearRegressionErrorBuckets,
     ) -> Result<LinearRegressionRuntime, ModelPerformanceError> {
         let n = parts.len;

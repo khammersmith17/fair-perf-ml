@@ -2,8 +2,11 @@ use crate::{
     data_handler::ConfusionMatrix,
     errors::ModelPerformanceError,
     metrics::{ClassificationEvaluationMetric, LinearRegressionEvaluationMetric},
-    reporting::{DriftReport, LinearRegressionAnalysisReport},
-    runtime::{BinaryClassificationRuntime, LinearRegressionRuntime},
+    reporting::{
+        BinaryClassificationAnalysisReport, DriftReport, LinearRegressionAnalysisReport,
+        LogisticRegressionAnalysisReport,
+    },
+    runtime::{BinaryClassificationRuntime, LinearRegressionRuntime, LogisticRegressionRuntime},
     zip_iters,
 };
 
@@ -150,7 +153,7 @@ impl LinearRegressionStreaming {
     pub fn performance_snapshot(
         &self,
     ) -> Result<LinearRegressionAnalysisReport, ModelPerformanceError> {
-        let rt = LinearRegressionRuntime::from_parts(&self.rt_buckets)?;
+        let rt = LinearRegressionRuntime::runtime_from_parts(&self.rt_buckets)?;
         Ok(rt.generate_report())
     }
 
@@ -160,12 +163,11 @@ impl LinearRegressionStreaming {
     pub fn compute_drft(
         &self,
     ) -> Result<DriftReport<LinearRegressionEvaluationMetric>, ModelPerformanceError> {
-        let rt = LinearRegressionRuntime::from_parts(&self.rt_buckets)?;
+        let rt = LinearRegressionRuntime::runtime_from_parts(&self.rt_buckets)?;
         let drift_report = rt.runtime_drift_report(&self.bl);
         Ok(DriftReport::from_runtime(drift_report))
     }
 }
-pub struct LogisticRegressionStreaming {}
 
 // Buckets for cheap storage and computation of classication inference scores,
 // This is essentially just a named tuple.
@@ -176,8 +178,15 @@ struct BinaryClassificationAccuracyBucket {
 }
 
 impl BinaryClassificationAccuracyBucket {
+    // Point in time snapshot
     fn snapshot(&self) -> f32 {
         self.true_preds as f32 / self.len as f32
+    }
+
+    #[inline]
+    fn push(&mut self, true_pred: bool) {
+        self.true_preds += true_pred as u64;
+        self.len += 1;
     }
 }
 
@@ -186,7 +195,8 @@ impl BinaryClassificationAccuracyBucket {
 /// applied on inference class labels. To account for this, a positive label is required on type
 /// construction to properly determine the positive outcome case. Like other streaming types,
 /// storage is compact using a bucketing algorithm to store the information needed to compute the
-/// runtime performance and drift with bounded storage space.
+/// runtime performance and drift with bounded storage space. Runtime data passed into the stream
+/// are bound to the type of the label.
 pub struct BinaryClassificationStreaming<T>
 where
     T: PartialOrd + Clone,
@@ -231,6 +241,7 @@ where
         })
     }
 
+    /// Push a single prediction and ground truth example into the stream.
     pub fn push(
         &mut self,
         runtime_true: &[T],
@@ -247,17 +258,14 @@ where
             let pred_is_true = *p == self.label;
             let true_pred = gt_is_true == pred_is_true;
 
-            self.accuracy_rt.true_preds += true_pred as u64;
-
-            self.confusion_rt.true_p = ((gt_is_true && true_pred) as usize) as f32;
-            self.confusion_rt.false_p = ((gt_is_true && !true_pred) as usize) as f32;
-            self.confusion_rt.true_n = ((!gt_is_true && true_pred) as usize) as f32;
-            self.confusion_rt.false_n = ((!gt_is_true && !true_pred) as usize) as f32;
+            self.accuracy_rt.push(gt_is_true == pred_is_true);
+            self.confusion_rt.push(gt_is_true, true_pred);
         }
 
         Ok(())
     }
 
+    /// Reset the baseline stream.
     pub fn reset_baseline(
         &mut self,
         baseline_true: &[T],
@@ -269,6 +277,11 @@ where
         Ok(())
     }
 
+    /// Generate a point in time drift report, detailing the drift from the baseline state. This
+    /// will the drift in the metric magnitude from the baseline state. Thus a negative drift value
+    /// for accuracy indicates that the accuracy computed at the snapshot if performing better than
+    /// what was computed in the baseline state. This will error when no data has been pushed into
+    /// the stream.
     pub fn drift_report(
         &self,
     ) -> Result<DriftReport<ClassificationEvaluationMetric>, ModelPerformanceError> {
@@ -276,7 +289,7 @@ where
             return Err(ModelPerformanceError::EmptyDataVector);
         }
 
-        let rt = BinaryClassificationRuntime::from_confusion_and_accuracy(
+        let rt = BinaryClassificationRuntime::runtime_from_parts(
             &self.confusion_rt,
             self.accuracy_rt.snapshot(),
         );
@@ -284,8 +297,131 @@ where
         Ok(DriftReport::from_runtime(report))
     }
 
+    /// Performance snapshot of all runtime examples accumulated in the stream irrelevant of the
+    /// baseline state. This will error when no data has been pushed into
+    /// the stream.
+
+    pub fn performance_snapshot(
+        &self,
+    ) -> Result<BinaryClassificationAnalysisReport, ModelPerformanceError> {
+        if self.accuracy_rt.len == 0 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        let rt = BinaryClassificationRuntime::runtime_from_parts(
+            &self.confusion_rt,
+            self.accuracy_rt.snapshot(),
+        );
+        Ok(rt.generate_report())
+    }
+
+    /// Clear the runtime stream.
     pub fn flush(&mut self) {
         self.confusion_rt = ConfusionMatrix::default();
         self.accuracy_rt = BinaryClassificationAccuracyBucket::default();
+    }
+}
+
+pub struct LogisticRegressionStreaming {
+    threshold: f32,
+    accuracy_bucket: BinaryClassificationAccuracyBucket,
+    confusion_rt: ConfusionMatrix,
+    log_penalties: f32,
+    bl: LogisticRegressionRuntime,
+}
+
+impl LogisticRegressionStreaming {
+    pub fn new(
+        y_true: &[f32],
+        y_pred: &[f32],
+        threshold: f32,
+    ) -> Result<LogisticRegressionStreaming, ModelPerformanceError> {
+        let bl = LogisticRegressionRuntime::new(y_true, y_pred, threshold)?;
+        let confusion_rt = ConfusionMatrix::default();
+        let log_penalties = 0_f32;
+        let accuracy_bucket = BinaryClassificationAccuracyBucket::default();
+        Ok(LogisticRegressionStreaming {
+            bl,
+            confusion_rt,
+            log_penalties,
+            threshold,
+            accuracy_bucket,
+        })
+    }
+
+    /// Push a single record into the stream and update runtime stream state.
+    #[inline]
+    pub fn push(&mut self, gt: f32, pred: f32) {
+        self.log_penalties += gt * f32::log10(pred) + (1_f32 - gt) * f32::log10(1_f32 - pred);
+
+        let true_gt = gt == 1_f32;
+        let true_pred = pred >= self.threshold;
+
+        self.confusion_rt.push(true_gt, true_pred);
+        self.accuracy_bucket.push(true_gt == true_pred);
+    }
+
+    /// Push records into the stream from a batched dataset.
+    pub fn push_batch(
+        &mut self,
+        y_true: &[f32],
+        y_pred: &[f32],
+    ) -> Result<(), ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+
+        if y_true.is_empty() {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        for (gt, p) in zip_iters!(y_true, y_pred) {
+            self.push(*gt, *p);
+        }
+        Ok(())
+    }
+
+    /// Clear and reset the runtime state.
+    pub fn flush(&mut self) {
+        self.confusion_rt = ConfusionMatrix::default();
+        self.accuracy_bucket = BinaryClassificationAccuracyBucket::default();
+        self.log_penalties = 0_f32;
+    }
+
+    /// Compute a snapshot drift report. The drift scalar values are compute by taking the
+    /// difference in baseline metric score and current runtime snapshot score. Thus for instance
+    /// an accuracy drift that is negative will indicate the model if performing above expected
+    /// value, by the absolute value of the drift score, indicating positive performance. In this
+    /// sense, log loss would be the inverse. This will error when no data has been pushed into the
+    /// stream.
+    pub fn drift_report(
+        &self,
+    ) -> Result<DriftReport<ClassificationEvaluationMetric>, ModelPerformanceError> {
+        // compute log loss
+        let n = self.accuracy_bucket.len as f32;
+        if n == 0_f32 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        let log_loss = (-1_f32 * self.log_penalties) / n;
+        let accuracy = self.accuracy_bucket.snapshot();
+        let rt =
+            LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, accuracy, log_loss)?;
+        let report = rt.runtime_drift_report(&self.bl);
+        Ok(DriftReport::from_runtime(report))
+    }
+
+    /// Compute a snapshot of runtime model performance accumulated in the stream, irrelevant of
+    /// the baseline state. This will error when no data has been pushed into the stream.
+    pub fn performance_report(
+        &self,
+    ) -> Result<LogisticRegressionAnalysisReport, ModelPerformanceError> {
+        let n = self.accuracy_bucket.len;
+        if n == 0 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+
+        let log_loss = (-1_f32 * self.log_penalties) / n as f32;
+        let accuracy = self.accuracy_bucket.snapshot();
+        let rt =
+            LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, accuracy, log_loss)?;
+        Ok(rt.generate_report())
     }
 }
