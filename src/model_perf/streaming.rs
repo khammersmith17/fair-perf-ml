@@ -10,6 +10,137 @@ use crate::{
     zip_iters,
 };
 
+#[cfg(feature = "python")]
+pub(crate) mod py_api {
+    use super::{
+        BinaryClassificationStreaming, LinearRegressionStreaming, LogisticRegressionStreaming,
+    };
+    use pyo3::prelude::*;
+    use pyo3::types::{IntoPyDict, PyDict};
+
+    // need to expose these apis for all streaming types
+    // 1. push
+    // 2. push batch
+    // 3. performance report
+    // 4. drift report
+    // 5. flush
+    // 6. reset baseline
+
+    // requires label to be applied in Python wrap, for now at least
+    // the generics are easier to define in this case
+    #[pyclass]
+    struct PyBinaryClassificationStreaming {
+        inner: BinaryClassificationStreaming<i32>,
+    }
+
+    #[pymethods]
+    impl PyBinaryClassificationStreaming {
+        #[new]
+        fn new(y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<PyBinaryClassificationStreaming> {
+            let inner = BinaryClassificationStreaming::new(1_i32, &y_true, &y_pred)
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(PyBinaryClassificationStreaming { inner })
+        }
+
+        fn flush(&mut self) {
+            self.inner.flush()
+        }
+
+        fn push_batch(&mut self, y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<()> {
+            self.inner
+                .push_batch(&y_true, &y_pred)
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(())
+        }
+
+        fn push(&mut self, y_true: i32, y_pred: i32) {
+            self.inner.push(&y_true, &y_pred)
+        }
+
+        fn reset_baseline(&mut self, y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<()> {
+            self.inner
+                .reset_baseline(&y_true, &y_pred)
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(())
+        }
+
+        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+            let report = self
+                .inner
+                .performance_snapshot()
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(crate::data_handler::py_types_handler::report_to_py_dict(
+                py, report,
+            ))
+        }
+
+        fn drift_report<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+            let report = self
+                .inner
+                .drift_snapshot()
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(report.into_py_dict(py)?)
+        }
+    }
+
+    #[pyclass]
+    struct PyLinearRegressionStreaming {
+        inner: LinearRegressionStreaming,
+    }
+
+    #[pymethods]
+    impl PyLinearRegressionStreaming {
+        #[new]
+        fn new(y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<PyLinearRegressionStreaming> {
+            let inner = LinearRegressionStreaming::new(&y_true, &y_pred)
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+
+            Ok(PyLinearRegressionStreaming { inner })
+        }
+
+        fn flush(&mut self) {
+            self.inner.flush()
+        }
+
+        fn push(&mut self, t: f32, p: f32) {
+            self.inner.push(t, p)
+        }
+
+        fn push_batch(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
+            self.inner
+                .push_batch(&y_true, &y_pred)
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(())
+        }
+
+        fn reset_baseline(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
+            self.inner
+                .reset_baseline(&y_true, &y_pred)
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(())
+        }
+
+        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+            let report = self
+                .inner
+                .performance_snapshot()
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+
+            Ok(crate::data_handler::py_types_handler::report_to_py_dict(
+                py, report,
+            ))
+        }
+
+        fn drift_snapshot<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+            let report = self
+                .inner
+                .drift_snapshot()
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(report.into_py_dict(py)?)
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct RSquaredSupplement {
     sum_y_true2: f64, // sum of y true ^ 2 across all examples
@@ -72,6 +203,7 @@ impl LinearRegressionErrorBuckets {
 /// the ability to accumulate runtime inference examples, compute performance snapshots, compute
 /// drift snapshots relative to the baseline dataset, and reset the baseline state through the
 /// lifetime of the type instance.
+
 pub struct LinearRegressionStreaming {
     bl: LinearRegressionRuntime,
     rt_buckets: LinearRegressionErrorBuckets,
@@ -160,7 +292,7 @@ impl LinearRegressionStreaming {
     /// Compute a point in time snapshot, describing the drift across all built in metrics. Returns
     /// a 'DriftReport<LinearRegressionEvaluationMetric>'. Will error when there is no runtime data
     /// accumulated since construction of last flush or, in other words, when runtime state is empty.
-    pub fn compute_drft(
+    pub fn drift_snapshot(
         &self,
     ) -> Result<DriftReport<LinearRegressionEvaluationMetric>, ModelPerformanceError> {
         let rt = LinearRegressionRuntime::runtime_from_parts(&self.rt_buckets)?;
@@ -241,8 +373,19 @@ where
         })
     }
 
-    /// Push a single prediction and ground truth example into the stream.
-    pub fn push(
+    /// Push a single observed runtime example to the stream.
+    #[inline]
+    pub fn push(&mut self, y_true: &T, y_pred: &T) {
+        let gt_is_true = self.label.eq(y_true);
+        let pred_is_true = self.label.eq(y_pred);
+        let true_pred = gt_is_true == pred_is_true;
+
+        self.accuracy_rt.push(gt_is_true == pred_is_true);
+        self.confusion_rt.push(gt_is_true, true_pred);
+    }
+
+    /// Push a batch prediction and ground truth observed example set into the stream.
+    pub fn push_batch(
         &mut self,
         runtime_true: &[T],
         runtime_pred: &[T],
@@ -254,12 +397,7 @@ where
         self.accuracy_rt.len += runtime_pred.len() as u64;
 
         for (t, p) in zip_iters!(runtime_true, runtime_pred) {
-            let gt_is_true = *t == self.label;
-            let pred_is_true = *p == self.label;
-            let true_pred = gt_is_true == pred_is_true;
-
-            self.accuracy_rt.push(gt_is_true == pred_is_true);
-            self.confusion_rt.push(gt_is_true, true_pred);
+            self.push(t, p)
         }
 
         Ok(())
@@ -282,7 +420,7 @@ where
     /// for accuracy indicates that the accuracy computed at the snapshot if performing better than
     /// what was computed in the baseline state. This will error when no data has been pushed into
     /// the stream.
-    pub fn drift_report(
+    pub fn drift_snapshot(
         &self,
     ) -> Result<DriftReport<ClassificationEvaluationMetric>, ModelPerformanceError> {
         if self.accuracy_rt.len == 0 {
@@ -321,6 +459,8 @@ where
     }
 }
 
+/// Streaming style variant for LogisticRegression models. Like the other streaming variants of the
+/// monitors, this type leverages a bucketing algorithm for compact space.
 pub struct LogisticRegressionStreaming {
     threshold: f32,
     accuracy_bucket: BinaryClassificationAccuracyBucket,
@@ -330,11 +470,15 @@ pub struct LogisticRegressionStreaming {
 }
 
 impl LogisticRegressionStreaming {
+    /// Construct a new instance by passing a labeled ground truth dataset, and an inference
+    /// dataset containing the associated logistic values. A decision threshold can be optionally passed.
+    /// When the threshold is not passed, it will default to 0.5.
     pub fn new(
         y_true: &[f32],
         y_pred: &[f32],
-        threshold: f32,
+        threshold_opt: Option<f32>,
     ) -> Result<LogisticRegressionStreaming, ModelPerformanceError> {
+        let threshold = threshold_opt.unwrap_or(0.5_f32);
         let bl = LogisticRegressionRuntime::new(y_true, y_pred, threshold)?;
         let confusion_rt = ConfusionMatrix::default();
         let log_penalties = 0_f32;
@@ -392,7 +536,7 @@ impl LogisticRegressionStreaming {
     /// value, by the absolute value of the drift score, indicating positive performance. In this
     /// sense, log loss would be the inverse. This will error when no data has been pushed into the
     /// stream.
-    pub fn drift_report(
+    pub fn drift_snapshot(
         &self,
     ) -> Result<DriftReport<ClassificationEvaluationMetric>, ModelPerformanceError> {
         // compute log loss
@@ -410,7 +554,7 @@ impl LogisticRegressionStreaming {
 
     /// Compute a snapshot of runtime model performance accumulated in the stream, irrelevant of
     /// the baseline state. This will error when no data has been pushed into the stream.
-    pub fn performance_report(
+    pub fn performance_snapshot(
         &self,
     ) -> Result<LogisticRegressionAnalysisReport, ModelPerformanceError> {
         let n = self.accuracy_bucket.len;

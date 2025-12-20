@@ -107,9 +107,3 @@ where
         Ok(curr_rt.generate_report())
     }
 }
-
-// the idea here is to register many different features
-// so it will probably look some thing like a table of <feature name>: <StreamingDataBias>
-// figure out how out how to make it store arbitrary types
-// I guess they each streaming agent will then need to be boxed
-pub struct StreamingDataBiasManager {}

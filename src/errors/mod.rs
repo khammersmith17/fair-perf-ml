@@ -147,4 +147,17 @@ pub(crate) mod py_errors {
             exceptions::PyValueError::new_err(err_msg)
         }
     }
+
+    impl Into<PyErr> for ModelPerformanceError {
+        fn into(self) -> PyErr {
+            let err_message = self.to_string();
+
+            match self {
+                Self::EmptyDataVector
+                | Self::DataVectorLengthMismatch
+                | Self::InvalidAnalysisReport => exceptions::PyValueError::new_err(err_message),
+                _ => exceptions::PyTypeError::new_err(err_message),
+            }
+        }
+    }
 }

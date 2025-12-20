@@ -34,13 +34,6 @@ pub(crate) mod py_api {
     };
     use std::collections::HashMap;
 
-    impl Into<PyErr> for ModelPerformanceError {
-        fn into(self) -> PyErr {
-            let err_msg = self.to_string();
-            PyValueError::new_err(err_msg)
-        }
-    }
-
     #[pyfunction]
     #[pyo3(signature = (baseline, latest, threshold=0.10))]
     pub fn py_model_perf_lin_reg_rt_full<'py>(
