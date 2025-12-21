@@ -11,7 +11,7 @@ pub enum BiasError {
     NoSegmentationParameters,
     #[error("Ambiguous segmentation parameters")]
     AmbiguousSegmentationParameters,
-    #[error("All data arrays must have equal length")]
+    #[error("All data arrays must have equal length and be at least lenght 1")]
     DataLengthError,
 }
 
@@ -95,6 +95,8 @@ pub enum ModelPerformanceError {
     DataVectorLengthMismatch,
     #[error("Invalid analysis report")]
     InvalidAnalysisReport,
+    #[error("Bias Error: {0:?}")]
+    BiasError(BiasError),
     // py only errors
     #[allow(unused)]
     #[error("Data Vector type mistmatch")]

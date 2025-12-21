@@ -6,7 +6,7 @@ pub fn data_bias_analysis_core(
     labeled_features: Vec<i16>,
     labeled_ground_truth: Vec<i16>,
 ) -> Result<DataBiasAnalysisReport, BiasError> {
-    let pre_training = PreTraining::new(&labeled_features, &labeled_ground_truth)?;
+    let pre_training = PreTraining::new_from_labeled(&labeled_features, &labeled_ground_truth)?;
     Ok(pre_training_bias(pre_training))
 }
 

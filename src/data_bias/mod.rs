@@ -212,7 +212,10 @@ pub(crate) struct PreTraining {
 }
 
 impl PreTraining {
-    pub(crate) fn new(feature_data: &[i16], gt_data: &[i16]) -> Result<PreTraining, BiasError> {
+    pub(crate) fn new_from_labeled(
+        feature_data: &[i16],
+        gt_data: &[i16],
+    ) -> Result<PreTraining, BiasError> {
         let mut facet_a = PreTrainingDistribution::default();
         let mut facet_d = PreTrainingDistribution::default();
 
@@ -247,7 +250,7 @@ impl PreTraining {
         feat_seg: &BiasSegmentationCriteria<F>,
         gt: &[G],
         gt_seg: &BiasSegmentationCriteria<G>,
-    ) -> PreTraining
+    ) -> Result<PreTraining, BiasError>
     where
         F: PartialOrd,
         G: PartialOrd,
@@ -257,6 +260,14 @@ impl PreTraining {
 
         let mut len_d = 0_u64;
         let mut positive_d = 0_u64;
+
+        if len_a != len_d {
+            return Err(BiasError::DataLengthError);
+        }
+
+        if len_a == 0 {
+            return Err(BiasError::DataLengthError);
+        }
 
         for (f, g) in zip_iters!(feature, gt) {
             let is_favored = feat_seg.label(f);
@@ -268,7 +279,7 @@ impl PreTraining {
             positive_d += (!is_favored && is_positive) as u64;
         }
 
-        PreTraining {
+        Ok(PreTraining {
             facet_a: PreTrainingDistribution {
                 len: len_a,
                 positive: positive_a,
@@ -277,27 +288,53 @@ impl PreTraining {
                 len: len_d,
                 positive: positive_d,
             },
-        }
+        })
     }
 
-    fn accumulate_runtime<F, G>(
+    #[inline]
+    fn accumulate_runtime_single<F, G>(
         &mut self,
-        features: &[F],
+        f: &F,
         feat_seg: &BiasSegmentationCriteria<F>,
-        gt: &[G],
+        g: &G,
+
         gt_seg: &BiasSegmentationCriteria<G>,
     ) where
         F: PartialOrd,
         G: PartialOrd,
     {
-        for (f, g) in zip_iters!(features, gt) {
-            let is_a = feat_seg.label(f);
-            let is_positive = gt_seg.label(g);
+        let is_a = feat_seg.label(f);
+        let is_positive = gt_seg.label(g);
 
-            self.facet_a.len += is_a as u64;
-            self.facet_d.len += !is_a as u64;
-            self.facet_a.positive += (is_a && is_positive) as u64;
-            self.facet_d.positive += (!is_a && is_positive) as u64;
+        self.facet_a.len += is_a as u64;
+        self.facet_d.len += !is_a as u64;
+        self.facet_a.positive += (is_a && is_positive) as u64;
+        self.facet_d.positive += (!is_a && is_positive) as u64;
+    }
+
+    fn accumulate_runtime_batch<F, G>(
+        &mut self,
+        features: &[F],
+        feat_seg: &BiasSegmentationCriteria<F>,
+        gt: &[G],
+        gt_seg: &BiasSegmentationCriteria<G>,
+    ) -> Result<(), BiasError>
+    where
+        F: PartialOrd,
+        G: PartialOrd,
+    {
+        if features.len() != gt.len() {
+            return Err(BiasError::DataLengthError);
         }
+
+        if features.is_empty() {
+            return Err(BiasError::DataLengthError);
+        }
+
+        for (f, g) in zip_iters!(features, gt) {
+            self.accumulate_runtime_single(f, feat_seg, g, gt_seg);
+        }
+
+        Ok(())
     }
 }

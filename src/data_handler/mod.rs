@@ -212,6 +212,9 @@ impl<T> BiasSegmentationCriteria<T>
 where
     T: PartialOrd + PartialEq,
 {
+    pub fn new(value: T, stype: BiasSegmentationType) -> BiasSegmentationCriteria<T> {
+        BiasSegmentationCriteria { value, stype }
+    }
     #[inline]
     pub(crate) fn label(&self, value: &T) -> bool {
         if self.stype == BiasSegmentationType::Label {
