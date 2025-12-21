@@ -1,6 +1,6 @@
 use crate::{
     data_handler::ConfusionMatrix,
-    errors::ModelPerformanceError,
+    errors::{ModelPerfResult, ModelPerformanceError},
     metrics::{ClassificationEvaluationMetric, LinearRegressionEvaluationMetric},
     reporting::{
         BinaryClassificationAnalysisReport, DriftReport, LinearRegressionAnalysisReport,
@@ -15,16 +15,14 @@ pub(crate) mod py_api {
     use super::{
         BinaryClassificationStreaming, LinearRegressionStreaming, LogisticRegressionStreaming,
     };
+    use crate::data_handler::py_types_handler::{
+        report_to_py_dict as perf_report_to_py_dict, PyDictResult,
+    };
     use pyo3::prelude::*;
-    use pyo3::types::{IntoPyDict, PyDict};
+    use pyo3::types::IntoPyDict;
 
-    // need to expose these apis for all streaming types
-    // 1. push
-    // 2. push batch
-    // 3. performance report
-    // 4. drift report
-    // 5. flush
-    // 6. reset baseline
+    // All types here are simply logic wrappers around core types, simply to expose the apis to
+    // python through FFI.
 
     // requires label to be applied in Python wrap, for now at least
     // the generics are easier to define in this case
@@ -64,17 +62,15 @@ pub(crate) mod py_api {
             Ok(())
         }
 
-        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
             let report = self
                 .inner
                 .performance_snapshot()
                 .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
-            Ok(crate::data_handler::py_types_handler::report_to_py_dict(
-                py, report,
-            ))
+            Ok(perf_report_to_py_dict(py, report))
         }
 
-        fn drift_report<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        fn drift_report<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
             let report = self
                 .inner
                 .drift_snapshot()
@@ -120,23 +116,92 @@ pub(crate) mod py_api {
             Ok(())
         }
 
-        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
             let report = self
                 .inner
                 .performance_snapshot()
                 .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
 
-            Ok(crate::data_handler::py_types_handler::report_to_py_dict(
-                py, report,
-            ))
+            Ok(perf_report_to_py_dict(py, report))
         }
 
-        fn drift_snapshot<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        fn drift_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
             let report = self
                 .inner
                 .drift_snapshot()
                 .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(report.into_py_dict(py)?)
+        }
+    }
+
+    #[pyclass]
+    struct PyLogisticRegressionStreaming {
+        inner: LogisticRegressionStreaming,
+    }
+
+    #[pymethods]
+    impl PyLogisticRegressionStreaming {
+        #[new]
+        fn new(
+            y_true: Vec<f32>,
+            y_pred: Vec<f32>,
+            threshold: f32,
+        ) -> PyResult<PyLogisticRegressionStreaming> {
+            let inner = LogisticRegressionStreaming::new(&y_true, &y_pred, Some(threshold))
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+
+            Ok(PyLogisticRegressionStreaming { inner })
+        }
+
+        fn push(&mut self, y_true: f32, y_pred: f32) {
+            self.inner.push(y_true, y_pred);
+        }
+
+        fn push_batch(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
+            self.inner
+                .push_batch(&y_true, &y_pred)
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(())
+        }
+
+        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
+            let report = self
+                .inner
+                .performance_snapshot()
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(perf_report_to_py_dict(py, report))
+        }
+
+        fn drift_snapshot<'py>(&mut self, py: Python<'py>) -> PyDictResult<'py> {
+            let drift_report = self
+                .inner
+                .drift_snapshot()
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+
+            Ok(drift_report.into_py_dict(py)?)
+        }
+
+        fn flush(&mut self) {
+            self.inner.flush()
+        }
+
+        fn reset_baseline(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
+            self.inner
+                .reset_baseline(&y_true, &y_pred)
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(())
+        }
+
+        fn reset_baseline_and_decision_threshold(
+            &mut self,
+            y_true: Vec<f32>,
+            y_pred: Vec<f32>,
+            threshold: f32,
+        ) -> PyResult<()> {
+            self.inner
+                .reset_baseline_and_decision_threshold(&y_true, &y_pred, threshold)
+                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+            Ok(())
         }
     }
 }
@@ -216,7 +281,7 @@ impl LinearRegressionStreaming {
     pub fn new(
         baseline_y_true: &[f32],
         baseline_y_pred: &[f32],
-    ) -> Result<LinearRegressionStreaming, ModelPerformanceError> {
+    ) -> ModelPerfResult<LinearRegressionStreaming> {
         if baseline_y_true.len() != baseline_y_pred.len() {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
@@ -232,11 +297,7 @@ impl LinearRegressionStreaming {
 
     /// Push a batch of runtime data examples. The same error invariants as the constructor
     /// applies.
-    pub fn push_batch(
-        &mut self,
-        y_true: &[f32],
-        y_pred: &[f32],
-    ) -> Result<(), ModelPerformanceError> {
+    pub fn push_batch(&mut self, y_true: &[f32], y_pred: &[f32]) -> ModelPerfResult<()> {
         if y_true.len() != y_pred.len() {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
@@ -266,7 +327,7 @@ impl LinearRegressionStreaming {
         &mut self,
         baseline_y_true: &[f32],
         baseline_y_pred: &[f32],
-    ) -> Result<(), ModelPerformanceError> {
+    ) -> ModelPerfResult<()> {
         if baseline_y_true.len() != baseline_y_pred.len() {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
@@ -282,9 +343,7 @@ impl LinearRegressionStreaming {
     /// Generate a snapshot of performance of the inference examples accumulate since the last
     /// flush. Will error when there is no runtime data accumulated since construction of last
     /// flush or, in other words, when runtime state is empty.
-    pub fn performance_snapshot(
-        &self,
-    ) -> Result<LinearRegressionAnalysisReport, ModelPerformanceError> {
+    pub fn performance_snapshot(&self) -> ModelPerfResult<LinearRegressionAnalysisReport> {
         let rt = LinearRegressionRuntime::runtime_from_parts(&self.rt_buckets)?;
         Ok(rt.generate_report())
     }
@@ -292,9 +351,7 @@ impl LinearRegressionStreaming {
     /// Compute a point in time snapshot, describing the drift across all built in metrics. Returns
     /// a 'DriftReport<LinearRegressionEvaluationMetric>'. Will error when there is no runtime data
     /// accumulated since construction of last flush or, in other words, when runtime state is empty.
-    pub fn drift_snapshot(
-        &self,
-    ) -> Result<DriftReport<LinearRegressionEvaluationMetric>, ModelPerformanceError> {
+    pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<LinearRegressionEvaluationMetric>> {
         let rt = LinearRegressionRuntime::runtime_from_parts(&self.rt_buckets)?;
         let drift_report = rt.runtime_drift_report(&self.bl);
         Ok(DriftReport::from_runtime(drift_report))
@@ -351,7 +408,7 @@ where
         positive_label: T,
         baseline_true: &[T],
         baseline_pred: &[T],
-    ) -> Result<BinaryClassificationStreaming<T>, ModelPerformanceError> {
+    ) -> ModelPerfResult<BinaryClassificationStreaming<T>> {
         if baseline_true.len() != baseline_pred.len() {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
@@ -385,11 +442,7 @@ where
     }
 
     /// Push a batch prediction and ground truth observed example set into the stream.
-    pub fn push_batch(
-        &mut self,
-        runtime_true: &[T],
-        runtime_pred: &[T],
-    ) -> Result<(), ModelPerformanceError> {
+    pub fn push_batch(&mut self, runtime_true: &[T], runtime_pred: &[T]) -> ModelPerfResult<()> {
         if runtime_true.len() != runtime_pred.len() {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
@@ -408,7 +461,7 @@ where
         &mut self,
         baseline_true: &[T],
         baseline_pred: &[T],
-    ) -> Result<(), ModelPerformanceError> {
+    ) -> ModelPerfResult<()> {
         self.bl =
             BinaryClassificationRuntime::new(baseline_true, baseline_pred, self.label.clone())?;
         self.flush();
@@ -420,9 +473,7 @@ where
     /// for accuracy indicates that the accuracy computed at the snapshot if performing better than
     /// what was computed in the baseline state. This will error when no data has been pushed into
     /// the stream.
-    pub fn drift_snapshot(
-        &self,
-    ) -> Result<DriftReport<ClassificationEvaluationMetric>, ModelPerformanceError> {
+    pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
         if self.accuracy_rt.len == 0 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
@@ -439,9 +490,7 @@ where
     /// baseline state. This will error when no data has been pushed into
     /// the stream.
 
-    pub fn performance_snapshot(
-        &self,
-    ) -> Result<BinaryClassificationAnalysisReport, ModelPerformanceError> {
+    pub fn performance_snapshot(&self) -> ModelPerfResult<BinaryClassificationAnalysisReport> {
         if self.accuracy_rt.len == 0 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
@@ -477,7 +526,7 @@ impl LogisticRegressionStreaming {
         y_true: &[f32],
         y_pred: &[f32],
         threshold_opt: Option<f32>,
-    ) -> Result<LogisticRegressionStreaming, ModelPerformanceError> {
+    ) -> ModelPerfResult<LogisticRegressionStreaming> {
         let threshold = threshold_opt.unwrap_or(0.5_f32);
         let bl = LogisticRegressionRuntime::new(y_true, y_pred, threshold)?;
         let confusion_rt = ConfusionMatrix::default();
@@ -505,11 +554,7 @@ impl LogisticRegressionStreaming {
     }
 
     /// Push records into the stream from a batched dataset.
-    pub fn push_batch(
-        &mut self,
-        y_true: &[f32],
-        y_pred: &[f32],
-    ) -> Result<(), ModelPerformanceError> {
+    pub fn push_batch(&mut self, y_true: &[f32], y_pred: &[f32]) -> ModelPerfResult<()> {
         if y_true.len() != y_pred.len() {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
@@ -536,9 +581,7 @@ impl LogisticRegressionStreaming {
     /// value, by the absolute value of the drift score, indicating positive performance. In this
     /// sense, log loss would be the inverse. This will error when no data has been pushed into the
     /// stream.
-    pub fn drift_snapshot(
-        &self,
-    ) -> Result<DriftReport<ClassificationEvaluationMetric>, ModelPerformanceError> {
+    pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
         // compute log loss
         let n = self.accuracy_bucket.len as f32;
         if n == 0_f32 {
@@ -554,9 +597,7 @@ impl LogisticRegressionStreaming {
 
     /// Compute a snapshot of runtime model performance accumulated in the stream, irrelevant of
     /// the baseline state. This will error when no data has been pushed into the stream.
-    pub fn performance_snapshot(
-        &self,
-    ) -> Result<LogisticRegressionAnalysisReport, ModelPerformanceError> {
+    pub fn performance_snapshot(&self) -> ModelPerfResult<LogisticRegressionAnalysisReport> {
         let n = self.accuracy_bucket.len;
         if n == 0 {
             return Err(ModelPerformanceError::EmptyDataVector);
@@ -567,5 +608,27 @@ impl LogisticRegressionStreaming {
         let rt =
             LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, accuracy, log_loss)?;
         Ok(rt.generate_report())
+    }
+
+    /// Reset the baseline state in the stream with new baseline examples. This will leverage the same
+    /// decision threshold. To also update the decision threshold, use `reset_baseline_and_decision_threshold`.
+    pub fn reset_baseline(&mut self, y_true: &[f32], y_pred: &[f32]) -> ModelPerfResult<()> {
+        self.bl = LogisticRegressionRuntime::new(&y_true, &y_pred, self.threshold)?;
+        Ok(())
+    }
+
+    /// Reset the baseline state with new baseline examples, and also update the decision
+    /// threshold. Useful when a change is made to the decision threshold dynamically at runtime.
+    /// This is the only place where the decision threshold can be updated, and it requires a reset
+    /// of the baseline to maintain consistency.
+    pub fn reset_baseline_and_decision_threshold(
+        &mut self,
+        y_true: &[f32],
+        y_pred: &[f32],
+        threshold: f32,
+    ) -> ModelPerfResult<()> {
+        self.threshold = threshold;
+        self.bl = LogisticRegressionRuntime::new(&y_true, &y_pred, self.threshold)?;
+        Ok(())
     }
 }

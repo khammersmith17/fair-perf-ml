@@ -1,5 +1,8 @@
 use thiserror::Error;
 
+/// Result type for any operation that may return a `ModelPerformanceError`.
+pub type ModelPerfResult<T> = Result<T, ModelPerformanceError>;
+
 #[derive(Debug, Error)]
 pub enum BiasError {
     #[error("No deviation in behavior between facets")]

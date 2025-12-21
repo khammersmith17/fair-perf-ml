@@ -9,6 +9,8 @@ pub(crate) mod py_types_handler {
     use std::collections::HashMap;
     use std::error::Error;
 
+    pub type PyDictResult<'py> = PyResult<Bound<'py, PyDict>>;
+
     // Coerce analysis/runtime report into Python Dictionary
     pub(crate) fn report_to_py_dict<'py, T>(
         py: Python<'py>,
