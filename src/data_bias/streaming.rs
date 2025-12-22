@@ -6,7 +6,7 @@ use crate::reporting::{DataBiasAnalysisReport, DriftReport};
 use crate::runtime::DataBiasRuntime;
 
 #[cfg(feature = "python")]
-mod py_api {
+pub(crate) mod py_api {
     use super::StreamingDataBias;
     use crate::data_handler::{
         py_types_handler::{report_to_py_dict, PyDictResult},

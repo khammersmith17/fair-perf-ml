@@ -329,6 +329,32 @@ impl ModelBiasRuntime {
         );
         report
     }
+
+    pub(crate) fn generate_report(&self) -> ModelBiasAnalysisReport {
+        let mut report = ModelBiasAnalysisReport::with_capacity(12);
+        report.insert(
+            ModelBiasMetric::DifferenceInPositivePredictedLabels,
+            self.ddpl,
+        );
+        report.insert(ModelBiasMetric::DisparateImpact, self.di);
+        report.insert(ModelBiasMetric::AccuracyDifference, self.ad);
+        report.insert(ModelBiasMetric::RecallDifference, self.rd);
+        report.insert(
+            ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels,
+            self.cdacc,
+        );
+        report.insert(ModelBiasMetric::DifferenceInAcceptanceRate, self.dar);
+        report.insert(ModelBiasMetric::SpecialityDifference, self.sd);
+        report.insert(ModelBiasMetric::DifferenceInConditionalRejection, self.dcr);
+        report.insert(ModelBiasMetric::DifferenceInRejectionRate, self.drr);
+        report.insert(ModelBiasMetric::TreatmentEquity, self.te);
+        report.insert(
+            ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels,
+            self.ccdpl,
+        );
+        report.insert(ModelBiasMetric::GeneralizedEntropy, self.ge);
+        report
+    }
 }
 
 impl TryFrom<ModelBiasAnalysisReport> for ModelBiasRuntime {
