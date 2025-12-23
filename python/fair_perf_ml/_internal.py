@@ -1,6 +1,7 @@
+from typing import List, Union
 import numpy as np
 from numpy.typing import NDArray
-from typing import List, Union
+from .models import MachineLearningMetric
 
 
 class InvalidBaseline(Exception):
@@ -39,6 +40,16 @@ def _is_uniform_type(arr: List[Union[str, float, int]]) -> bool:
         return False
     T = type(arr[0])
     return all([True if isinstance(item, T) else False for item in arr])
+
+
+def map_metric_enum(metric: Union[MachineLearningMetric, str]) -> str:
+    """
+    Type cleaning for metrics, to allow users to pass the metric enum or a string
+    with the metric name. For users who prefer the enum type documentation.
+    """
+    if isinstance(metric, MachineLearningMetric):
+        return metric.value
+    return metric
 
 
 def _convert_obj_type(arr: List[Union[str, float, int]]) -> NDArray:

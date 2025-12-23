@@ -20,7 +20,7 @@ pub(crate) mod py_api {
     // type complexity here. So the labeling will happen in the python api
 
     #[pyclass]
-    struct PyDataBiasStreaming {
+    pub(crate) struct PyDataBiasStreaming {
         inner: StreamingDataBias<i8, i8>,
     }
 

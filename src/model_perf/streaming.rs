@@ -27,7 +27,7 @@ pub(crate) mod py_api {
     // requires label to be applied in Python wrap, for now at least
     // the generics are easier to define in this case
     #[pyclass]
-    struct PyBinaryClassificationStreaming {
+    pub(crate) struct PyBinaryClassificationStreaming {
         inner: BinaryClassificationStreaming<i32>,
     }
 
@@ -80,7 +80,7 @@ pub(crate) mod py_api {
     }
 
     #[pyclass]
-    struct PyLinearRegressionStreaming {
+    pub(crate) struct PyLinearRegressionStreaming {
         inner: LinearRegressionStreaming,
     }
 
@@ -135,7 +135,7 @@ pub(crate) mod py_api {
     }
 
     #[pyclass]
-    struct PyLogisticRegressionStreaming {
+    pub(crate) struct PyLogisticRegressionStreaming {
         inner: LogisticRegressionStreaming,
     }
 

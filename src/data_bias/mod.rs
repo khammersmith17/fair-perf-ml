@@ -12,18 +12,13 @@ pub mod streaming;
 pub(crate) mod py_api {
     use super::core::data_bias_analysis_core;
     use super::data_bias_runtime_check;
-    use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict};
+    use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict, PyDictResult};
     use crate::errors::InvalidMetricError;
     use crate::metrics::{DataBiasMetric, DataBiasMetricVec};
     use crate::reporting::DriftReport;
     use crate::runtime::DataBiasRuntime;
     use numpy::PyUntypedArray;
-    use pyo3::{
-        exceptions::PyTypeError,
-        prelude::*,
-        types::{IntoPyDict, PyDict},
-        Bound, PyResult, Python,
-    };
+    use pyo3::{exceptions::PyTypeError, prelude::*, types::IntoPyDict, Bound, Python};
     use std::collections::HashMap;
 
     /// Method to perform data bias analysis
@@ -35,7 +30,7 @@ pub(crate) mod py_api {
         ground_truth_array: &Bound<'py, PyUntypedArray>,
         feature_label_or_threshold: Bound<'py, PyAny>, //fix
         ground_truth_label_or_threshold: Bound<'py, PyAny>, //fix
-    ) -> PyResult<Bound<'py, PyDict>> {
+    ) -> PyDictResult<'py> {
         let gt = match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
             Ok(array) => array,
             Err(err) => return Err(PyTypeError::new_err(err.to_string())),
@@ -62,7 +57,7 @@ pub(crate) mod py_api {
         baseline: HashMap<String, f32>,
         latest: HashMap<String, f32>,
         threshold: f32,
-    ) -> PyResult<Bound<'py, PyDict>> {
+    ) -> PyDictResult<'py> {
         let bl = match convert_db_analysis(baseline) {
             Ok(b) => b,
             Err(e) => return Err(e.into()),
@@ -88,7 +83,7 @@ pub(crate) mod py_api {
         latest: HashMap<String, f32>,
         metrics: Vec<String>,
         threshold: f32,
-    ) -> PyResult<Bound<'py, PyDict>> {
+    ) -> PyDictResult<'py> {
         let metrics = match DataBiasMetricVec::try_from(metrics.as_slice()) {
             Ok(m) => m,
             Err(e) => return Err(e.into()),
@@ -109,6 +104,8 @@ pub(crate) mod py_api {
         Ok(drift_report.into_py_dict(py)?)
     }
 
+    // Internal method to take analysis report from python, limited to a string for the metric
+    // labels, into enum metric labels to be used here internally.
     fn convert_db_analysis(
         report: HashMap<String, f32>,
     ) -> Result<super::DataBiasAnalysisReport, InvalidMetricError> {

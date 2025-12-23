@@ -49,6 +49,12 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         py_model_perf_logistic_regression, py_model_perf_regression,
     };
 
+    use data_bias::streaming::py_api::PyDataBiasStreaming;
+    use model_bias::streaming::py_api::PyModelBiasStreaming;
+    use model_perf::streaming::py_api::{
+        PyBinaryClassificationStreaming, PyLinearRegressionStreaming, PyLogisticRegressionStreaming,
+    };
+
     m.add_function(wrap_pyfunction!(py_model_bias_analyzer, m)?)?;
     m.add_function(wrap_pyfunction!(py_data_bias_analyzer, m)?)?;
     m.add_function(wrap_pyfunction!(py_data_bias_runtime_check, m)?)?;
@@ -69,6 +75,11 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyContinuousPSI>()?;
     m.add_class::<PyStreamingContinuousPSI>()?;
     m.add_class::<PyStreamingCategoricalPSI>()?;
+    m.add_class::<PyDataBiasStreaming>()?;
+    m.add_class::<PyModelBiasStreaming>()?;
+    m.add_class::<PyBinaryClassificationStreaming>()?;
+    m.add_class::<PyLinearRegressionStreaming>()?;
+    m.add_class::<PyLogisticRegressionStreaming>()?;
 
     Ok(())
 }
