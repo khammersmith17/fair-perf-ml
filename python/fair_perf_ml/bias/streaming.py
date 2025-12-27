@@ -10,7 +10,7 @@ class BiasSegmentationType(str, Enum):
     THRESHOLD = "Threshold"
 
 
-class ValueBounds(Protocol):
+class SegementationValueBounds(Protocol):
     """
     Protocol to enforces typing. The type used for segmentation should
     safely implement __eq__ and __ge__.
@@ -20,9 +20,10 @@ class ValueBounds(Protocol):
     def __ge__(self, other: Self) -> bool: ...
 
 
-F = TypeVar("F", bound=ValueBounds)
-G = TypeVar("G", bound=ValueBounds)
-P = TypeVar("P", bound=ValueBounds)
+# Generic for feature, prediction, and ground truth type
+F = TypeVar("F", bound=SegementationValueBounds)
+G = TypeVar("G", bound=SegementationValueBounds)
+P = TypeVar("P", bound=SegementationValueBounds)
 
 
 class BiasSegmentationCriteria(Generic[P]):

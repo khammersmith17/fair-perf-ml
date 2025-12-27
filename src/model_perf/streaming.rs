@@ -18,13 +18,14 @@ pub(crate) mod py_api {
     use crate::data_handler::py_types_handler::{
         report_to_py_dict as perf_report_to_py_dict, PyDictResult,
     };
+    use crate::errors::ModelPerformanceError;
     use pyo3::prelude::*;
     use pyo3::types::IntoPyDict;
 
     // All types here are simply logic wrappers around core types, simply to expose the apis to
     // python through FFI.
 
-    // requires label to be applied in Python wrap, for now at least
+    // requires label to be applied in Python wrapper, for now at least
     // the generics are easier to define in this case
     #[pyclass]
     pub(crate) struct PyBinaryClassificationStreaming {
@@ -36,7 +37,7 @@ pub(crate) mod py_api {
         #[new]
         fn new(y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<PyBinaryClassificationStreaming> {
             let inner = BinaryClassificationStreaming::new(1_i32, &y_true, &y_pred)
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(PyBinaryClassificationStreaming { inner })
         }
 
@@ -47,7 +48,7 @@ pub(crate) mod py_api {
         fn push_batch(&mut self, y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<()> {
             self.inner
                 .push_batch(&y_true, &y_pred)
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(())
         }
 
@@ -58,7 +59,7 @@ pub(crate) mod py_api {
         fn reset_baseline(&mut self, y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<()> {
             self.inner
                 .reset_baseline(&y_true, &y_pred)
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(())
         }
 
@@ -66,7 +67,7 @@ pub(crate) mod py_api {
             let report = self
                 .inner
                 .performance_snapshot()
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(perf_report_to_py_dict(py, report))
         }
 
@@ -74,7 +75,7 @@ pub(crate) mod py_api {
             let report = self
                 .inner
                 .drift_snapshot()
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(report.into_py_dict(py)?)
         }
     }
@@ -89,7 +90,7 @@ pub(crate) mod py_api {
         #[new]
         fn new(y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<PyLinearRegressionStreaming> {
             let inner = LinearRegressionStreaming::new(&y_true, &y_pred)
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
 
             Ok(PyLinearRegressionStreaming { inner })
         }
@@ -105,14 +106,14 @@ pub(crate) mod py_api {
         fn push_batch(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
             self.inner
                 .push_batch(&y_true, &y_pred)
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(())
         }
 
         fn reset_baseline(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
             self.inner
                 .reset_baseline(&y_true, &y_pred)
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(())
         }
 
@@ -120,7 +121,7 @@ pub(crate) mod py_api {
             let report = self
                 .inner
                 .performance_snapshot()
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
 
             Ok(perf_report_to_py_dict(py, report))
         }
@@ -129,7 +130,7 @@ pub(crate) mod py_api {
             let report = self
                 .inner
                 .drift_snapshot()
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(report.into_py_dict(py)?)
         }
     }
@@ -148,7 +149,7 @@ pub(crate) mod py_api {
             threshold: f32,
         ) -> PyResult<PyLogisticRegressionStreaming> {
             let inner = LogisticRegressionStreaming::new(&y_true, &y_pred, Some(threshold))
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
 
             Ok(PyLogisticRegressionStreaming { inner })
         }
@@ -160,7 +161,7 @@ pub(crate) mod py_api {
         fn push_batch(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
             self.inner
                 .push_batch(&y_true, &y_pred)
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(())
         }
 
@@ -168,7 +169,7 @@ pub(crate) mod py_api {
             let report = self
                 .inner
                 .performance_snapshot()
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(perf_report_to_py_dict(py, report))
         }
 
@@ -176,7 +177,7 @@ pub(crate) mod py_api {
             let drift_report = self
                 .inner
                 .drift_snapshot()
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
 
             Ok(drift_report.into_py_dict(py)?)
         }
@@ -188,7 +189,7 @@ pub(crate) mod py_api {
         fn reset_baseline(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
             self.inner
                 .reset_baseline(&y_true, &y_pred)
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(())
         }
 
@@ -200,7 +201,7 @@ pub(crate) mod py_api {
         ) -> PyResult<()> {
             self.inner
                 .reset_baseline_and_decision_threshold(&y_true, &y_pred, threshold)
-                .map_err(|e| <crate::errors::ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
             Ok(())
         }
     }
@@ -511,7 +512,7 @@ where
 /// Streaming style variant for LogisticRegression models. Like the other streaming variants of the
 /// monitors, this type leverages a bucketing algorithm for compact space.
 pub struct LogisticRegressionStreaming {
-    threshold: f32,
+    decision_threshold: f32,
     accuracy_bucket: BinaryClassificationAccuracyBucket,
     confusion_rt: ConfusionMatrix,
     log_penalties: f32,
@@ -527,8 +528,8 @@ impl LogisticRegressionStreaming {
         y_pred: &[f32],
         threshold_opt: Option<f32>,
     ) -> ModelPerfResult<LogisticRegressionStreaming> {
-        let threshold = threshold_opt.unwrap_or(0.5_f32);
-        let bl = LogisticRegressionRuntime::new(y_true, y_pred, threshold)?;
+        let decision_threshold = threshold_opt.unwrap_or(0.5_f32);
+        let bl = LogisticRegressionRuntime::new(y_true, y_pred, decision_threshold)?;
         let confusion_rt = ConfusionMatrix::default();
         let log_penalties = 0_f32;
         let accuracy_bucket = BinaryClassificationAccuracyBucket::default();
@@ -536,7 +537,7 @@ impl LogisticRegressionStreaming {
             bl,
             confusion_rt,
             log_penalties,
-            threshold,
+            decision_threshold,
             accuracy_bucket,
         })
     }
@@ -547,7 +548,7 @@ impl LogisticRegressionStreaming {
         self.log_penalties += gt * f32::log10(pred) + (1_f32 - gt) * f32::log10(1_f32 - pred);
 
         let true_gt = gt == 1_f32;
-        let true_pred = pred >= self.threshold;
+        let true_pred = pred >= self.decision_threshold;
 
         self.confusion_rt.push(true_gt, true_pred);
         self.accuracy_bucket.push(true_gt == true_pred);
@@ -613,7 +614,7 @@ impl LogisticRegressionStreaming {
     /// Reset the baseline state in the stream with new baseline examples. This will leverage the same
     /// decision threshold. To also update the decision threshold, use `reset_baseline_and_decision_threshold`.
     pub fn reset_baseline(&mut self, y_true: &[f32], y_pred: &[f32]) -> ModelPerfResult<()> {
-        self.bl = LogisticRegressionRuntime::new(&y_true, &y_pred, self.threshold)?;
+        self.bl = LogisticRegressionRuntime::new(&y_true, &y_pred, self.decision_threshold)?;
         Ok(())
     }
 
@@ -627,8 +628,8 @@ impl LogisticRegressionStreaming {
         y_pred: &[f32],
         threshold: f32,
     ) -> ModelPerfResult<()> {
-        self.threshold = threshold;
-        self.bl = LogisticRegressionRuntime::new(&y_true, &y_pred, self.threshold)?;
+        self.decision_threshold = threshold;
+        self.bl = LogisticRegressionRuntime::new(&y_true, &y_pred, self.decision_threshold)?;
         Ok(())
     }
 }

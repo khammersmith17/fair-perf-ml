@@ -4,6 +4,7 @@ These drift techniques can be used for data drift or a proxy for model drift
 when ground truth feedback loop is slow.
 """
 
+from __future__ import annotations
 from enum import Enum
 from typing import Tuple, Union, List, Iterable, Any
 import numpy as np
