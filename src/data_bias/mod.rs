@@ -31,20 +31,13 @@ pub(crate) mod py_api {
         feature_label_or_threshold: Bound<'py, PyAny>, //fix
         ground_truth_label_or_threshold: Bound<'py, PyAny>, //fix
     ) -> PyDictResult<'py> {
-        let gt = match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
-            Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
-        };
+        let gt = apply_label(py, ground_truth_array, ground_truth_label_or_threshold)
+            .map_err(|err| PyTypeError::new_err(err.to_string()))?;
 
-        let feats = match apply_label(py, feature_array, feature_label_or_threshold) {
-            Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
-        };
+        let feats = apply_label(py, feature_array, feature_label_or_threshold)
+            .map_err(|err| PyTypeError::new_err(err.to_string()))?;
 
-        let res = match data_bias_analysis_core(gt, feats) {
-            Ok(r) => r,
-            Err(e) => return Err(e.into()),
-        };
+        let res = data_bias_analysis_core(gt, feats)?;
 
         let py_dict = report_to_py_dict(py, res);
         Ok(py_dict)
@@ -58,19 +51,10 @@ pub(crate) mod py_api {
         latest: HashMap<String, f32>,
         threshold: f32,
     ) -> PyDictResult<'py> {
-        let bl = match convert_db_analysis(baseline) {
-            Ok(b) => b,
-            Err(e) => return Err(e.into()),
-        };
-        let rt = match convert_db_analysis(latest) {
-            Ok(b) => b,
-            Err(e) => return Err(e.into()),
-        };
+        let bl = convert_db_analysis(baseline)?;
+        let rt = convert_db_analysis(latest)?;
 
-        let drift_report = match data_bias_runtime_check(bl, rt, Some(threshold)) {
-            Ok(r) => r,
-            Err(e) => return Err(e.into()),
-        };
+        let drift_report = data_bias_runtime_check(bl, rt, Some(threshold))?;
 
         Ok(drift_report.into_py_dict(py)?)
     }
@@ -84,19 +68,10 @@ pub(crate) mod py_api {
         metrics: Vec<String>,
         threshold: f32,
     ) -> PyDictResult<'py> {
-        let metrics = match DataBiasMetricVec::try_from(metrics.as_slice()) {
-            Ok(m) => m,
-            Err(e) => return Err(e.into()),
-        };
-        let current = match DataBiasRuntime::try_from(latest) {
-            Ok(obj) => obj,
-            Err(e) => return Err(e.into()),
-        };
+        let metrics = DataBiasMetricVec::try_from(metrics.as_slice())?;
+        let current = DataBiasRuntime::try_from(latest)?;
+        let baseline = DataBiasRuntime::try_from(baseline)?;
 
-        let baseline = match DataBiasRuntime::try_from(baseline) {
-            Ok(obj) => obj,
-            Err(e) => return Err(e.into()),
-        };
         let failure_report: HashMap<DataBiasMetric, f32> =
             current.runtime_check(baseline, threshold, metrics.as_ref());
 
@@ -167,16 +142,19 @@ pub fn data_bias_runtime_check(
 /// which implements 'From<Vec<DataBiasMetric>>' and 'From<&[T]>' where T is string like.
 /// The threshold determines whether the metric is within the bounds of a "passing" score and
 /// represents the absolute percent drift from the baseline metric score. This is optional and defaults to 0.1.
-pub fn data_bias_partial_check(
+pub fn data_bias_partial_check<V>(
     baseline_report: DataBiasAnalysisReport,
     current_report: DataBiasAnalysisReport,
-    metrics: DataBiasMetricVec,
+    metrics: V,
     threshold: Option<f32>,
-) -> Result<DriftReport<DataBiasMetric>, DataBiasRuntimeError> {
+) -> Result<DriftReport<DataBiasMetric>, DataBiasRuntimeError>
+where
+    V: Into<DataBiasMetricVec>,
+{
     let t = threshold.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
     let baseline = DataBiasRuntime::try_from(baseline_report)?;
     let current = DataBiasRuntime::try_from(current_report)?;
-    let check_res = current.runtime_check(baseline, t, metrics.as_ref());
+    let check_res = current.runtime_check(baseline, t, metrics.into().as_ref());
 
     Ok(DriftReport::from_runtime(check_res))
 }

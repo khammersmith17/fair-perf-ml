@@ -9,7 +9,7 @@ use crate::zip_iters;
 /// groups. The ground truth is segmented into positive and negative outcomes. Continuoys model
 /// values, thus, need to be coerce to class labels. It is up to the user to determine the
 /// threshold of a "positive" outcome in this case. These methods are used in the discrete
-/// monitoring approach taken in this crate, and are exposed as discrete methods here.
+/// monitoring approach taken in this crate, and are exposed as discrete methods
 
 struct AdHocSegmentation {
     facet_a: PreTrainingDistribution,
@@ -104,9 +104,12 @@ where
     G: PartialEq + PartialOrd,
     F: PartialEq + PartialOrd,
 {
+    // Sum of [P_a(Y) * log(P_a(Y) / P_d(Y))] across all distribution bins
     let seg = AdHocSegmentation::new(feature, feat_seg, gt, gt_seg)?;
     let a_acceptance = seg.facet_a.acceptance();
     let d_acceptance = seg.facet_d.acceptance();
+
+    // kl divergence across accept and not accept distributions of the 2 classes
     Ok(a_acceptance * (a_acceptance / d_acceptance).ln()
         + (1_f32 - a_acceptance) * ((1_f32 - a_acceptance) / (1_f32 - d_acceptance)).ln())
 }

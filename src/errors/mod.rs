@@ -111,56 +111,57 @@ pub(crate) mod py_errors {
     use super::*;
     use pyo3::{exceptions, PyErr};
 
-    impl Into<PyErr> for DataBiasRuntimeError {
-        fn into(self) -> PyErr {
-            let err_msg = self.to_string();
+    impl From<DataBiasRuntimeError> for PyErr {
+        fn from(err: DataBiasRuntimeError) -> PyErr {
+            let err_msg = err.to_string();
             exceptions::PyValueError::new_err(err_msg)
         }
     }
 
-    impl Into<PyErr> for ModelBiasRuntimeError {
-        fn into(self) -> PyErr {
-            let err_msg = self.to_string();
+    impl From<ModelBiasRuntimeError> for PyErr {
+        fn from(err: ModelBiasRuntimeError) -> PyErr {
+            let err_msg = err.to_string();
             exceptions::PyValueError::new_err(err_msg)
         }
     }
 
-    impl Into<PyErr> for DriftError {
-        fn into(self) -> PyErr {
-            let err_message = self.to_string();
-            match self {
-                Self::EmptyRuntimeData | Self::EmptyBaselineData | Self::NaNValueError => {
-                    exceptions::PyValueError::new_err(err_message)
-                }
-                Self::DateTimeError | Self::MalformedRuntimeData => {
+    impl From<DriftError> for PyErr {
+        fn from(err: DriftError) -> PyErr {
+            let err_message = err.to_string();
+            match err {
+                DriftError::EmptyRuntimeData
+                | DriftError::EmptyBaselineData
+                | DriftError::NaNValueError => exceptions::PyValueError::new_err(err_message),
+                DriftError::DateTimeError | DriftError::MalformedRuntimeData => {
                     exceptions::PySystemError::new_err(err_message)
                 }
             }
         }
     }
 
-    impl Into<PyErr> for InvalidMetricError {
-        fn into(self) -> PyErr {
-            let err_msg = self.to_string();
+    impl From<InvalidMetricError> for PyErr {
+        fn from(err: InvalidMetricError) -> PyErr {
+            let err_msg = err.to_string();
             exceptions::PyValueError::new_err(err_msg)
         }
     }
 
-    impl Into<PyErr> for BiasError {
-        fn into(self) -> PyErr {
-            let err_msg = self.to_string();
+    impl From<BiasError> for PyErr {
+        fn from(err: BiasError) -> PyErr {
+            let err_msg = err.to_string();
             exceptions::PyValueError::new_err(err_msg)
         }
     }
 
-    impl Into<PyErr> for ModelPerformanceError {
-        fn into(self) -> PyErr {
-            let err_message = self.to_string();
+    impl From<ModelPerformanceError> for PyErr {
+        fn from(err: ModelPerformanceError) -> PyErr {
+            use ModelPerformanceError as E;
+            let err_message = err.to_string();
 
-            match self {
-                Self::EmptyDataVector
-                | Self::DataVectorLengthMismatch
-                | Self::InvalidAnalysisReport => exceptions::PyValueError::new_err(err_message),
+            match err {
+                E::EmptyDataVector | E::DataVectorLengthMismatch | E::InvalidAnalysisReport => {
+                    exceptions::PyValueError::new_err(err_message)
+                }
                 _ => exceptions::PyTypeError::new_err(err_message),
             }
         }

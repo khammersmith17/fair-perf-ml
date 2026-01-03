@@ -2,7 +2,7 @@ use crate::data_handler::{
     BiasDataPayload, BiasSegmentationCriteria, BiasSegmentationType, ConfusionMatrix,
 };
 use crate::errors::{BiasError, ModelBiasRuntimeError};
-use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
+use crate::metrics::{ModelBiasMetric, FULL_MODEL_BIAS_METRICS};
 use crate::runtime::ModelBiasRuntime;
 use crate::zip_iters;
 use std::collections::HashMap;
@@ -17,7 +17,6 @@ pub(crate) mod py_api {
     use super::core::post_training_bias;
     use super::DiscretePostTraining;
     use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict};
-    use crate::errors::BiasError;
     use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
     use crate::reporting::DriftReport;
     use crate::runtime::ModelBiasRuntime;
@@ -39,19 +38,10 @@ pub(crate) mod py_api {
         metrics: Vec<String>,
         threshold: f32,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let metrics = match ModelBiasMetricVec::try_from(metrics.as_slice()) {
-            Ok(m) => m,
-            Err(e) => return Err(e.into()),
-        };
+        let metrics = ModelBiasMetricVec::try_from(metrics.as_slice())?;
+        let current = ModelBiasRuntime::try_from(latest)?;
+        let baseline = ModelBiasRuntime::try_from(baseline)?;
 
-        let current = match ModelBiasRuntime::try_from(latest) {
-            Ok(obj) => obj,
-            Err(e) => return Err(e.into()),
-        };
-        let baseline = match ModelBiasRuntime::try_from(baseline) {
-            Ok(obj) => obj,
-            Err(e) => return Err(e.into()),
-        };
         let failure_report: HashMap<ModelBiasMetric, f32> =
             current.runtime_check(baseline, threshold, metrics.as_ref());
 
@@ -70,14 +60,9 @@ pub(crate) mod py_api {
         latest: HashMap<String, f32>,
         threshold: f32,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let current = match ModelBiasRuntime::try_from(latest) {
-            Ok(obj) => obj,
-            Err(e) => return Err(e.into()),
-        };
-        let baseline = match ModelBiasRuntime::try_from(baseline) {
-            Ok(obj) => obj,
-            Err(e) => return Err(e.into()),
-        };
+        let current = ModelBiasRuntime::try_from(latest)?;
+        let baseline = ModelBiasRuntime::try_from(baseline)?;
+
         let failure_report: HashMap<ModelBiasMetric, f32> =
             current.runtime_check(baseline, threshold, &FULL_MODEL_BIAS_METRICS);
 
@@ -100,24 +85,14 @@ pub(crate) mod py_api {
         ground_truth_label_or_threshold: Bound<'py, PyAny>,
         prediction_label_or_threshold: Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let preds: Vec<i16> = match apply_label(py, prediction_array, prediction_label_or_threshold)
-        {
-            Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
-        };
-        let gt: Vec<i16> =
-            match apply_label(py, ground_truth_array, ground_truth_label_or_threshold) {
-                Ok(array) => array,
-                Err(err) => return Err(PyTypeError::new_err(err.to_string())),
-            };
-        let feats: Vec<i16> = match apply_label(py, feature_array, feature_label_or_threshold) {
-            Ok(array) => array,
-            Err(err) => return Err(PyTypeError::new_err(err.to_string())),
-        };
+        let preds: Vec<i16> = apply_label(py, prediction_array, prediction_label_or_threshold)
+            .map_err(|err| PyTypeError::new_err(err.to_string()))?;
+        let gt: Vec<i16> = apply_label(py, ground_truth_array, ground_truth_label_or_threshold)
+            .map_err(|err| PyTypeError::new_err(err.to_string()))?;
+        let feats: Vec<i16> = apply_label(py, feature_array, feature_label_or_threshold)
+            .map_err(|err| PyTypeError::new_err(err.to_string()))?;
 
-        let post_training_data = DiscretePostTraining::new(&feats, &preds, &gt)
-            .map_err(|e| <BiasError as Into<PyErr>>::into(e))?;
-
+        let post_training_data = DiscretePostTraining::new(&feats, &preds, &gt)?;
         let analysis_res = post_training_bias(&post_training_data);
 
         let py_dict = report_to_py_dict(py, analysis_res);
@@ -130,14 +105,9 @@ pub fn model_bias_runtime_check(
     latest: ModelBiasAnalysisReport,
     threshold: f32,
 ) -> Result<DriftReport<ModelBiasMetric>, ModelBiasRuntimeError> {
-    let current = match ModelBiasRuntime::try_from(latest) {
-        Ok(obj) => obj,
-        Err(e) => return Err(e.into()),
-    };
-    let baseline = match ModelBiasRuntime::try_from(baseline) {
-        Ok(obj) => obj,
-        Err(e) => return Err(e.into()),
-    };
+    let current = ModelBiasRuntime::try_from(latest)?;
+    let baseline = ModelBiasRuntime::try_from(baseline)?;
+
     let failure_report: HashMap<ModelBiasMetric, f32> =
         current.runtime_check(baseline, threshold, &FULL_MODEL_BIAS_METRICS);
 
@@ -146,11 +116,11 @@ pub fn model_bias_runtime_check(
     Ok(drift_report)
 }
 
-pub fn model_bias_partial_runtime_check(
+pub fn model_bias_partial_runtime_check<V>(
     baseline: ModelBiasAnalysisReport,
     latest: ModelBiasAnalysisReport,
     threshold: f32,
-    metrics: ModelBiasMetricVec,
+    metrics: &[ModelBiasMetric],
 ) -> Result<DriftReport<ModelBiasMetric>, ModelBiasRuntimeError> {
     let current = ModelBiasRuntime::try_from(latest)?;
     let baseline = ModelBiasRuntime::try_from(baseline)?;

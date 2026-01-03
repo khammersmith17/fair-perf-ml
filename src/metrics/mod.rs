@@ -22,6 +22,9 @@ impl MachineLearningMetric for ModelBiasMetric {}
 impl MachineLearningMetric for ClassificationEvaluationMetric {}
 impl MachineLearningMetric for LinearRegressionEvaluationMetric {}
 
+/// New type wrapper for Vec<DataBiasMetric>, this is to allow for an implementation of
+/// `From<Vec<DataBiasMetric>>`, or TryFrom<T> where T is something the looks like the String
+/// representation of the metric name to be used where metrics are required parameters.
 pub struct DataBiasMetricVec(Vec<DataBiasMetric>);
 impl AsRef<[DataBiasMetric]> for DataBiasMetricVec {
     fn as_ref(&self) -> &[DataBiasMetric] {
