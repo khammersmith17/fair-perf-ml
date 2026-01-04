@@ -1,4 +1,3 @@
-use super::drift_metrics::compute_psi;
 use super::StringLike;
 use crate::errors::DriftError;
 use ahash::{HashMap, HashMapExt};
@@ -132,6 +131,10 @@ impl BaselineContinuousBins {
         i.saturating_sub(1).clamp(0, self.n_bins - 1)
     }
 
+    pub(crate) fn export_baseline(&self) -> Vec<f64> {
+        self.baseline_hist.clone()
+    }
+
     // call into init method
     pub(crate) fn reset(&mut self, baseline_data: &[f64]) -> Result<(), DriftError> {
         self.init_baseline_hist(baseline_data)?;
@@ -233,11 +236,5 @@ impl BaselineCategoricalBins {
             self.baseline_bins.push(count / n);
             i += 1;
         }
-    }
-
-    // Accept runtime bins from "parent" then compute the snapshot PSI.
-    #[inline]
-    pub(crate) fn normalize(&self, rt_bins: &[f64], n: f64) -> f64 {
-        compute_psi(&self.baseline_bins, rt_bins, n)
     }
 }
