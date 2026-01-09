@@ -47,7 +47,7 @@ pub(crate) fn compute_kl_divergence_drift(
 }
 
 #[inline]
-pub(crate) fn compute_jenson_shannon_divergence_drift(
+pub(crate) fn compute_jensen_shannon_divergence_drift(
     baseline_hist: &[f64],
     runtime_bins: &[f64],
     n: f64,
@@ -112,15 +112,15 @@ pub trait CategoricalPSIDrift {
 
 /// Provides the implementation of Jensen-Divergence drift for streaming drift types.
 pub trait StreamingJensenShannonDivergenceDrift {
-    fn js_drift(&self) -> f64;
+    fn js_drift(&self) -> Result<f64, DriftError>;
 }
 
 /// Provides the implementation of Jensen-Divergence drift for [`ContinuousDataDrift`].
 pub trait ContinuousJensenShannonDivergenceDrift {
-    fn js_drift(&self, runtime_slice: &[f64]) -> f64;
+    fn js_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError>;
 }
 
 /// Provides the implementation of Jensen-Divergence drift for [`CategoricalDataDrift`].
 pub trait CategoricalJensenShannonDivergenceDrift {
-    fn js_drift<S: StringLike>(&self, runtime_slice: &[S]) -> f64;
+    fn js_drift<S: StringLike>(&mut self, runtime_slice: &[S]) -> Result<f64, DriftError>;
 }

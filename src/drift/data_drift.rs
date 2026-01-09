@@ -1,9 +1,11 @@
 use super::{
     baseline::{BaselineCategoricalBins, BaselineContinuousBins},
     drift_metrics::{
-        compute_kl_divergence_drift, compute_psi, CategoricalKlDivergenceDrift,
-        CategoricalPSIDrift, ContinuousKlDivergenceDrift, ContinuousPSIDrift,
-        StreamingKlDivergenceDrift, StreamingPopulationStabilityIndexDrift,
+        compute_jensen_shannon_divergence_drift, compute_kl_divergence_drift, compute_psi,
+        CategoricalJensenShannonDivergenceDrift, CategoricalKlDivergenceDrift, CategoricalPSIDrift,
+        ContinuousJensenShannonDivergenceDrift, ContinuousKlDivergenceDrift, ContinuousPSIDrift,
+        StreamingJensenShannonDivergenceDrift, StreamingKlDivergenceDrift,
+        StreamingPopulationStabilityIndexDrift,
     },
     StringLike, DEFAULT_STREAM_FLUSH, MAX_STREAM_SIZE,
 };
@@ -336,6 +338,20 @@ impl ContinuousKlDivergenceDrift for ContinuousDataDrift {
     }
 }
 
+impl ContinuousJensenShannonDivergenceDrift for ContinuousDataDrift {
+    fn js_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError> {
+        self.build_rt_hist(runtime_slice)?;
+
+        let js_drift = compute_jensen_shannon_divergence_drift(
+            &self.baseline.baseline_hist,
+            &self.rt_bins,
+            runtime_slice.len() as f64,
+        );
+        self.clear_rt();
+        Ok(js_drift)
+    }
+}
+
 impl ContinuousDataDrift {
     /// Construct a new instance with the provided baseline set. There will be best effort attempt
     /// to use the provided number of bins, but in the case where a bin may be empty, then the
@@ -423,6 +439,19 @@ impl StreamingKlDivergenceDrift for StreamingContinuousDataDrift {
             return Err(DriftError::EmptyRuntimeData);
         }
         Ok(compute_kl_divergence_drift(
+            &self.baseline.baseline_hist,
+            &self.stream_bins,
+            self.total_stream_size as f64,
+        ))
+    }
+}
+
+impl StreamingJensenShannonDivergenceDrift for StreamingContinuousDataDrift {
+    fn js_drift(&self) -> Result<f64, DriftError> {
+        if self.total_stream_size == 0 {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+        Ok(compute_jensen_shannon_divergence_drift(
             &self.baseline.baseline_hist,
             &self.stream_bins,
             self.total_stream_size as f64,
@@ -597,6 +626,20 @@ impl CategoricalKlDivergenceDrift for CategoricalDataDrift {
     }
 }
 
+impl CategoricalJensenShannonDivergenceDrift for CategoricalDataDrift {
+    fn js_drift<S: StringLike>(&mut self, runtime_slice: &[S]) -> Result<f64, DriftError> {
+        self.build_rt_hist(runtime_slice)?;
+        let js_drift = compute_jensen_shannon_divergence_drift(
+            &self.baseline.baseline_bins,
+            &self.rt_bins,
+            runtime_slice.len() as f64,
+        );
+
+        self.clear_rt();
+        Ok(js_drift)
+    }
+}
+
 impl CategoricalDataDrift {
     /// Construct a new instance with the provided baseline dataset. [`StringLike`] indicates
     /// something that can be used as a reference to key into a `HashMap<String, f64>`, these
@@ -692,6 +735,19 @@ impl StreamingKlDivergenceDrift for StreamingCategoricalDataDrift {
         }
 
         Ok(compute_kl_divergence_drift(
+            &self.baseline.baseline_bins,
+            &self.stream_bins,
+            self.total_stream_size as f64,
+        ))
+    }
+}
+
+impl StreamingJensenShannonDivergenceDrift for StreamingCategoricalDataDrift {
+    fn js_drift(&self) -> Result<f64, DriftError> {
+        if self.total_stream_size == 0 {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+        Ok(compute_jensen_shannon_divergence_drift(
             &self.baseline.baseline_bins,
             &self.stream_bins,
             self.total_stream_size as f64,
