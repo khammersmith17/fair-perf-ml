@@ -92,6 +92,20 @@ pub(crate) mod py_api {
         }
     }
 
+    /*
+     * reset_baseline
+     * update_stream
+     * update_stream_batch
+     *  compute_psi_drift
+     * compute_kl_divergence_drift
+     * flush
+     * total_samples
+     * last_flush
+     * n_bins
+     * export_snapshot
+     * export_baseline
+     * */
+
     /// Exposed Python APIs for streaming continuous PSI
     #[pyclass]
     pub(crate) struct PyStreamingContinuousDataDrift {
@@ -131,10 +145,18 @@ pub(crate) mod py_api {
         }
 
         #[pyo3(signature = (runtime_data))]
-        fn update_stream<'py>(&mut self, runtime_data: PyReadonlyArray1<'py, f64>) -> PyResult<()> {
+        fn update_stream_batch<'py>(
+            &mut self,
+            runtime_data: PyReadonlyArray1<'py, f64>,
+        ) -> PyResult<()> {
             let runtime_data_slice = runtime_data.as_slice()?;
             self.inner.update_stream_batch(runtime_data_slice)?;
             Ok(())
+        }
+
+        #[pyo3(signature = (runtime_example))]
+        fn update_stream(&mut self, runtime_example: f64) {
+            self.inner.update_stream(runtime_example);
         }
 
         fn compute_psi_drift(&self) -> PyResult<f64> {
@@ -254,9 +276,14 @@ pub(crate) mod py_api {
         }
 
         #[pyo3(signature = (runtime_data))]
-        fn update_stream(&mut self, runtime_data: Vec<String>) -> PyResult<()> {
+        fn update_stream_batch(&mut self, runtime_data: Vec<String>) -> PyResult<()> {
             self.inner.update_stream_batch(&runtime_data)?;
             Ok(())
+        }
+
+        #[pyo3(signature = (runtime_example))]
+        fn update_stream(&mut self, runtime_example: String) {
+            self.inner.update_stream(&runtime_example);
         }
 
         fn compute_psi_drift(&self) -> PyResult<f64> {
@@ -783,7 +810,7 @@ impl StreamingCategoricalDataDrift {
     }
 
     #[inline]
-    pub fn update_stream<S: StringLike>(&mut self, runtime_example: &S, other_idx: usize) {
+    fn push_item<S: StringLike>(&mut self, runtime_example: &S, other_idx: usize) {
         let idx = *self
             .baseline
             .idx_map
@@ -791,6 +818,13 @@ impl StreamingCategoricalDataDrift {
             .unwrap_or_else(|| &other_idx);
         self.stream_bins[idx] += 1_f64;
         self.total_stream_size += 1;
+    }
+
+    pub fn update_stream<S: StringLike>(&mut self, item: &S) {
+        self.push_item(
+            item,
+            self.baseline.idx_map[self.baseline.other_label.as_str()],
+        )
     }
 
     pub fn update_stream_batch<S: StringLike>(
@@ -812,7 +846,7 @@ impl StreamingCategoricalDataDrift {
 
         let other_idx = self.baseline.idx_map[self.baseline.other_label.as_str()];
         for cat in runtime_data.iter() {
-            self.update_stream(cat, other_idx)
+            self.push_item(cat, other_idx)
         }
 
         Ok(())
