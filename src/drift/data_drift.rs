@@ -11,16 +11,10 @@ use crate::errors::DriftError;
 use ahash::{HashMap, HashMapExt};
 use chrono::{DateTime, Utc};
 
-/*
-* All types in this module provide core logic implementation in rust and expose
-* an api to Python contexts via a pyclass wrapper
-*
-*
-* TODO: implement an entry point for all drift methods here
-* */
-
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
+
+    //TODO: implement an entry point for all drift methods here
     use ahash::HashMap;
     use chrono::{DateTime, Utc};
     use numpy::PyReadonlyArray1;
@@ -396,7 +390,7 @@ impl ContinuousDataDrift {
     }
 }
 
-/// A streaming variant of the `ContinuousDataDrift` type. This is a stateful "stream" for long
+/// A streaming variant of the [`ContinuousDataDrift`] type. This is a stateful "stream" for long
 /// running drift monitoring. Every new example pushed into the stream will update state, and a
 /// drift snapshot can be computed at any point in time, granted that there is data present in the
 /// stream.
@@ -439,7 +433,7 @@ impl StreamingKlDivergenceDrift for StreamingContinuousDataDrift {
 impl StreamingContinuousDataDrift {
     /// Construct a new stream. As with the more discrete type, a best effort attempt will be made
     /// to use the desired number of bins. Additionally, a flush cadence can optionally be
-    /// provided. In the case is not, the `DEFAULT_STREAM_FLUSH` constant will be used, which is
+    /// provided. In the case is not, the 'DEFAULT_STREAM_FLUSH` constant will be used, which is
     /// once per day. The flush cadence is to prevent overflow in the bin counts, if a large number
     /// of examples are accumulated on a high traffic service.
     pub fn new(
@@ -497,7 +491,7 @@ impl StreamingContinuousDataDrift {
         let curr_ts: i64 = Utc::now().timestamp();
 
         if curr_ts > (self.last_flush_ts + self.flush_rate)
-            || (self.total_stream_size + runtime_slice.len()) > MAX_STREAM_SIZE
+            || (self.total_stream_size + runtime_slice.len()) > *MAX_STREAM_SIZE
         {
             // reset and flush
             self.flush_runtime_stream();
@@ -604,7 +598,7 @@ impl CategoricalKlDivergenceDrift for CategoricalDataDrift {
 }
 
 impl CategoricalDataDrift {
-    /// Construct a new instance with the provided baseline dataset. `StringLike` indicates
+    /// Construct a new instance with the provided baseline dataset. [`StringLike`] indicates
     /// something that can be used as a reference to key into a `HashMap<String, f64>`, these
     /// bounds are to allow some other type of label value, such as an enum. The number of bins
     /// will be equal to the number of unique values present in the baseline data set, with an
@@ -645,6 +639,8 @@ impl CategoricalDataDrift {
         self.rt_bins.fill(0_f64);
     }
 
+    // Reset the baseline state with a new baseline dataset. This will adjust the number of bins to
+    // n + 1 where n is the number of observed unique examples.
     pub fn reset_baseline<S: StringLike>(&mut self, new_baseline: &[S]) {
         self.baseline.reset(new_baseline);
         let num_bins = self.baseline.baseline_bins.len();
@@ -663,6 +659,9 @@ impl CategoricalDataDrift {
     }
 }
 
+/// Streaming implementation of '[CategoricalDataDrift]' type. This is intended for long running
+/// services to give an indication of the data drift over a longer contiguous window. A stateful
+/// stream, where point in time snapshots can be generated.
 pub struct StreamingCategoricalDataDrift {
     baseline: BaselineCategoricalBins,
     stream_bins: Vec<f64>,
@@ -748,7 +747,7 @@ impl StreamingCategoricalDataDrift {
         let curr_ts: i64 = Utc::now().timestamp();
 
         if curr_ts > (self.last_flush_ts + self.flush_rate)
-            || (self.total_stream_size + runtime_data.len()) > MAX_STREAM_SIZE
+            || (self.total_stream_size + runtime_data.len()) > *MAX_STREAM_SIZE
         {
             // reset and flush
             self.flush_runtime_stream();

@@ -12,7 +12,7 @@ pub const STABILITY_EPS: Lazy<f64> = Lazy::new(|| {
         return default;
     };
 
-    var.parse::<f64>().unwrap_or_else(|_| default)
+    var.parse::<f64>().unwrap_or(default)
 });
 
 /// Trait to enfore trait bounds around what is a crate supported machine learning/data metric.
