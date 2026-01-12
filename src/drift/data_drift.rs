@@ -23,9 +23,11 @@ pub(crate) mod py_api {
     use pyo3::{prelude::*, pyclass, pymethods};
 
     use super::{
-        CategoricalDataDrift, CategoricalKlDivergenceDrift, CategoricalPSIDrift,
-        ContinuousDataDrift, ContinuousKlDivergenceDrift, ContinuousPSIDrift, DriftError,
-        StreamingCategoricalDataDrift, StreamingContinuousDataDrift, StreamingKlDivergenceDrift,
+        CategoricalDataDrift, CategoricalJensenShannonDivergenceDrift,
+        CategoricalKlDivergenceDrift, CategoricalPSIDrift, ContinuousDataDrift,
+        ContinuousJensenShannonDivergenceDrift, ContinuousKlDivergenceDrift, ContinuousPSIDrift,
+        DriftError, StreamingCategoricalDataDrift, StreamingContinuousDataDrift,
+        StreamingJensenShannonDivergenceDrift, StreamingKlDivergenceDrift,
         StreamingPopulationStabilityIndexDrift,
     };
 
@@ -72,7 +74,6 @@ pub(crate) mod py_api {
         ) -> PyResult<f64> {
             let runtime_data_slice = runtime_data.as_slice()?;
             let psi_drift = self.inner.psi_drift(runtime_data_slice)?;
-
             Ok(psi_drift)
         }
 
@@ -82,8 +83,16 @@ pub(crate) mod py_api {
         ) -> PyResult<f64> {
             let runtime_data_slice = runtime_data.as_slice()?;
             let kl_drift = self.inner.kl_divergence_drift(runtime_data_slice)?;
-
             Ok(kl_drift)
+        }
+
+        fn compute_js_divergence_drift<'py>(
+            &mut self,
+            runtime_data: PyReadonlyArray1<'py, f64>,
+        ) -> PyResult<f64> {
+            let runtime_data_slice = runtime_data.as_slice()?;
+            let js_drift = self.inner.js_drift(runtime_data_slice)?;
+            Ok(js_drift)
         }
 
         fn export_baseline(&self) -> Vec<f64> {
@@ -173,6 +182,11 @@ pub(crate) mod py_api {
             Ok(kl_drift)
         }
 
+        fn compute_js_divergence_drift(&self) -> PyResult<f64> {
+            let js_drift = self.inner.js_drift()?;
+            Ok(js_drift)
+        }
+
         fn flush(&mut self) {
             self.inner.flush();
         }
@@ -220,7 +234,6 @@ pub(crate) mod py_api {
                 Ok(psi) => psi,
                 Err(e) => return Err(e.into()),
             };
-
             Ok(Self { inner })
         }
 
@@ -232,15 +245,19 @@ pub(crate) mod py_api {
         #[pyo3(signature = (runtime_data))]
         fn compute_psi_drift<'py>(&mut self, runtime_data: Vec<String>) -> PyResult<f64> {
             let psi_drift = self.inner.psi_drift(&runtime_data)?;
-
             Ok(psi_drift)
         }
 
         #[pyo3(signature = (runtime_data))]
         fn compute_kl_divergence_drift<'py>(&mut self, runtime_data: Vec<String>) -> PyResult<f64> {
             let kl_drift = self.inner.kl_divergence_drift(&runtime_data)?;
-
             Ok(kl_drift)
+        }
+
+        #[pyo3(signature = (runtime_data))]
+        fn compute_js_divergence_drift(&mut self, runtime_data: Vec<String>) -> PyResult<f64> {
+            let js_drift = self.inner.js_drift(&runtime_data)?;
+            Ok(js_drift)
         }
 
         #[getter]
@@ -298,6 +315,11 @@ pub(crate) mod py_api {
         fn compute_kl_divergence_drift(&self) -> PyResult<f64> {
             let kl_drift = self.inner.kl_divergence_drift()?;
             Ok(kl_drift)
+        }
+
+        fn compute_js_divergence_drift(&self) -> PyResult<f64> {
+            let js_drift = self.inner.js_drift()?;
+            Ok(js_drift)
         }
 
         fn flush(&mut self) {
