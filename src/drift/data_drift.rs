@@ -86,6 +86,10 @@ pub(crate) mod py_api {
             Ok(kl_drift)
         }
 
+        fn export_baseline(&self) -> Vec<f64> {
+            self.inner.export_baseline()
+        }
+
         #[getter]
         fn num_bins(&self) -> usize {
             self.inner.n_bins()
@@ -430,6 +434,10 @@ impl ContinuousDataDrift {
 
     pub fn n_bins(&self) -> usize {
         self.baseline.n_bins
+    }
+
+    pub fn export_baseline(&self) -> Vec<f64> {
+        self.baseline.export_baseline()
     }
 }
 

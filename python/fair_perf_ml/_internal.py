@@ -42,7 +42,7 @@ def _is_uniform_type(arr: List[Union[str, float, int]]) -> bool:
     return all([True if isinstance(item, T) else False for item in arr])
 
 
-def map_metric_enum(metric: Union[MachineLearningMetric, str]) -> str:
+def _map_metric_enum(metric: Union[MachineLearningMetric, str]) -> str:
     """
     Type cleaning for metrics, to allow users to pass the metric enum or a string
     with the metric name. For users who prefer the enum type documentation.

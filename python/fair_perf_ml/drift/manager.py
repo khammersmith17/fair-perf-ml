@@ -1,4 +1,4 @@
-from typing import List, Iterable, Any
+from typing import List, Iterable, Any, Union, NamedTuple
 from .base import (
     DataDriftRegisterRequest,
     resolve_drift_type,
@@ -7,9 +7,17 @@ from .base import (
     smooth_continuous_register_entry,
     smooth_categorical_register_entry,
 )
+from .streaming import StreamingContinuousDataDrift, StreamingCategoricalDataDrift
+
+StreamingDriftAgent = Union[StreamingContinuousDataDrift, StreamingCategoricalDataDrift]
 
 
-class StreamingPsiManager:
+class DriftManagerEntry(NamedTuple):
+    name: str
+    drift_agent: StreamingDriftAgent
+
+
+class StreamingDataDriftManager:
     """
     A managed container for storing and maintaining a set of streaming DataDrift monitoring agents.
     Designed for long running services where high volume runtime inference data is accumulated.
@@ -17,36 +25,24 @@ class StreamingPsiManager:
 
     __slots__ = ["_state_table", "_drift_table"]
 
-    def __init__(self, monitor_entries: List[DataDriftRegisterRequest]):
+    def __init__(self, monitor_entries: List[DriftManagerEntry]):
         self._state_table = {}
         self._drift_table = {}
 
-        psi_types = map(resolve_drift_type, monitor_entries)
+        for entry in monitor_entries:
+            self._register_agent(entry)
 
-        for t, entry in zip(psi_types, monitor_entries):
-            self._register_agent(t, entry)
-
-    def register_new(self, entry: DataDriftRegisterRequest) -> None:
+    def register_new(self, entry: DriftManagerEntry) -> None:
         """
         Utility to register new feature for DataDrift monitoring after initialization.
         """
-        psi_type = resolve_drift_type(entry)
-        self._register_agent(psi_type, entry)
+        self._register_agent(entry)
 
-    def _register_agent(
-        self, psi_type: DriftType, entry: DataDriftRegisterRequest
-    ) -> None:
+    def _register_agent(self, entry: DriftManagerEntry) -> None:
         """
         Internal utility to resolve DataDrift type and initialized a monitoring agent.
         """
-        if psi_type == DriftType.CONTINUOUS:
-            name, bl_data = smooth_continuous_register_entry(entry)
-            agent = StreamingContinuousDataDrift(bl_data)
-        else:
-            name, bl_data = smooth_categorical_register_entry(entry)
-            agent = StreamingCategoricalDataDrift(bl_data)
-
-        self._state_table[name] = agent
+        self._state_table[entry.name] = entry.drift_agent
 
     def push_data_to_stream(self, name: str, data: Iterable[Any]) -> float:
         """

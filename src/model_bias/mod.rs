@@ -107,7 +107,6 @@ pub fn model_bias_runtime_check(
 ) -> Result<DriftReport<ModelBiasMetric>, ModelBiasRuntimeError> {
     let current = ModelBiasRuntime::try_from(latest)?;
     let baseline = ModelBiasRuntime::try_from(baseline)?;
-
     let failure_report: HashMap<ModelBiasMetric, f32> =
         current.runtime_check(baseline, threshold, &FULL_MODEL_BIAS_METRICS);
 

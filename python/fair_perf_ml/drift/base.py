@@ -2,43 +2,27 @@
 Provides runtime drift monitoring utilites and managers for such utilities.
 These drift techniques can be used for data drift or a proxy for model drift
 when ground truth feedback loop is slow.
-
-TODO:
-- Consider having super thin python wrapper to ensure type coercion, ie np arrays
-    and string lists
-- this is implement as on top of api wrapper
-- streaming manager type then uses the thing wrapper
-- my hunch is that the manager types present enough boundary separation to be implemented
-    as a submodule
 """
 
 from __future__ import annotations
-from enum import Enum
-from typing import Tuple, Union, List, Iterable, Any
+from typing import Union, Iterable, Protocol, Dict, List
 import numpy as np
 from numpy.typing import NDArray
 from .._fair_perf_ml import (
-    PyStreamingContinuousDataDrift as StreamingContinuousDataDrift,
-    PyContinuousDataDrift as ContinuousDataDrift,
-    PyStreamingCategoricalDataDrift as StreamingCategoricalDataDrift,
-    PyCategoricalDataDrift as CategoricalDataDrift,
+    PyContinuousDataDrift,
+    PyCategoricalDataDrift,
 )
 
-
-class DriftType(str, Enum):
-    CONTINUOUS = "Continuous"
-    CATEGORICAL = "Categoical"
+FloatingPointDataSlice = Union[Iterable[float], NDArray]
 
 
-DataDriftUtil = Union[
-    StreamingContinuousDataDrift,
-    ContinuousDataDrift,
-    StreamingCategoricalDataDrift,
-    CategoricalDataDrift,
-]
-DataDriftRegisterRequest = Tuple[str, Union[str, DriftType], Union[NDArray, List[str]]]
-ContinuousDataDriftRegisterEntry = Tuple[str, NDArray]
-CategoricalRegisterEntry = Tuple[str, List[str]]
+class StringBound(Protocol):
+    """
+    Protocol to enforces typing. The type used for segmentation should
+    implement __str__ so whatever is passed in can be safely casted into a string.
+    """
+
+    def __str__(self) -> str: ...
 
 
 class DataDriftParameterValidationError(Exception):
@@ -47,77 +31,81 @@ class DataDriftParameterValidationError(Exception):
     """
 
 
-def _coerce_data_to_np_float(data: Iterable[Any]) -> NDArray:
+def _cast_to_numpy_float_arr(arr: FloatingPointDataSlice) -> NDArray:
     """
-    Utility to convert to np float64 array.
-    Will throw an exception when data is not numeric and cannot be casted to float.
+    Convert a non numpy arr to numpy array of float64.
     """
-    try:
-        return np.array([float(item) for item in data], dtype=np.float64)
-    except ValueError:
-        raise TypeError("StreamingContinuousDataDrift data must be numeric")
+    if not isinstance(arr, np.ndarray):
+        try:
+            arr = np.array([float(item) for item in arr], dtype=np.float64)
+        except ValueError:
+            raise DataDriftParameterValidationError(
+                "Data in iterable must be castable to float"
+            )
+    assert isinstance(arr, np.ndarray)
+    return arr
 
 
-def _coerce_data_to_string_list(data: Iterable[Any]) -> List[str]:
+def _cast_to_string_iterable(arr: Iterable[StringBound]) -> Iterable[str]:
     """
-    Utility to convert data into string type for categorical analysis.
+    Iterable of something that can be casted to a string to a Iterable[str].
     """
-    return [str(item) for item in data]
+    return list(map(lambda x: str(x), arr))
 
 
-def _coerce_data(
-    agent: DataDriftUtil, data: Iterable[Any]
-) -> Union[NDArray, List[str]]:
-    if isinstance(agent, Union[StreamingContinuousDataDrift, ContinuousDataDrift]):
-        return _coerce_data_to_np_float(data)
-    else:
-        return _coerce_data_to_string_list(data)
+class ContinuousDataDrift:
+    __slots__ = ["_inner"]
+
+    def __init__(self, baseline_data: FloatingPointDataSlice, num_bins: int):
+        typed_data = _cast_to_numpy_float_arr(baseline_data)
+        self._inner = PyContinuousDataDrift(num_bins, typed_data)
+
+    def reset_baseline(self, new_baseline: FloatingPointDataSlice):
+        self._inner.reset_baseline(new_baseline)
+
+    def compute_psi_drift(self, runtime_data: FloatingPointDataSlice) -> float:
+        typed_data = _cast_to_numpy_float_arr(runtime_data)
+        return self._inner.compute_psi_drift(typed_data)
+
+    def compute_kl_divergence_drift(
+        self, runtime_data: FloatingPointDataSlice
+    ) -> float:
+        typed_data = _cast_to_numpy_float_arr(runtime_data)
+        return self._inner.compute_kl_divergence_drift(typed_data)
+
+    def export_baseline(self) -> List[float]:
+        return self._inner.export_baseline()
+
+    @property
+    def num_bins(self) -> int:
+        return self._inner.num_bins()
 
 
-def smooth_continuous_register_entry(
-    register_entry: DataDriftRegisterRequest,
-) -> ContinuousDataDriftRegisterEntry:
-    """
-    Perform required data coersions.
-    """
-    if len(register_entry) != 3:
-        raise DataDriftParameterValidationError(
-            "Register entry must be length 3 (column name, DriftType | str, baseline data)"
-        )
+class CategoricalDataDrift:
+    __slots__ = ["_inner"]
 
-    col_name = register_entry[0]
+    def __init__(self, baseline_data: Iterable[StringBound]):
+        typed_data = _cast_to_string_iterable(baseline_data)
+        self._inner = PyCategoricalDataDrift(typed_data)
 
-    # coerce data into numpy float numpy array
-    try:
-        bl_data = _coerce_data_to_np_float(register_entry[2])
-    except ValueError:
-        raise DataDriftParameterValidationError(
-            "Invalid data for continuous baseline data"
-        )
+    def reset_baseline(self, new_baseline: Iterable[StringBound]):
+        self._inner.reset_baseline(new_baseline)
 
-    return (col_name, bl_data)
+    def compute_psi_drift(self, runtime_data: Iterable[StringBound]) -> float:
+        typed_data = _cast_to_string_iterable(runtime_data)
+        return self._inner.compute_psi_drift(typed_data)
 
+    def compute_kl_divergence_drift(self, runtime_data: Iterable[StringBound]) -> float:
+        typed_data = _cast_to_string_iterable(runtime_data)
+        return self._inner.compute_kl_divergence_drift(typed_data)
 
-def smooth_categorical_register_entry(
-    register_entry: DataDriftRegisterRequest,
-) -> CategoricalRegisterEntry:
-    """
-    Perform required data coersions.
-    """
-    if len(register_entry) != 3:
-        raise DataDriftParameterValidationError(
-            "Register entry must be length 3 (column name, DriftType | str, baseline data)"
-        )
+    @property
+    def num_bins(self) -> int:
+        return self._inner.num_bins()
 
-    col_name = register_entry[0]
-    bl_data = _coerce_data_to_string_list(register_entry[2])
-    return (col_name, bl_data)
+    def export_baseline(self) -> Dict[str, float]:
+        return self._inner.export_baseline()
 
-
-def resolve_drift_type(register_entry: DataDriftRegisterRequest) -> DriftType:
-    try:
-        return DriftType(register_entry[1])
-    except ValueError:
-        raise DataDriftParameterValidationError(
-            "Register entry must be length 3 (column name, DriftType, baseline data)"
-        )
+    @property
+    def other_bucket_label(self) -> str:
+        return self._inner.other_bucket_label
