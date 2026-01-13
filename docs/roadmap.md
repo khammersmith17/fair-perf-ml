@@ -37,9 +37,9 @@ plug-and-play integration for existing ML pipelines (SageMaker, Airflow, Kafka, 
 **Goal:** introduce a first-class `fair_perf_ml.drift` module with standard metrics.
 
 #### Features
-- [ ] `PopulationStabilityIndex` (PSI) — categorical + numeric.
-- [ ] `KSTestDrift` — two-sample Kolmogorov–Smirnov test.
-- [ ] `JensenShannonDrift` — symmetric divergence [0, 1].
+- [X] `PopulationStabilityIndex` (PSI) — categorical + numeric.
+- [X] `KSTestDrift` — two-sample Kolmogorov–Smirnov test.
+- [X] `JensenShannonDrift` — symmetric divergence [0, 1].
 - [ ] `WassersteinDrift` — Earth-Mover’s distance for continuous features.
 - [ ] Unified base class `BaseDriftMetric` with `compute(baseline, current)`.
 

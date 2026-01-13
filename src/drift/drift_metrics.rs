@@ -70,6 +70,50 @@ pub(crate) fn compute_jensen_shannon_divergence_drift(
     js / 2_f64.ln()
 }
 
+#[inline]
+fn conitnuous_wasserstein_distance(
+    baseline_hist: &[f64],
+    runtime_bins: &[f64],
+    bin_edges: &[f64],
+    n: f64,
+) -> f64 {
+    debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
+    let n_bin_edges = bin_edges.len();
+    debug_assert_eq!(n_bin_edges, runtime_bins.len() + 1);
+
+    let eps = *STABILITY_EPS;
+    let mut w_dist = 0_f64;
+
+    for (i, (bl, rt)) in baseline_hist.iter().zip(runtime_bins.iter()).enumerate() {
+        let bin_width = bin_edges[i + 1] - bin_edges[i];
+        let p = (bl + eps).max(eps);
+        let q = ((rt / n) + eps).max(eps);
+
+        w_dist += (p - q).abs() * bin_width;
+    }
+
+    w_dist / (bin_edges[n_bin_edges - 1] - bin_edges[0])
+}
+
+#[inline]
+fn categorical_wasserstein_distance(baseline_hist: &[f64], runtime_bins: &[f64], n: f64) -> f64 {
+    debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
+
+    // bins are effectively unit width for categorical distributions
+
+    let eps = *STABILITY_EPS;
+    let mut w_dist = 0_f64;
+
+    for (bl, rt) in baseline_hist.iter().zip(runtime_bins.iter()) {
+        let p = (bl + eps).max(eps);
+        let q = ((rt / n) + eps).max(eps);
+
+        w_dist += (p - q).abs();
+    }
+
+    w_dist * 0.5_f64
+}
+
 #[allow(unused)]
 use super::data_drift::CategoricalDataDrift;
 #[allow(unused)]
