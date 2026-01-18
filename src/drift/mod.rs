@@ -7,8 +7,8 @@ pub mod baseline;
 /// a decent sign for a deeper investigation.
 pub mod data_drift;
 pub mod drift_metrics;
-use once_cell::sync::Lazy;
 use std::hash::Hash;
+use std::sync::OnceLock;
 
 /// A trait to define what can be treated as string like in this context, what we need here is that
 /// is can be represented as &str, can be hashed, can be compared for eqaulity and can be
@@ -17,13 +17,19 @@ pub trait StringLike: AsRef<str> + Eq + Hash + ToString {}
 impl<T> StringLike for T where T: AsRef<str> + Eq + Hash + ToString {}
 
 const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
-const MAX_STREAM_SIZE: Lazy<usize> = Lazy::new(|| {
-    let default = 1_000_000_usize;
-    let Ok(str_val) = std::env::var("FAIR_PERF_MAX_STREAM_SIZE") else {
-        return default;
-    };
+static MAX_STREAM_SIZE: OnceLock<usize> = OnceLock::new();
 
-    str_val.parse().unwrap_or(default)
-});
+pub(crate) fn get_max_stream_size() -> usize {
+    let max_stream_size = *(MAX_STREAM_SIZE.get_or_init(|| {
+        let default = 1_000_000_usize;
+        let Ok(str_val) = std::env::var("FAIR_PERF_MAX_STREAM_SIZE") else {
+            return default;
+        };
+
+        str_val.parse().unwrap_or(default)
+    }));
+
+    max_stream_size
+}
 // read in from user defined env var or set to default epsilon
 // optional user config

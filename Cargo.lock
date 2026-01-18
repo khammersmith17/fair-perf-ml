@@ -80,7 +80,6 @@ dependencies = [
  "chrono",
  "num",
  "numpy",
- "once_cell",
  "pyo3",
  "rand",
  "rust-numpy",

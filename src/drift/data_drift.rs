@@ -9,7 +9,7 @@ use super::{
         StreamingJensenShannonDivergenceDrift, StreamingKlDivergenceDrift,
         StreamingPopulationStabilityIndexDrift, StreamingWassersteinDistance,
     },
-    StringLike, DEFAULT_STREAM_FLUSH, MAX_STREAM_SIZE,
+    get_max_stream_size, StringLike, DEFAULT_STREAM_FLUSH,
 };
 use crate::errors::DriftError;
 use ahash::{HashMap, HashMapExt};
@@ -622,7 +622,7 @@ impl StreamingContinuousDataDrift {
         let curr_ts: i64 = Utc::now().timestamp();
 
         if curr_ts > (self.last_flush_ts + self.flush_rate)
-            || (self.total_stream_size + runtime_slice.len()) > *MAX_STREAM_SIZE
+            || (self.total_stream_size + runtime_slice.len()) > get_max_stream_size()
         {
             // reset and flush
             self.flush_runtime_stream();
@@ -942,7 +942,7 @@ impl StreamingCategoricalDataDrift {
         let curr_ts: i64 = Utc::now().timestamp();
 
         if curr_ts > (self.last_flush_ts + self.flush_rate)
-            || (self.total_stream_size + runtime_data.len()) > *MAX_STREAM_SIZE
+            || (self.total_stream_size + runtime_data.len()) > get_max_stream_size()
         {
             // reset and flush
             self.flush_runtime_stream();

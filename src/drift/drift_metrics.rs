@@ -1,6 +1,6 @@
 use super::StringLike;
 use crate::errors::DriftError;
-use crate::metrics::STABILITY_EPS;
+use crate::metrics::get_stability_eps;
 
 //define traits to use the continuous and discrete drift bins, where getting the implementation of
 //a particular metric is declared via trait methods. This will only implement the logic on the
@@ -12,7 +12,7 @@ use crate::metrics::STABILITY_EPS;
 pub(crate) fn compute_psi(baseline_hist: &[f64], runtime_bins: &[f64], n: f64) -> f64 {
     // validate that rt and baseline bins are of same length
     debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
-    let eps = *STABILITY_EPS;
+    let eps = get_stability_eps();
 
     baseline_hist
         .iter()
@@ -33,7 +33,7 @@ pub(crate) fn compute_kl_divergence_drift(
 ) -> f64 {
     // validate that rt and baseline bins are of same length
     debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
-    let eps = *STABILITY_EPS;
+    let eps = get_stability_eps();
 
     baseline_hist
         .iter()
@@ -54,7 +54,7 @@ pub(crate) fn compute_jensen_shannon_divergence_drift(
 ) -> f64 {
     // validate that rt and baseline bins are of same length
     debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
-    let eps = *STABILITY_EPS;
+    let eps = get_stability_eps();
 
     let mut js = 0_f64;
     let half_fac = 0.5_f64;
@@ -81,7 +81,7 @@ pub(crate) fn continuous_wasserstein_distance(
     let n_bin_edges = bin_edges.len();
     debug_assert_eq!(n_bin_edges, runtime_bins.len() + 1);
 
-    let eps = *STABILITY_EPS;
+    let eps = get_stability_eps();
     let mut w_dist = 0_f64;
 
     for (i, (bl, rt)) in baseline_hist.iter().zip(runtime_bins.iter()).enumerate() {
@@ -101,12 +101,11 @@ pub(crate) fn categorical_wasserstein_distance(
     runtime_bins: &[f64],
     n: f64,
 ) -> f64 {
-    debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
-
     // bins are effectively unit width for categorical distributions
     // this effectively turns into total variation distance
+    debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
 
-    let eps = *STABILITY_EPS;
+    let eps = get_stability_eps();
     let mut w_dist = 0_f64;
 
     for (bl, rt) in baseline_hist.iter().zip(runtime_bins.iter()) {
