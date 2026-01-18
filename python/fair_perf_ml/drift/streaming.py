@@ -38,6 +38,9 @@ class DataDriftStreamingBase[T, R](ABC):
     def compute_js_divergence_drift(self) -> float: ...
 
     @abstractmethod
+    def compute_wasserstein_distance_drift(self) -> float: ...
+
+    @abstractmethod
     def flush(self): ...
 
     @abstractmethod
@@ -90,6 +93,9 @@ class StreamingContinuousDataDrift(DataDriftStreamingBase):
     def compute_js_divergence_drift(self) -> float:
         return self._inner.compute_js_divergence_drift()
 
+    def compute_wasserstein_distance_drift(self) -> float:
+        return self._inner.compute_wasserstein_distance_drift()
+
     def flush(self):
         self._inner.flush()
 
@@ -140,6 +146,9 @@ class StreamingCategoricalDataDrift(DataDriftStreamingBase):
 
     def compute_js_divergence_drift(self) -> float:
         return self._inner.compute_js_divergence_drift()
+
+    def compute_wasserstein_distance_drift(self) -> float:
+        return self._inner.compute_wasserstein_distance_drift()
 
     def flush(self):
         self._inner.flush()

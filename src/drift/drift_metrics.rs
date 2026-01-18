@@ -71,7 +71,7 @@ pub(crate) fn compute_jensen_shannon_divergence_drift(
 }
 
 #[inline]
-fn conitnuous_wasserstein_distance(
+pub(crate) fn continuous_wasserstein_distance(
     baseline_hist: &[f64],
     runtime_bins: &[f64],
     bin_edges: &[f64],
@@ -96,10 +96,15 @@ fn conitnuous_wasserstein_distance(
 }
 
 #[inline]
-fn categorical_wasserstein_distance(baseline_hist: &[f64], runtime_bins: &[f64], n: f64) -> f64 {
+pub(crate) fn categorical_wasserstein_distance(
+    baseline_hist: &[f64],
+    runtime_bins: &[f64],
+    n: f64,
+) -> f64 {
     debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
 
     // bins are effectively unit width for categorical distributions
+    // this effectively turns into total variation distance
 
     let eps = *STABILITY_EPS;
     let mut w_dist = 0_f64;
@@ -167,4 +172,22 @@ pub trait ContinuousJensenShannonDivergenceDrift {
 /// Provides the implementation of Jensen-Divergence drift for [`CategoricalDataDrift`].
 pub trait CategoricalJensenShannonDivergenceDrift {
     fn js_drift<S: StringLike>(&mut self, runtime_slice: &[S]) -> Result<f64, DriftError>;
+}
+
+/// Provides the implementation of Wasserstein distance drift for streaming drift types.
+pub trait StreamingWassersteinDistance {
+    fn wasserstein_distance(&self) -> Result<f64, DriftError>;
+}
+
+/// Provides the implementation of Wasserstein distance drift for [`ContinuousDataDrift`].
+pub trait ContinuousWassersteinDistance {
+    fn wasserstein_distance(&mut self, runtime_data: &[f64]) -> Result<f64, DriftError>;
+}
+
+/// Provides the implementation of Wasserstein distance drift for [`CategoricalDataDrift`].
+pub trait CategoricalWassersteinDistance {
+    fn wasserstein_distance<S: StringLike>(
+        &mut self,
+        runtime_data: &[S],
+    ) -> Result<f64, DriftError>;
 }

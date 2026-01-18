@@ -117,6 +117,12 @@ class ContinuousDataDrift:
         typed_data = _cast_to_numpy_float_arr(runtime_data)
         return self._inner.compute_js_divergence_drift(typed_data)
 
+    def compute_wasserstein_distance_drift(
+        self, runtime_data: FloatingPointDataSlice
+    ) -> float:
+        typed_data = _cast_to_numpy_float_arr(runtime_data)
+        return self._inner.compute_wasserstein_distance_drift(typed_data)
+
     def export_baseline(self) -> List[float]:
         """
         Export the baseline bins, this will return ratio of the size of the
@@ -196,6 +202,12 @@ class CategoricalDataDrift:
         """
         typed_data = _cast_to_string_iterable(runtime_data)
         return self._inner.compute_js_divergence_drift(typed_data)
+
+    def compute_wasserstein_distance_drift(
+        self, runtime_data: Iterable[StringBound]
+    ) -> float:
+        typed_data = _cast_to_string_iterable(runtime_data)
+        return self._inner.compute_wasserstein_distance_drift(typed_data)
 
     @property
     def num_bins(self) -> int:

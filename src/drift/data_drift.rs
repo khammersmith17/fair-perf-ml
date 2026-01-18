@@ -1,11 +1,13 @@
 use super::{
     baseline::{BaselineCategoricalBins, BaselineContinuousBins},
     drift_metrics::{
-        compute_jensen_shannon_divergence_drift, compute_kl_divergence_drift, compute_psi,
+        categorical_wasserstein_distance, compute_jensen_shannon_divergence_drift,
+        compute_kl_divergence_drift, compute_psi, continuous_wasserstein_distance,
         CategoricalJensenShannonDivergenceDrift, CategoricalKlDivergenceDrift, CategoricalPSIDrift,
-        ContinuousJensenShannonDivergenceDrift, ContinuousKlDivergenceDrift, ContinuousPSIDrift,
+        CategoricalWassersteinDistance, ContinuousJensenShannonDivergenceDrift,
+        ContinuousKlDivergenceDrift, ContinuousPSIDrift, ContinuousWassersteinDistance,
         StreamingJensenShannonDivergenceDrift, StreamingKlDivergenceDrift,
-        StreamingPopulationStabilityIndexDrift,
+        StreamingPopulationStabilityIndexDrift, StreamingWassersteinDistance,
     },
     StringLike, DEFAULT_STREAM_FLUSH, MAX_STREAM_SIZE,
 };
@@ -16,7 +18,6 @@ use chrono::{DateTime, Utc};
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
 
-    //TODO: implement an entry point for all drift methods here
     use ahash::HashMap;
     use chrono::{DateTime, Utc};
     use numpy::PyReadonlyArray1;
@@ -24,11 +25,12 @@ pub(crate) mod py_api {
 
     use super::{
         CategoricalDataDrift, CategoricalJensenShannonDivergenceDrift,
-        CategoricalKlDivergenceDrift, CategoricalPSIDrift, ContinuousDataDrift,
-        ContinuousJensenShannonDivergenceDrift, ContinuousKlDivergenceDrift, ContinuousPSIDrift,
-        DriftError, StreamingCategoricalDataDrift, StreamingContinuousDataDrift,
+        CategoricalKlDivergenceDrift, CategoricalPSIDrift, CategoricalWassersteinDistance,
+        ContinuousDataDrift, ContinuousJensenShannonDivergenceDrift, ContinuousKlDivergenceDrift,
+        ContinuousPSIDrift, ContinuousWassersteinDistance, DriftError,
+        StreamingCategoricalDataDrift, StreamingContinuousDataDrift,
         StreamingJensenShannonDivergenceDrift, StreamingKlDivergenceDrift,
-        StreamingPopulationStabilityIndexDrift,
+        StreamingPopulationStabilityIndexDrift, StreamingWassersteinDistance,
     };
 
     #[pyclass]
@@ -36,11 +38,6 @@ pub(crate) mod py_api {
         inner: ContinuousDataDrift,
     }
 
-    // exposes python APIs to the python type
-    // encapsulates all rust logic
-    /// Python exposed api for discrete categorical PSI
-
-    //  TODO: expose all drift methods here, thus need to bring in all trait implementations.
     #[pymethods]
     impl PyContinuousDataDrift {
         #[new]
@@ -68,6 +65,7 @@ pub(crate) mod py_api {
             Ok(())
         }
 
+        #[pyo3(signature = (runtime_data))]
         fn compute_psi_drift<'py>(
             &mut self,
             runtime_data: PyReadonlyArray1<'py, f64>,
@@ -77,6 +75,7 @@ pub(crate) mod py_api {
             Ok(psi_drift)
         }
 
+        #[pyo3(signature = (runtime_data))]
         fn compute_kl_divergence_drift<'py>(
             &mut self,
             runtime_data: PyReadonlyArray1<'py, f64>,
@@ -86,6 +85,7 @@ pub(crate) mod py_api {
             Ok(kl_drift)
         }
 
+        #[pyo3(signature = (runtime_data))]
         fn compute_js_divergence_drift<'py>(
             &mut self,
             runtime_data: PyReadonlyArray1<'py, f64>,
@@ -93,6 +93,16 @@ pub(crate) mod py_api {
             let runtime_data_slice = runtime_data.as_slice()?;
             let js_drift = self.inner.js_drift(runtime_data_slice)?;
             Ok(js_drift)
+        }
+
+        #[pyo3(signature = (runtime_data))]
+        fn compute_wasserstein_distance_drift<'py>(
+            &mut self,
+            runtime_data: PyReadonlyArray1<'py, f64>,
+        ) -> PyResult<f64> {
+            let runtime_data_slice = runtime_data.as_slice()?;
+            let ws_dist = self.inner.wasserstein_distance(runtime_data_slice)?;
+            Ok(ws_dist)
         }
 
         fn export_baseline(&self) -> Vec<f64> {
@@ -104,20 +114,6 @@ pub(crate) mod py_api {
             self.inner.n_bins()
         }
     }
-
-    /*
-     * reset_baseline
-     * update_stream
-     * update_stream_batch
-     *  compute_psi_drift
-     * compute_kl_divergence_drift
-     * flush
-     * total_samples
-     * last_flush
-     * n_bins
-     * export_snapshot
-     * export_baseline
-     * */
 
     /// Exposed Python APIs for streaming continuous PSI
     #[pyclass]
@@ -185,6 +181,11 @@ pub(crate) mod py_api {
         fn compute_js_divergence_drift(&self) -> PyResult<f64> {
             let js_drift = self.inner.js_drift()?;
             Ok(js_drift)
+        }
+
+        fn compute_wasserstein_distance_drift(&self) -> PyResult<f64> {
+            let ws_dist = self.inner.wasserstein_distance()?;
+            Ok(ws_dist)
         }
 
         fn flush(&mut self) {
@@ -260,6 +261,15 @@ pub(crate) mod py_api {
             Ok(js_drift)
         }
 
+        #[pyo3(signature = (runtime_data))]
+        fn compute_wasserstein_distance_drift(
+            &mut self,
+            runtime_data: Vec<String>,
+        ) -> PyResult<f64> {
+            let ws_dist = self.inner.wasserstein_distance(&runtime_data)?;
+            Ok(ws_dist)
+        }
+
         #[getter]
         fn other_bucket_label(&self) -> String {
             self.inner.other_bucket_label().clone()
@@ -320,6 +330,11 @@ pub(crate) mod py_api {
         fn compute_js_divergence_drift(&self) -> PyResult<f64> {
             let js_drift = self.inner.js_drift()?;
             Ok(js_drift)
+        }
+
+        fn compute_wasserstein_distance_drift(&self) -> PyResult<f64> {
+            let ws_dist = self.inner.wasserstein_distance()?;
+            Ok(ws_dist)
         }
 
         fn flush(&mut self) {
@@ -402,6 +417,21 @@ impl ContinuousJensenShannonDivergenceDrift for ContinuousDataDrift {
         );
         self.clear_rt();
         Ok(js_drift)
+    }
+}
+
+impl ContinuousWassersteinDistance for ContinuousDataDrift {
+    fn wasserstein_distance(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError> {
+        self.build_rt_hist(runtime_slice)?;
+
+        let ws_dist = continuous_wasserstein_distance(
+            &self.baseline.baseline_hist,
+            &self.rt_bins,
+            &self.baseline.bin_edges,
+            runtime_slice.len() as f64,
+        );
+        self.clear_rt();
+        Ok(ws_dist)
     }
 }
 
@@ -511,6 +541,21 @@ impl StreamingJensenShannonDivergenceDrift for StreamingContinuousDataDrift {
         Ok(compute_jensen_shannon_divergence_drift(
             &self.baseline.baseline_hist,
             &self.stream_bins,
+            self.total_stream_size as f64,
+        ))
+    }
+}
+
+impl StreamingWassersteinDistance for StreamingContinuousDataDrift {
+    fn wasserstein_distance(&self) -> Result<f64, DriftError> {
+        if self.total_stream_size == 0 {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+
+        Ok(continuous_wasserstein_distance(
+            &self.baseline.baseline_hist,
+            &self.stream_bins,
+            &self.baseline.bin_edges,
             self.total_stream_size as f64,
         ))
     }
@@ -697,6 +742,22 @@ impl CategoricalJensenShannonDivergenceDrift for CategoricalDataDrift {
     }
 }
 
+impl CategoricalWassersteinDistance for CategoricalDataDrift {
+    fn wasserstein_distance<S: StringLike>(
+        &mut self,
+        runtime_slice: &[S],
+    ) -> Result<f64, DriftError> {
+        self.build_rt_hist(runtime_slice)?;
+        let ws_dist = categorical_wasserstein_distance(
+            &self.baseline.baseline_bins,
+            &self.rt_bins,
+            runtime_slice.len() as f64,
+        );
+        self.clear_rt();
+        Ok(ws_dist)
+    }
+}
+
 impl CategoricalDataDrift {
     /// Construct a new instance with the provided baseline dataset. [`StringLike`] indicates
     /// something that can be used as a reference to key into a `HashMap<String, f64>`, these
@@ -805,6 +866,20 @@ impl StreamingJensenShannonDivergenceDrift for StreamingCategoricalDataDrift {
             return Err(DriftError::EmptyRuntimeData);
         }
         Ok(compute_jensen_shannon_divergence_drift(
+            &self.baseline.baseline_bins,
+            &self.stream_bins,
+            self.total_stream_size as f64,
+        ))
+    }
+}
+
+impl StreamingWassersteinDistance for StreamingCategoricalDataDrift {
+    fn wasserstein_distance(&self) -> Result<f64, DriftError> {
+        if self.total_stream_size == 0 {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+
+        Ok(categorical_wasserstein_distance(
             &self.baseline.baseline_bins,
             &self.stream_bins,
             self.total_stream_size as f64,
