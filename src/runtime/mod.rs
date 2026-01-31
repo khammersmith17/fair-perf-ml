@@ -262,7 +262,7 @@ impl ModelBiasRuntime {
         use crate::model_bias::statistics::inner as stats;
 
         ModelBiasRuntime {
-            ddpl: stats::diff_in_pos_proportion_in_pred_labels(&post_training),
+            ddpl: stats::diff_in_pos_proportion_in_pred_labels(post_training),
             di: stats::disparate_impact(post_training),
             ad: stats::accuracy_difference(post_training),
             rd: stats::recall_difference(post_training),

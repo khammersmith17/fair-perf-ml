@@ -203,7 +203,12 @@ impl BucketGeneralizedEntropy {
     }
 }
 
-#[derive(Default)]
+#[inline]
+fn bool_to_f32(v: bool) -> f32 {
+    v as usize as f32
+}
+
+#[derive(Default, Debug, PartialEq)]
 pub(crate) struct PostTrainingDistribution {
     len: u64,
     positive_gt: u64,
@@ -279,9 +284,7 @@ impl PostTraining {
         self.dist_a.clear();
         self.dist_d.clear();
     }
-}
 
-impl PostTraining {
     pub(crate) fn new_from_segmentation_criteria<F, P, G>(
         features: &[F],
         feat_seg: &BiasSegmentationCriteria<F>,
@@ -306,6 +309,11 @@ impl PostTraining {
         Ok(post_t)
     }
 
+    /// The "is_positive" here is defined as being a positive segmentation as evaluated by the user
+    /// provided BiasSegmentationCriteria. It does not necessarily refer to the accuracy of the
+    /// prediction, though it may in the case this is a classification model as in that case the
+    /// segmentation logic generally should follow the model inference score classification logic.
+    /// This is where the updates to state happen.
     #[inline]
     pub(crate) fn accumulate_single(
         &mut self,
@@ -314,33 +322,33 @@ impl PostTraining {
         gt_is_positive: bool,
     ) {
         self.dist_a.len += is_a as u64;
-        self.dist_a.positive_pred += (is_a as usize * pred_is_positive as usize) as u64;
-        self.dist_a.positive_gt += (is_a as usize * gt_is_positive as usize) as u64;
+        self.dist_a.positive_pred += (is_a && pred_is_positive) as u64;
+        self.dist_a.positive_gt += (is_a && gt_is_positive) as u64;
 
         self.dist_d.len += !is_a as u64;
-        self.dist_d.positive_pred += (!is_a as usize * pred_is_positive as usize) as u64;
-        self.dist_d.positive_gt += (!is_a as usize * gt_is_positive as usize) as u64;
+        self.dist_d.positive_pred += (!is_a && pred_is_positive) as u64;
+        self.dist_d.positive_gt += (!is_a && gt_is_positive) as u64;
 
         let is_true = pred_is_positive == gt_is_positive;
-        let tp = (pred_is_positive && is_true) as usize;
-        let tn = (!pred_is_positive && is_true) as usize;
-        let fp = (pred_is_positive && !is_true) as usize;
-        let r#fn = (!pred_is_positive && !is_true) as usize;
+        let tp = pred_is_positive && is_true;
+        let tn = !pred_is_positive && is_true;
+        let fp = pred_is_positive && !is_true;
+        let r#fn = !pred_is_positive && !is_true;
 
-        let grp = is_a as usize;
+        // Updating the container inline here to avoid branching
+        self.confusion_a.true_p += bool_to_f32(is_a && tp);
+        self.confusion_a.true_n += bool_to_f32(is_a && tn);
+        self.confusion_a.false_p += bool_to_f32(is_a && fp);
+        self.confusion_a.false_n += bool_to_f32(is_a && r#fn);
 
-        self.confusion_a.true_p += (grp * tp) as f32;
-        self.confusion_a.true_n += (grp * tn) as f32;
-        self.confusion_a.false_p += (grp * fp) as f32;
-        self.confusion_a.false_n += (grp * r#fn) as f32;
-
-        self.confusion_d.true_p += (grp * tp) as f32;
-        self.confusion_d.true_n += (grp * tn) as f32;
-        self.confusion_d.false_p += (grp * fp) as f32;
-        self.confusion_d.false_n += (grp * r#fn) as f32;
-        todo!()
+        self.confusion_d.true_p += bool_to_f32(!is_a && tp);
+        self.confusion_d.true_n += bool_to_f32(!is_a && tn);
+        self.confusion_d.false_p += bool_to_f32(!is_a && fp);
+        self.confusion_d.false_n += bool_to_f32(!is_a && r#fn);
     }
 
+    /// Requires the slices passed to be none empty. Will error in that case that the slices are
+    /// not of the same length or the slices are empty.
     pub(crate) fn accumulate_batch<F, P, G>(
         &mut self,
         features: &[F],
@@ -356,7 +364,6 @@ impl PostTraining {
         G: PartialOrd,
     {
         let n = features.len();
-
         if (preds.len() != n || gt.len() != n) || n == 0 {
             return Err(BiasError::DataLengthError);
         }
@@ -377,4 +384,96 @@ pub struct PostTrainingComputations {
     pub false_negatives_d: f32,
     pub true_negatives_a: f32,
     pub true_negatives_d: f32,
+}
+
+#[cfg(test)]
+mod model_bias_components {
+    use super::*;
+
+    #[test]
+    fn test_post_training_accum() {
+        let mut container = PostTraining::default();
+
+        container.accumulate_single(true, true, true);
+
+        assert_eq!(
+            container.dist_a,
+            PostTrainingDistribution {
+                len: 1,
+                positive_gt: 1,
+                positive_pred: 1
+            }
+        );
+        assert_eq!(
+            container.confusion_a,
+            crate::data_handler::ConfusionMatrix {
+                true_p: 1_f32,
+                true_n: 0_f32,
+                false_p: 0_f32,
+                false_n: 0_f32
+            }
+        );
+        assert_eq!(container.dist_d, PostTrainingDistribution::default());
+        assert_eq!(
+            container.confusion_d,
+            crate::data_handler::ConfusionMatrix::default()
+        );
+        container.accumulate_single(false, true, false);
+
+        assert_eq!(
+            container.dist_d,
+            PostTrainingDistribution {
+                len: 1,
+                positive_gt: 0,
+                positive_pred: 1
+            }
+        );
+        assert_eq!(
+            container.confusion_d,
+            crate::data_handler::ConfusionMatrix {
+                true_p: 0_f32,
+                true_n: 0_f32,
+                false_p: 1_f32,
+                false_n: 0_f32
+            }
+        );
+        assert_eq!(
+            container.dist_a,
+            PostTrainingDistribution {
+                len: 1,
+                positive_gt: 1,
+                positive_pred: 1
+            }
+        );
+        assert_eq!(
+            container.confusion_a,
+            crate::data_handler::ConfusionMatrix {
+                true_p: 1_f32,
+                true_n: 0_f32,
+                false_p: 0_f32,
+                false_n: 0_f32
+            }
+        );
+
+        container.accumulate_single(false, false, false);
+        assert_eq!(
+            container.confusion_d,
+            crate::data_handler::ConfusionMatrix {
+                true_p: 0_f32,
+                true_n: 1_f32,
+                false_p: 1_f32,
+                false_n: 0_f32
+            }
+        );
+        container.accumulate_single(false, false, true);
+        assert_eq!(
+            container.confusion_d,
+            crate::data_handler::ConfusionMatrix {
+                true_p: 0_f32,
+                true_n: 1_f32,
+                false_p: 1_f32,
+                false_n: 1_f32
+            }
+        );
+    }
 }

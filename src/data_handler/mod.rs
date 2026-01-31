@@ -131,12 +131,12 @@ pub(crate) mod py_types_handler {
 }
 
 pub(crate) trait ApplyThreshold {
-    fn apply_threshold(&self, other: Self) -> Self;
+    fn apply_threshold(&self, threshold: Self) -> Self;
 }
 
 impl ApplyThreshold for f32 {
-    fn apply_threshold(&self, other: f32) -> f32 {
-        if *self >= other {
+    fn apply_threshold(&self, threshold: f32) -> f32 {
+        if self.ge(&threshold) {
             1_f32
         } else {
             0_f32
@@ -146,7 +146,7 @@ impl ApplyThreshold for f32 {
 
 // Type to hold confusion matrix for binary type classification. This allows for much cheaper
 // computation of many of the classic classification metrics
-#[derive(Default)]
+#[derive(Default, Debug, PartialEq)]
 pub(crate) struct ConfusionMatrix {
     pub(crate) true_p: f32,
     pub(crate) false_p: f32,
@@ -168,10 +168,10 @@ impl ConfusionMatrix {
 
     #[inline]
     pub(crate) fn push(&mut self, true_gt: bool, true_pred: bool) {
-        self.true_p = ((true_gt && true_pred) as usize) as f32;
-        self.false_p = ((true_gt && !true_pred) as usize) as f32;
-        self.true_n = ((!true_gt && true_pred) as usize) as f32;
-        self.false_n = ((!true_gt && !true_pred) as usize) as f32;
+        self.true_p += ((true_gt && true_pred) as usize) as f32;
+        self.false_p += ((!true_gt && true_pred) as usize) as f32;
+        self.true_n += ((!true_gt && !true_pred) as usize) as f32;
+        self.false_n += ((true_gt && !true_pred) as usize) as f32;
     }
 }
 
@@ -298,4 +298,73 @@ where
         .map(|value| if value >= threshold { 1_i16 } else { 0_i16 })
         .collect();
     labeled_array
+}
+
+#[cfg(test)]
+mod data_handler_tests {
+    use super::*;
+
+    #[test]
+    fn test_label_bias_seg() {
+        // test that the correct label is assigned when the segmentation criteria is label
+        let seg = BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label);
+        assert_eq!(seg.label(&0), false);
+        assert_eq!(seg.label(&1), true);
+    }
+
+    #[test]
+    fn test_threshold_bias_seg() {
+        // test that the correct label is assigned when the segmentation criteria is label
+        let seg = BiasSegmentationCriteria::new(0.5_f32, BiasSegmentationType::Threshold);
+        assert_eq!(seg.label(&0.1_f32), false);
+        assert_eq!(seg.label(&0.5_f32), true);
+        assert_eq!(seg.label(&0.6_f32), true);
+    }
+
+    #[test]
+    fn test_confusion_push() {
+        let mut c_matrix = ConfusionMatrix::default();
+
+        c_matrix.push(false, false);
+        c_matrix.push(true, true);
+        c_matrix.push(false, true);
+        c_matrix.push(true, false);
+        dbg!(&c_matrix);
+        assert!(
+            c_matrix.true_n == 1_f32
+                && c_matrix.true_p == 1_f32
+                && c_matrix.false_n == 1_f32
+                && c_matrix.false_p == 1_f32
+        );
+
+        c_matrix.push(true, false);
+        assert!(
+            c_matrix.true_n == 1_f32
+                && c_matrix.true_p == 1_f32
+                && c_matrix.false_n == 2_f32
+                && c_matrix.false_p == 1_f32
+        );
+
+        c_matrix.push(true, true);
+        assert!(
+            c_matrix.true_n == 1_f32
+                && c_matrix.true_p == 2_f32
+                && c_matrix.false_n == 2_f32
+                && c_matrix.false_p == 1_f32
+        );
+        c_matrix.push(false, true);
+        assert!(
+            c_matrix.true_n == 1_f32
+                && c_matrix.true_p == 2_f32
+                && c_matrix.false_n == 2_f32
+                && c_matrix.false_p == 2_f32
+        );
+        c_matrix.push(false, false);
+        assert!(
+            c_matrix.true_n == 2_f32
+                && c_matrix.true_p == 2_f32
+                && c_matrix.false_n == 2_f32
+                && c_matrix.false_p == 2_f32
+        );
+    }
 }

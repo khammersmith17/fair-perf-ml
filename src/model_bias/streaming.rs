@@ -98,12 +98,13 @@ where
     G: PartialOrd,
     P: PartialOrd,
 {
+    // labeling threshold for each data dimensions
     feat_seg: BiasSegmentationCriteria<F>,
     pred_seg: BiasSegmentationCriteria<P>,
     gt_seg: BiasSegmentationCriteria<G>,
     rt: PostTraining,
-    ge: BucketGeneralizedEntropy,
-    bl: ModelBiasRuntime,
+    ge: BucketGeneralizedEntropy, // runtime ge buckets
+    bl: ModelBiasRuntime,         // the baseline metric computations precomputed
 }
 
 impl<F, P, G> StreamingModelBias<F, P, G>
@@ -261,5 +262,27 @@ where
         let rt_ge = self.ge.ge_snapshot();
         let rt_snapshot = ModelBiasRuntime::new_from_post_training(&self.rt, rt_ge);
         Ok(rt_snapshot.generate_report())
+    }
+}
+
+#[cfg(test)]
+mod model_bias_strming_tests {
+    use super::*;
+    use crate::data_handler::BiasSegmentationType;
+
+    /*
+     * 1. streaming container state is updated corectly
+     * 2. snapshot computations are correct
+     * 3.
+     *
+     * */
+    #[test]
+    fn test_baseline_construction_label() {
+        let pred_bl_data: Vec<usize> = vec![1, 0, 1, 1, 1, 0, 0, 1, 0];
+        let feat_bl_data: Vec<usize> = vec![0, 1, 1, 0, 1, 0, 1, 1, 1];
+        let gt_bl_data: Vec<usize> = vec![1, 1, 1, 0, 1, 0, 0, 1, 0];
+        let pred_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let feat_seg = BiasSegmentationCriteria::new(0_usize, BiasSegmentationType::Label);
+        let gt_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
     }
 }
