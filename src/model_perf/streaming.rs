@@ -225,10 +225,10 @@ impl RSquaredSupplement {
     }
 
     /// Push a single example. Takes in the true value and the predicted value.
-    fn update(&mut self, t: f64, p: f64) {
-        self.sum_y_true2 += t.powi(2);
-        self.sum_y_pred += p;
-        self.sum_y_pred2 += p.powi(2);
+    fn update(&mut self, y_true: f64, y_pred: f64) {
+        self.sum_y_true2 += y_true.powi(2);
+        self.sum_y_pred += y_pred;
+        self.sum_y_pred2 += y_pred.powi(2);
     }
 }
 
@@ -250,18 +250,18 @@ pub(crate) struct LinearRegressionErrorBuckets {
 impl LinearRegressionErrorBuckets {
     /// Accumulate the error buckets with a single example.
     #[inline]
-    fn update(&mut self, t: f64, p: f64) {
+    fn update(&mut self, y_true: f64, y_pred: f64) {
         self.len += 1_f64;
-        let error = t - p;
+        let error = y_true - y_pred;
         let abs_error = error.abs();
 
-        self.r2.update(t, p);
+        self.r2.update(y_true, y_pred);
         self.squared_error_sum += error.powi(2);
         self.abs_error_sum += abs_error;
         self.max_error = self.max_error.max(error);
-        self.squared_log_error_sum += ((1_f64 + t).log10() - (1_f64 + p).log10()).powi(2);
-        self.y_true_sum += t;
-        self.abs_percent_error_sum += abs_error / t;
+        self.squared_log_error_sum += ((1_f64 + y_true).log10() - (1_f64 + y_pred).log10()).powi(2);
+        self.y_true_sum += y_true;
+        self.abs_percent_error_sum += (abs_error / y_true).abs();
     }
 
     #[inline]
@@ -277,8 +277,8 @@ impl LinearRegressionErrorBuckets {
 /// drift snapshots relative to the baseline dataset, and reset the baseline state through the
 /// lifetime of the type instance.
 pub struct LinearRegressionStreaming {
-    bl: LinearRegressionRuntime,
-    rt_buckets: LinearRegressionErrorBuckets,
+    bl: LinearRegressionRuntime,              // Baseline computations
+    rt_buckets: LinearRegressionErrorBuckets, // Stream runtime state
 }
 
 impl LinearRegressionStreaming {
@@ -312,8 +312,8 @@ impl LinearRegressionStreaming {
         if y_pred.is_empty() {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
-        for (t, p) in zip_iters!(y_true, y_pred) {
-            self.push((*t).into(), (*p).into())
+        for (y_true, y_pred) in zip_iters!(y_true, y_pred) {
+            self.push((*y_true).into(), (*y_pred).into())
         }
         Ok(())
     }
@@ -398,10 +398,10 @@ pub struct BinaryClassificationStreaming<T>
 where
     T: PartialOrd,
 {
-    label: T,
-    bl: BinaryClassificationRuntime,
-    confusion_rt: ConfusionMatrix,
-    accuracy_rt: BinaryClassificationAccuracyBucket,
+    label: T,                                        // Label to evaluate true/false prediction
+    bl: BinaryClassificationRuntime,                 // Baseline computations
+    confusion_rt: ConfusionMatrix,                   // Runtime Confusion matrix buckets
+    accuracy_rt: BinaryClassificationAccuracyBucket, // Runtime accuracy buckets
 }
 
 impl<T> BinaryClassificationStreaming<T>
@@ -515,11 +515,11 @@ where
 /// Streaming style variant for LogisticRegression models. Like the other streaming variants of the
 /// monitors, this type leverages a bucketing algorithm for compact space.
 pub struct LogisticRegressionStreaming {
-    decision_threshold: f32,
-    accuracy_bucket: BinaryClassificationAccuracyBucket,
-    confusion_rt: ConfusionMatrix,
-    log_penalties: f32,
-    bl: LogisticRegressionRuntime,
+    decision_threshold: f32, // Logisitic decision threshold
+    accuracy_bucket: BinaryClassificationAccuracyBucket, // Runtime accuracy bucket of label
+    confusion_rt: ConfusionMatrix, // Runtime confusion matrix buckets of label
+    log_penalties: f32,      // Accumulated runtime log penalties
+    bl: LogisticRegressionRuntime, // Baseline computations
 }
 
 impl LogisticRegressionStreaming {

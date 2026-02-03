@@ -1127,6 +1127,9 @@ impl LinearRegressionRuntime {
 
         let n = y_true.len() as f64;
 
+        // Computing the linear regression metrics inline here rather than pay for an O(n)
+        // iteration for every error metric computation.
+
         let mut squared_error_sum = 0_f64;
         let mut abs_error_sum = 0_f64;
         let mut max_error = 0_f64;
@@ -1143,7 +1146,7 @@ impl LinearRegressionRuntime {
             abs_error_sum += (t - p).abs();
             max_error = max_error.max((t - p).abs());
             sqaured_log_error_sum += ((1_f64 + t).log10() - (1_f64 + p).log10()).powi(2);
-            abs_percent_error_sum += (t - p).abs() / t;
+            abs_percent_error_sum += ((t - p) / t).abs();
         }
 
         let mut ss_total = 0_f64;
