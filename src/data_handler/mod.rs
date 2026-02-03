@@ -32,9 +32,14 @@ pub(crate) mod py_types_handler {
         Integer,
         String,
     }
-    pub fn determine_type(py: Python<'_>, array: &Bound<'_, PyUntypedArray>) -> PassedType {
+
+    /// Utility to extract the type from a PyUntypedArray to work with the dyanmic typed semantics
+    /// in Python. Here we attempt to extract the type so we can then generate a Rust data
+    /// container that is owned from the data passed by the Python wrapper function.
+    pub(crate) fn determine_type(py: Python<'_>, array: &Bound<'_, PyUntypedArray>) -> PassedType {
         let element_type = array.dtype();
 
+        // Accepted types here are basic primitives, other "object" types are not supported.
         if element_type.is_equiv_to(&dtype::<f64>(py)) | element_type.is_equiv_to(&dtype::<f32>(py))
         {
             PassedType::Float
@@ -48,23 +53,44 @@ pub(crate) mod py_types_handler {
         }
     }
 
-    // Handles untyped nature of python data. Determines type and labels accordingly.
+    fn copy_into_rust_type<'py, T: Clone + FromPyObject<'py>>(
+        arr: &Bound<'py, PyUntypedArray>,
+    ) -> PyResult<Vec<T>> {
+        let mut copied_data: Vec<T> = Vec::with_capacity(arr.len());
+        for item in arr.try_iter()? {
+            copied_data.push(item?.extract()?);
+        }
+        Ok(copied_data)
+    }
+
+    // Utility to resolve the number of unique values in the dataset passed to determine which
+    // labeling logic to dispatch to. Takes in a closure to map the values to an OrderedFloat so the data
+    // can be hashed into a HashSet. OrderedFloat is used to allow for the precision of floating
+    // point values.
+    fn resolve_num_unique_values<T>(
+        arr: &[T],
+        f: &dyn Fn(&T) -> ordered_float::OrderedFloat<f32>,
+    ) -> usize {
+        let arr_set: std::collections::HashSet<ordered_float::OrderedFloat<f32>> =
+            arr.iter().map(|v| (*f)(v)).collect();
+        arr_set.len()
+    }
+
+    // Handles untyped nature of python data. Determines type and labels accordingly. This function
+    // will error if the underlying type identification is incorrect.
     pub(crate) fn apply_label<'py>(
         py: Python<'_>,
         array: &Bound<'_, PyUntypedArray>,
         label: Bound<'py, PyAny>,
     ) -> Result<Vec<i16>, Box<dyn Error>> {
         let pred_type = determine_type(py, &array);
-        let arr_len = array.len();
-        let iter = &array.try_iter()?;
 
+        // Based on the observed type of the data in the PyUntypedArray, copy the data into an
+        // owned rust container. Given that these come from numpy arrays, the type in the array
+        // should be uniform.
         let labeled_array: Vec<i16> = match pred_type {
             PassedType::String => {
-                let mut data_vec: Vec<String> = Vec::with_capacity(arr_len);
-                for item in iter {
-                    let data = item?.extract::<String>()?;
-                    data_vec.push(data);
-                }
+                let data_vec: Vec<String> = copy_into_rust_type(array)?;
                 if !label.is_instance_of::<PyString>() {
                     return Err("string".into());
                 }
@@ -73,11 +99,8 @@ pub(crate) mod py_types_handler {
                 apply_label_discrete(&data_vec, &data_label)
             }
             PassedType::Float => {
-                let mut data_vec: Vec<f64> = Vec::with_capacity(arr_len);
-                for item in iter {
-                    let data = item?.extract::<f64>()?;
-                    data_vec.push(data);
-                }
+                let data_vec: Vec<f64> = copy_into_rust_type(array)?;
+
                 // handling users passing float vs int as label_or_threshold
                 let data_label: f64 = if label.is_instance_of::<PyFloat>() {
                     label.extract::<f64>()?
@@ -87,28 +110,17 @@ pub(crate) mod py_types_handler {
                     return Err("float".into());
                 };
 
-                let data_set: std::collections::HashSet<i32> = data_vec
-                    .iter()
-                    .map(|value| *value as i32)
-                    .collect::<std::collections::HashSet<_>>();
+                let f = Box::new(|v: &f64| ordered_float::OrderedFloat(*v as f32));
+                let num_unique = resolve_num_unique_values(&data_vec, &f);
 
-                if data_set.len() == 2 {
+                if num_unique == 2 {
                     apply_label_discrete(&data_vec, &data_label)
                 } else {
                     apply_label_continuous(&data_vec, &data_label)
                 }
             }
             PassedType::Integer => {
-                let mut data_vec: Vec<i64> = Vec::with_capacity(arr_len);
-                for item in iter {
-                    let data = item?.extract::<i64>()?;
-                    data_vec.push(data);
-                }
-
-                let data_set: std::collections::HashSet<i32> = data_vec
-                    .iter()
-                    .map(|value| *value as i32)
-                    .collect::<std::collections::HashSet<_>>();
+                let data_vec: Vec<i64> = copy_into_rust_type(array)?;
 
                 // handling users passing float vs int as label_or_threshold
                 let data_label: i64 = if label.is_instance_of::<PyFloat>() {
@@ -119,7 +131,10 @@ pub(crate) mod py_types_handler {
                     return Err("float".into());
                 };
 
-                if data_set.len() == 2 {
+                let f = Box::new(|v: &i64| ordered_float::OrderedFloat(*v as f32));
+                let num_unique = resolve_num_unique_values(&data_vec, &f);
+
+                if num_unique == 2 {
                     apply_label_discrete(&data_vec, &data_label)
                 } else {
                     apply_label_continuous(&data_vec, &data_label)
@@ -128,6 +143,11 @@ pub(crate) mod py_types_handler {
         };
         Ok(labeled_array)
     }
+}
+
+#[inline]
+pub(crate) fn bool_to_f32(v: bool) -> f32 {
+    v as usize as f32
 }
 
 pub(crate) trait ApplyThreshold {
@@ -168,10 +188,10 @@ impl ConfusionMatrix {
 
     #[inline]
     pub(crate) fn push(&mut self, true_gt: bool, true_pred: bool) {
-        self.true_p += ((true_gt && true_pred) as usize) as f32;
-        self.false_p += ((!true_gt && true_pred) as usize) as f32;
-        self.true_n += ((!true_gt && !true_pred) as usize) as f32;
-        self.false_n += ((true_gt && !true_pred) as usize) as f32;
+        self.true_p += bool_to_f32(true_gt && true_pred);
+        self.false_p += bool_to_f32(!true_gt && true_pred);
+        self.true_n += bool_to_f32(!true_gt && !true_pred);
+        self.false_n += bool_to_f32(true_gt && !true_pred);
     }
 }
 
@@ -215,6 +235,9 @@ where
     pub fn new(value: T, stype: BiasSegmentationType) -> BiasSegmentationCriteria<T> {
         BiasSegmentationCriteria { value, stype }
     }
+
+    /// Compute the class segmentation of the value passed. true refers to the abritrary label associated
+    /// with the favored class and false refers to the disfavored class.
     #[inline]
     pub(crate) fn label(&self, value: &T) -> bool {
         if self.stype == BiasSegmentationType::Label {
@@ -231,7 +254,7 @@ where
 /// easy resuse.
 pub struct BiasDataPayload<'a, T>
 where
-    T: PartialOrd + PartialEq,
+    T: PartialOrd,
 {
     data: &'a [T],
     segmentation_criteria: BiasSegmentationCriteria<T>,
@@ -239,7 +262,7 @@ where
 
 impl<'a, T> BiasDataPayload<'a, T>
 where
-    T: PartialEq + PartialOrd,
+    T: PartialOrd,
 {
     /// Constructor for BiasDataPayload. The type in the slice must be the same as the type passed
     /// for the segmentation criteria.

@@ -31,4 +31,5 @@ rust-numpy = {version = "0.1.0", optional = true }
 numpy = {version = "0.24.0", optional = true }
 rand = "0.9.2"
 num = "0.4.3"
+ordered-float = "5.1.0"
 

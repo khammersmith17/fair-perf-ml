@@ -330,7 +330,7 @@ pub fn model_perf_binary_classification<T>(
 where
     T: PartialOrd,
 {
-    let report = BinaryClassificationRuntime::new::<T>(y_true, y_pred, positive_label)?;
+    let report = BinaryClassificationRuntime::new::<T>(y_true, y_pred, &positive_label)?;
     Ok(report.generate_report())
 }
 

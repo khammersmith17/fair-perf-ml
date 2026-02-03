@@ -191,7 +191,6 @@ impl DataBiasRuntime {
         result
     }
 
-    // TODO: determine how to compute the drift here, ie should it be based on abs diff etc...
     pub fn runtime_drift_report(&self, baseline: &DataBiasRuntime) -> DataBiasRuntimeReport {
         let mut result = DataBiasRuntimeReport::with_capacity(7);
         result.insert(
@@ -620,7 +619,7 @@ impl BinaryClassificationRuntime {
     pub fn new<T>(
         y_true: &[T],
         y_pred: &[T],
-        label: T,
+        label: &T,
     ) -> Result<BinaryClassificationRuntime, ModelPerformanceError>
     where
         T: PartialOrd,
@@ -629,7 +628,7 @@ impl BinaryClassificationRuntime {
         let mut c_matrix = ConfusionMatrix::default();
 
         for (t, p) in zip_iters!(y_true, y_pred) {
-            let is_positive = *p == label;
+            let is_positive = p.eq(label);
             let is_true = *p == *t;
             c_matrix.true_p += (is_true && is_positive) as i32 as f32;
             c_matrix.false_p += (!is_true && is_positive) as i32 as f32;
@@ -1171,8 +1170,9 @@ impl LinearRegressionRuntime {
         })
     }
 
-    // Utlity to easliy compute the current model performance runtime state from the bucketing
-    // style containers used in the stream variants
+    /// Utlity to easliy compute the current model performance runtime state from the bucketing
+    /// style containers used in the stream variants. Acknowledging here the explicit cast from f64
+    /// to f32 which may forgoe some precision here.
     pub(crate) fn runtime_from_parts(
         parts: &LinearRegressionErrorBuckets,
     ) -> Result<LinearRegressionRuntime, ModelPerformanceError> {
@@ -1205,6 +1205,8 @@ impl LinearRegressionRuntime {
         use LinearRegressionEvaluationMetric as L;
         let mut res: HashMap<L, f32> = HashMap::with_capacity(8);
         for m in metrics.iter() {
+            // All values should be positive here, so all comparisons are greater than allowable
+            // drift threshold define by the user.
             match *m {
                 L::RootMeanSquaredError => {
                     if self.rmse > baseline.rmse * (1_f32 + drift_threshold) {
@@ -1326,5 +1328,40 @@ impl LinearRegressionRuntime {
         map.insert(L::RootMeanSquaredLogError, self.rmsle);
         map.insert(L::MeanAbsolutePercentageError, self.mape);
         map
+    }
+}
+
+#[cfg(test)]
+mod test_runtime_containers {
+    use super::*;
+    use crate::data_handler::ConfusionMatrix;
+    use crate::model_bias::{PostTraining, PostTrainingDistribution};
+
+    #[test]
+    fn model_bias_runtime_from_parts() {
+        let pt = PostTraining {
+            confusion_a: ConfusionMatrix {
+                true_p: 4_f32,
+                true_n: 6_f32,
+                false_p: 5_f32,
+                false_n: 4_f32,
+            },
+            confusion_d: ConfusionMatrix {
+                true_p: 5_f32,
+                true_n: 4_f32,
+                false_p: 3_f32,
+                false_n: 6_f32,
+            },
+            dist_a: PostTrainingDistribution {
+                len: 19,
+                positive_pred: 10,
+                positive_gt: 8,
+            },
+            dist_d: PostTrainingDistribution {
+                len: 18,
+                positive_pred: 8,
+                positive_gt: 8,
+            },
+        };
     }
 }

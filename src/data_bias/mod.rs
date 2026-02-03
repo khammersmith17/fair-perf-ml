@@ -159,10 +159,7 @@ where
     Ok(DriftReport::from_runtime(check_res))
 }
 
-// TODO:
-// instead of storing entire vector, store pos class count and neg class count for each facet
-
-#[derive(Default)]
+#[derive(Default, Debug, PartialEq)]
 pub(crate) struct PreTrainingDistribution {
     pub positive: u64,
     pub len: u64,
@@ -195,7 +192,7 @@ impl PreTraining {
         let mut facet_d = PreTrainingDistribution::default();
 
         for (f, gt) in zip_iters!(feature_data, gt_data) {
-            if *f == 1_i16 {
+            if f.eq(&1_i16) {
                 facet_a.positive += *gt as u64;
                 facet_a.len += 1
             } else {
@@ -236,11 +233,11 @@ impl PreTraining {
         let mut len_d = 0_u64;
         let mut positive_d = 0_u64;
 
-        if len_a != len_d {
+        if feature.len() != gt.len() {
             return Err(BiasError::DataLengthError);
         }
 
-        if len_a == 0 {
+        if gt.len() == 0 {
             return Err(BiasError::DataLengthError);
         }
 
@@ -311,5 +308,36 @@ impl PreTraining {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod data_bias_containers {
+    use super::*;
+    use crate::data_handler::{BiasSegmentationCriteria, BiasSegmentationType};
+
+    #[test]
+    fn data_bias_from_slice() {
+        let gt = vec![1, 0, 1, 0, 1, 1, 1, 0];
+        let feat = vec![1, 1, 0, 0, 1, 0, 1, 0];
+        let gt_seg = BiasSegmentationCriteria::new(1, BiasSegmentationType::Label);
+        let feat_seg = BiasSegmentationCriteria::new(0, BiasSegmentationType::Label);
+
+        let pre_training =
+            PreTraining::new_from_segmentation(&feat, &feat_seg, &gt, &gt_seg).unwrap();
+        assert_eq!(
+            pre_training.facet_a,
+            PreTrainingDistribution {
+                len: 4,
+                positive: 2
+            }
+        );
+        assert_eq!(
+            pre_training.facet_d,
+            PreTrainingDistribution {
+                len: 4,
+                positive: 3
+            }
+        );
     }
 }

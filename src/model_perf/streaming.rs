@@ -215,6 +215,8 @@ pub(crate) struct RSquaredSupplement {
 }
 
 impl RSquaredSupplement {
+    /// Using the state bucket members in the type to compute a snapshot R^2.
+    #[inline]
     fn snapshot(&self, y_true_sum: f64, n: f64) -> f64 {
         let sse = self.sum_y_true2 - 2_f64 * self.sum_y_pred + self.sum_y_pred2;
         let sst = self.sum_y_true2 - (y_true_sum.powi(2)) / n;
@@ -222,6 +224,7 @@ impl RSquaredSupplement {
         return 1_f64 - (sse / sst);
     }
 
+    /// Push a single example. Takes in the true value and the predicted value.
     fn update(&mut self, t: f64, p: f64) {
         self.sum_y_true2 += t.powi(2);
         self.sum_y_pred += p;
@@ -229,6 +232,9 @@ impl RSquaredSupplement {
     }
 }
 
+/// Contianer to hold the error state for a linear regression model. Store all the different error
+/// values that are required to compute the different linear regression error metrics with simple
+/// arithmetic instructions.
 #[derive(Default)]
 pub(crate) struct LinearRegressionErrorBuckets {
     pub(crate) squared_error_sum: f64,
@@ -242,19 +248,20 @@ pub(crate) struct LinearRegressionErrorBuckets {
 }
 
 impl LinearRegressionErrorBuckets {
-    // accumulate the error buckets with a single example.
+    /// Accumulate the error buckets with a single example.
     #[inline]
     fn update(&mut self, t: f64, p: f64) {
         self.len += 1_f64;
         let error = t - p;
         let abs_error = error.abs();
+
         self.r2.update(t, p);
         self.squared_error_sum += error.powi(2);
         self.abs_error_sum += abs_error;
         self.max_error = self.max_error.max(error);
         self.squared_log_error_sum += ((1_f64 + t).log10() - (1_f64 + p).log10()).powi(2);
         self.y_true_sum += t;
-        self.abs_percent_error_sum = abs_error / t;
+        self.abs_percent_error_sum += abs_error / t;
     }
 
     #[inline]
@@ -269,7 +276,6 @@ impl LinearRegressionErrorBuckets {
 /// the ability to accumulate runtime inference examples, compute performance snapshots, compute
 /// drift snapshots relative to the baseline dataset, and reset the baseline state through the
 /// lifetime of the type instance.
-
 pub struct LinearRegressionStreaming {
     bl: LinearRegressionRuntime,
     rt_buckets: LinearRegressionErrorBuckets,
@@ -352,6 +358,7 @@ impl LinearRegressionStreaming {
     /// Compute a point in time snapshot, describing the drift across all built in metrics. Returns
     /// a 'DriftReport<LinearRegressionEvaluationMetric>'. Will error when there is no runtime data
     /// accumulated since construction of last flush or, in other words, when runtime state is empty.
+    /// This method returns the absoulte drift from the baseline state.
     pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<LinearRegressionEvaluationMetric>> {
         let rt = LinearRegressionRuntime::runtime_from_parts(&self.rt_buckets)?;
         let drift_report = rt.runtime_drift_report(&self.bl);
@@ -389,7 +396,7 @@ impl BinaryClassificationAccuracyBucket {
 /// are bound to the type of the label.
 pub struct BinaryClassificationStreaming<T>
 where
-    T: PartialOrd + Clone,
+    T: PartialOrd,
 {
     label: T,
     bl: BinaryClassificationRuntime,
@@ -399,7 +406,7 @@ where
 
 impl<T> BinaryClassificationStreaming<T>
 where
-    T: PartialOrd + Clone,
+    T: PartialOrd,
 {
     /// Construct a new instance with a baseline dataset or predicted labels, ground truth, and a
     /// positive label. The type of the positive label will determine the generic type T for the
@@ -418,8 +425,7 @@ where
             return Err(ModelPerformanceError::EmptyDataVector);
         }
 
-        let bl =
-            BinaryClassificationRuntime::new(baseline_true, baseline_pred, positive_label.clone())?;
+        let bl = BinaryClassificationRuntime::new(baseline_true, baseline_pred, &positive_label)?;
         let confusion_rt = ConfusionMatrix::default();
         let accuracy_rt = BinaryClassificationAccuracyBucket::default();
 
@@ -448,8 +454,6 @@ where
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
 
-        self.accuracy_rt.len += runtime_pred.len() as u64;
-
         for (t, p) in zip_iters!(runtime_true, runtime_pred) {
             self.push(t, p)
         }
@@ -463,8 +467,7 @@ where
         baseline_true: &[T],
         baseline_pred: &[T],
     ) -> ModelPerfResult<()> {
-        self.bl =
-            BinaryClassificationRuntime::new(baseline_true, baseline_pred, self.label.clone())?;
+        self.bl = BinaryClassificationRuntime::new(baseline_true, baseline_pred, &self.label)?;
         self.flush();
         Ok(())
     }
@@ -473,7 +476,7 @@ where
     /// will the drift in the metric magnitude from the baseline state. Thus a negative drift value
     /// for accuracy indicates that the accuracy computed at the snapshot if performing better than
     /// what was computed in the baseline state. This will error when no data has been pushed into
-    /// the stream.
+    /// the stream. This method returns the absoulte drift from the baseline state.
     pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
         if self.accuracy_rt.len == 0 {
             return Err(ModelPerformanceError::EmptyDataVector);
@@ -581,7 +584,7 @@ impl LogisticRegressionStreaming {
     /// an accuracy drift that is negative will indicate the model if performing above expected
     /// value, by the absolute value of the drift score, indicating positive performance. In this
     /// sense, log loss would be the inverse. This will error when no data has been pushed into the
-    /// stream.
+    /// stream. This method returns the absoulte drift from the baseline state.
     pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
         // compute log loss
         let n = self.accuracy_bucket.len as f32;
@@ -632,4 +635,18 @@ impl LogisticRegressionStreaming {
         self.bl = LogisticRegressionRuntime::new(&y_true, &y_pred, self.decision_threshold)?;
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod test_perf_streaming {
+    use super::*;
+
+    /*
+     * 1. Test the accumulation of the error buckets from LinearRegressionErrorBuckets/
+     *    RSquaredSupplement
+     * 2. Test accumulate of the BinaryClassificationAccuracyBuckets
+     * 3. Test push batch records into each stream, this will implicitly test the push single
+     *    implementation.
+     *
+     * */
 }

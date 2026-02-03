@@ -271,18 +271,59 @@ mod model_bias_strming_tests {
     use crate::data_handler::BiasSegmentationType;
 
     /*
-     * 1. streaming container state is updated corectly
+     * 1. the baseline state is correct
      * 2. snapshot computations are correct
      * 3.
      *
      * */
     #[test]
     fn test_baseline_construction_label() {
+        /*
+         * The baseline counts here should be:
+         *       facet a:
+         *           count: 3
+         *           positive pred: 2
+         *           positive gt count: 1
+         *       facet d:
+         *           count: 6
+         *           positive pred: 3
+         *           positive gt: 4
+         * */
         let pred_bl_data: Vec<usize> = vec![1, 0, 1, 1, 1, 0, 0, 1, 0];
         let feat_bl_data: Vec<usize> = vec![0, 1, 1, 0, 1, 0, 1, 1, 1];
         let gt_bl_data: Vec<usize> = vec![1, 1, 1, 0, 1, 0, 0, 1, 0];
         let pred_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
         let feat_seg = BiasSegmentationCriteria::new(0_usize, BiasSegmentationType::Label);
         let gt_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let mut stream = StreamingModelBias::new(
+            &feat_bl_data,
+            feat_seg,
+            &pred_bl_data,
+            pred_seg,
+            &gt_bl_data,
+            gt_seg,
+        )
+        .unwrap();
+
+        stream
+            .push_batch(&feat_bl_data, &pred_bl_data, &gt_bl_data)
+            .unwrap();
+        assert_eq!(
+            stream.rt.dist_a,
+            crate::model_bias::PostTrainingDistribution {
+                len: 3,
+                positive_pred: 2,
+                positive_gt: 1
+            }
+        );
+
+        assert_eq!(
+            stream.rt.dist_d,
+            crate::model_bias::PostTrainingDistribution {
+                len: 6,
+                positive_pred: 3,
+                positive_gt: 4
+            }
+        );
     }
 }

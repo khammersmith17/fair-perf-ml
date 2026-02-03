@@ -32,6 +32,7 @@ impl AdHocSegmentation {
             return Err(BiasError::DataLengthError);
         }
 
+        // Using the feature data length as a preallocation heuristic.
         let mut facet_a_pred: Vec<i16> = Vec::with_capacity(n_feature / 2 as usize);
         let mut facet_a_true: Vec<i16> = Vec::with_capacity(n_feature / 2 as usize);
         let mut facet_d_pred: Vec<i16> = Vec::with_capacity(n_feature / 2 as usize);
@@ -539,7 +540,7 @@ pub(crate) mod inner {
         // CDDPL = (1 / n) * sum of (n_i * CDDPL_i) where n_i is the size of the class
 
         let total_predicted_positives = data.dist_a.positive_pred + data.dist_d.positive_pred;
-        let total_predicted_negatives = 1_u64 - total_predicted_positives;
+        let total_predicted_negatives = total_n - total_predicted_positives;
 
         let d_n_prime_0 =
             (data.dist_d.len - data.dist_d.positive_pred) as f32 / total_predicted_negatives as f32;

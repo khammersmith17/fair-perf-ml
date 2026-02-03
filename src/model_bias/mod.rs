@@ -1,5 +1,5 @@
 use crate::data_handler::{
-    BiasDataPayload, BiasSegmentationCriteria, BiasSegmentationType, ConfusionMatrix,
+    bool_to_f32, BiasDataPayload, BiasSegmentationCriteria, BiasSegmentationType, ConfusionMatrix,
 };
 use crate::errors::{BiasError, ModelBiasRuntimeError};
 use crate::metrics::{ModelBiasMetric, FULL_MODEL_BIAS_METRICS};
@@ -203,16 +203,14 @@ impl BucketGeneralizedEntropy {
     }
 }
 
-#[inline]
-fn bool_to_f32(v: bool) -> f32 {
-    v as usize as f32
-}
-
 #[derive(Default, Debug, PartialEq)]
 pub(crate) struct PostTrainingDistribution {
-    len: u64,
-    positive_gt: u64,
-    positive_pred: u64,
+    // total number of predictions made for the segmentation class
+    pub(crate) len: u64,
+    // number of positive predictions based on segmentation criteria
+    pub(crate) positive_gt: u64,
+    // number of positive ground truth outcomes based on segmentation criteria
+    pub(crate) positive_pred: u64,
 }
 
 impl PostTrainingDistribution {
