@@ -151,16 +151,12 @@ pub(crate) fn bool_to_f32(v: bool) -> f32 {
 }
 
 pub(crate) trait ApplyThreshold {
-    fn apply_threshold(&self, threshold: Self) -> Self;
+    fn apply_threshold(&self, threshold: &Self) -> Self;
 }
 
 impl ApplyThreshold for f32 {
-    fn apply_threshold(&self, threshold: f32) -> f32 {
-        if self.ge(&threshold) {
-            1_f32
-        } else {
-            0_f32
-        }
+    fn apply_threshold(&self, threshold: &f32) -> f32 {
+        bool_to_f32(self.ge(threshold))
     }
 }
 

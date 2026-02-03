@@ -1,6 +1,6 @@
 use crate::{
     data_bias::PreTraining,
-    data_handler::{ApplyThreshold, ConfusionMatrix},
+    data_handler::{bool_to_f32, ApplyThreshold, ConfusionMatrix},
     errors::{DataBiasRuntimeError, ModelBiasRuntimeError, ModelPerformanceError},
     metrics::{
         ClassificationEvaluationMetric, DataBiasMetric, LinearRegressionEvaluationMetric,
@@ -630,10 +630,10 @@ impl BinaryClassificationRuntime {
         for (t, p) in zip_iters!(y_true, y_pred) {
             let is_positive = p.eq(label);
             let is_true = *p == *t;
-            c_matrix.true_p += (is_true && is_positive) as i32 as f32;
-            c_matrix.false_p += (!is_true && is_positive) as i32 as f32;
-            c_matrix.true_n += (is_true && !is_positive) as i32 as f32;
-            c_matrix.false_n += (!is_true && !is_positive) as i32 as f32;
+            c_matrix.true_p += bool_to_f32(is_true && is_positive);
+            c_matrix.false_p += bool_to_f32(!is_true && is_positive);
+            c_matrix.true_n += bool_to_f32(is_true && !is_positive);
+            c_matrix.false_n += bool_to_f32(!is_true && !is_positive);
         }
 
         let accuracy = metrics::accuracy(y_true, y_pred)?;
@@ -689,13 +689,13 @@ impl BinaryClassificationRuntime {
     ) -> BinaryClassificationRuntimeReport {
         use ClassificationEvaluationMetric as C;
         let mut res: HashMap<C, f32> = HashMap::with_capacity(7);
-        let drift_factor = 1_f32 - drift_threshold;
+        let drift_factor = 1_f32 + drift_threshold;
         // log loss should not be present here
         // so when log loss comes up, we return Err
         for m in metrics.iter() {
             match *m {
                 C::BalancedAccuracy => {
-                    if self.balanced_accuracy < baseline.balanced_accuracy * drift_factor {
+                    if (self.balanced_accuracy * drift_factor) < baseline.balanced_accuracy {
                         res.insert(
                             C::BalancedAccuracy,
                             baseline.balanced_accuracy - self.balanced_accuracy,
@@ -703,7 +703,7 @@ impl BinaryClassificationRuntime {
                     }
                 }
                 C::PrecisionPositive => {
-                    if self.precision_positive < baseline.precision_positive * drift_factor {
+                    if (self.precision_positive * drift_factor) < baseline.precision_positive {
                         res.insert(
                             C::PrecisionPositive,
                             baseline.precision_positive - self.precision_positive,
@@ -711,7 +711,7 @@ impl BinaryClassificationRuntime {
                     }
                 }
                 C::PrecisionNegative => {
-                    if self.precision_negative < baseline.precision_negative * drift_factor {
+                    if (self.precision_negative * drift_factor) < baseline.precision_negative {
                         res.insert(
                             C::PrecisionNegative,
                             baseline.precision_negative - self.precision_negative,
@@ -719,7 +719,7 @@ impl BinaryClassificationRuntime {
                     }
                 }
                 C::RecallPositive => {
-                    if self.recall_positive < baseline.recall_positive * drift_factor {
+                    if (self.recall_positive * drift_factor) < baseline.recall_positive {
                         res.insert(
                             C::RecallPositive,
                             baseline.recall_positive - self.recall_positive,
@@ -727,7 +727,7 @@ impl BinaryClassificationRuntime {
                     }
                 }
                 C::RecallNegative => {
-                    if self.recall_negative < baseline.recall_negative * drift_factor {
+                    if (self.recall_negative * drift_factor) < baseline.recall_negative {
                         res.insert(
                             C::RecallNegative,
                             baseline.recall_negative - self.recall_negative,
@@ -735,12 +735,12 @@ impl BinaryClassificationRuntime {
                     }
                 }
                 C::Accuracy => {
-                    if self.accuracy < baseline.accuracy * drift_factor {
+                    if (self.accuracy * drift_factor) < baseline.accuracy {
                         res.insert(C::Accuracy, baseline.accuracy - self.accuracy);
                     }
                 }
                 C::F1Score => {
-                    if self.f1_score < baseline.f1_score * drift_factor {
+                    if (self.f1_score * drift_factor) < baseline.f1_score {
                         res.insert(C::F1Score, baseline.f1_score - self.f1_score);
                     }
                 }
@@ -846,8 +846,6 @@ impl TryFrom<HashMap<String, f32>> for BinaryClassificationRuntime {
     }
 }
 
-impl BinaryClassificationRuntime {}
-
 pub struct LogisticRegressionRuntime {
     balanced_accuracy: f32,
     precision_positive: f32,
@@ -874,14 +872,14 @@ impl LogisticRegressionRuntime {
         let mut c_matrix = ConfusionMatrix::default();
 
         for (t, p) in zip_iters!(y_true, y_pred) {
-            let label = p.apply_threshold(threshold);
+            let label = p.apply_threshold(&threshold);
             let is_positive = label == 1_f32;
             let is_true = label == *t;
 
-            c_matrix.true_p += (is_true && is_positive) as i32 as f32;
-            c_matrix.false_p += (!is_true && is_positive) as i32 as f32;
-            c_matrix.true_n += (is_true && !is_positive) as i32 as f32;
-            c_matrix.false_n += (!is_true && !is_positive) as i32 as f32;
+            c_matrix.true_p += bool_to_f32(is_true && is_positive);
+            c_matrix.false_p += bool_to_f32(!is_true && is_positive);
+            c_matrix.true_n += bool_to_f32(is_true && !is_positive);
+            c_matrix.false_n += bool_to_f32(!is_true && !is_positive);
         }
 
         let accuracy = metrics::accuracy(y_true, y_pred)?;

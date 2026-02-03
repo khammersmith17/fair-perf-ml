@@ -46,7 +46,7 @@ pub(crate) mod py_api {
             baseline,
             latest,
             FULL_REGRESSION_METRICS.as_slice(),
-            threshold,
+            Some(threshold),
         )
         .unwrap();
         Ok(drift_report.into_py_dict(py)?)
@@ -66,9 +66,13 @@ pub(crate) mod py_api {
                 Ok(m) => m,
                 Err(e) => return Err(e.into()),
             };
-        let drift_report =
-            regression_performance_runtime(baseline, latest, metrics_to_eval.as_ref(), threshold)
-                .unwrap();
+        let drift_report = regression_performance_runtime(
+            baseline,
+            latest,
+            metrics_to_eval.as_ref(),
+            Some(threshold),
+        )
+        .unwrap();
         Ok(drift_report.into_py_dict(py)?)
     }
 
@@ -86,9 +90,13 @@ pub(crate) mod py_api {
                 Ok(m) => m,
                 Err(e) => return Err(e.into()),
             };
-        let drift_report =
-            logistic_performance_runtime(baseline, latest, metrics_to_eval.as_ref(), threshold)
-                .unwrap();
+        let drift_report = logistic_performance_runtime(
+            baseline,
+            latest,
+            metrics_to_eval.as_ref(),
+            Some(threshold),
+        )
+        .unwrap();
         Ok(drift_report.into_py_dict(py)?)
     }
 
@@ -104,7 +112,7 @@ pub(crate) mod py_api {
             baseline,
             latest,
             FULL_LOGISTIC_REGRESSION_METRICS.as_slice(),
-            threshold,
+            Some(threshold),
         )
         .unwrap();
         Ok(drift_report.into_py_dict(py)?)
@@ -128,7 +136,7 @@ pub(crate) mod py_api {
             baseline,
             latest,
             metrics_to_eval.as_ref(),
-            threshold,
+            Some(threshold),
         )
         .unwrap();
         Ok(drift_report.into_py_dict(py)?)
@@ -146,7 +154,7 @@ pub(crate) mod py_api {
             baseline,
             latest,
             FULL_BINARY_CLASSIFICATION_METRICS.as_slice(),
-            threshold,
+            Some(threshold),
         )
         .unwrap();
         Ok(drift_report.into_py_dict(py)?)
@@ -257,15 +265,17 @@ pub(crate) mod py_api {
     }
 }
 
-/// Perform the full suite of Post Training Bias analysis on a discrete dataset. This method can be
-/// used to get a point in time snapshot into model performance across a discrete dataset. This
-/// method
+/// Method to perform the runtime analysis against the baseline set for logisitc regression models.
+/// Takes in the baseline report, the runtime report, the metrics you are interested in evaluating on,
+/// and an acceptable drift percentage threshold. When a threshold is not passed, it defaults to 0.10,
+/// or a 10% drift threshold.
 pub fn classification_performance_runtime(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
     metrics: &[ClassificationEvaluationMetric],
-    threshold: f32,
+    threshold_perc_opt: Option<f32>,
 ) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
+    let threshold = threshold_perc_opt.unwrap_or(0.10_f32);
     let baseline = match BinaryClassificationRuntime::try_from(baseline) {
         Ok(v) => v,
         Err(e) => return Err(format!("Invalid baseline report: {}", e)),
@@ -281,12 +291,17 @@ pub fn classification_performance_runtime(
     ))
 }
 
+/// Method to perform the runtime analysis against the baseline set for logisitc regression models.
+/// Takes in the baseline report, the runtime report, the metrics you are interested in evaluating on,
+/// and an acceptable drift percentage threshold. When a threshold is not passed, it defaults to 0.10,
+/// or a 10% drift threshold.
 pub fn logistic_performance_runtime(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
     metrics: &[ClassificationEvaluationMetric],
-    threshold: f32,
+    threshold_perc_opt: Option<f32>,
 ) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
+    let threshold = threshold_perc_opt.unwrap_or(0.10_f32);
     let baseline = match LogisticRegressionRuntime::try_from(baseline) {
         Ok(v) => v,
         Err(e) => return Err(format!("Invalid baseline report: {}", e)),
@@ -299,12 +314,17 @@ pub fn logistic_performance_runtime(
     Ok(DriftReport::from_runtime(res))
 }
 
+/// Method to perform the runtime analysis against the baseline set for linear regression models.
+/// Takes in the baseline report, the runtime report, the metrics you are interested in evaluating on,
+/// and an acceptable drift percentage threshold. When a threshold is not passed, it defaults to 0.10,
+/// or a 10% drift threshold.
 pub fn regression_performance_runtime(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
     evaluation_metrics: &[LinearRegressionEvaluationMetric],
-    threshold: f32,
+    threshold_perc_opt: Option<f32>,
 ) -> Result<DriftReport<LinearRegressionEvaluationMetric>, String> {
+    let threshold = threshold_perc_opt.unwrap_or(0.10_f32);
     let baseline: LinearRegressionRuntime = match LinearRegressionRuntime::try_from(baseline) {
         Ok(val) => val,
         Err(e) => return Err(format!("Invalid baseline report: {}", e)),

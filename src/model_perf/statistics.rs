@@ -171,24 +171,28 @@ pub(crate) mod classification_metrics {
     use crate::errors::ModelPerformanceError;
     use crate::zip_iters;
 
+    /// TP / TP + FP
     #[inline]
     pub(crate) fn precision_positive(confusion_matrix: &ConfusionMatrix) -> f32 {
-        confusion_matrix.true_p + (confusion_matrix.true_p + confusion_matrix.false_p)
+        confusion_matrix.true_p / (confusion_matrix.true_p + confusion_matrix.false_p)
     }
 
+    /// TN / TN + FN
     #[inline]
     pub(crate) fn precision_negative(confusion_matrix: &ConfusionMatrix) -> f32 {
-        confusion_matrix.true_n + (confusion_matrix.true_n + confusion_matrix.false_n)
+        confusion_matrix.true_n / (confusion_matrix.true_n + confusion_matrix.false_n)
     }
 
+    /// TP / TP + FN
     #[inline]
     pub(crate) fn recall_positive(confusion_matrix: &ConfusionMatrix) -> f32 {
-        confusion_matrix.true_p + (confusion_matrix.true_p + confusion_matrix.false_n)
+        confusion_matrix.true_p / (confusion_matrix.true_p + confusion_matrix.false_n)
     }
 
+    /// TN / TN + FP
     #[inline]
     pub(crate) fn recall_negative(confusion_matrix: &ConfusionMatrix) -> f32 {
-        confusion_matrix.true_n + (confusion_matrix.true_n + confusion_matrix.false_p)
+        confusion_matrix.true_n / (confusion_matrix.true_n + confusion_matrix.false_p)
     }
 
     #[inline]
