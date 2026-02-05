@@ -1,10 +1,11 @@
-/// All methods accept any type that implements Into<f64>, to account for scenarios where scores and
-/// ground truth values may overflow on f32, and to allow the most flexibility in terms of typing.
-/// Copy is also a requirement, internally the function performs the computation on f64 values,
-/// thus requiring copy for performance related implications on deref and into f64. All slices must
-/// be the same length and be of the same type.
-
 pub mod classification_metrics {
+    /// Methods to perform ad hoc loss function computations.
+    /// Each method aside from log loss has two variants, one for binary labeled data and one for
+    /// logisitc regression style labeling via a threshold. The only exception is the log loss
+    /// score, which only provides a single variant.
+    ///
+    /// Generic types can used that implement the associated [std::cmp::Ordering] trait. The label
+    /// methods require [PartialEq], and the threshold methods take [ParitalOrd].
     use super::classification_metrics_from_parts as CMetrics;
     use crate::data_handler::ConfusionMatrix;
     use crate::errors::ModelPerformanceError;
@@ -72,7 +73,6 @@ pub mod classification_metrics {
         CMetrics::accuracy(y_true, y_pred)
     }
 
-    // TODO: Does this need to be limited f32 slices?
     pub fn log_loss_score(y_true: &[f32], y_pred: &[f32]) -> Result<f32, ModelPerformanceError> {
         CMetrics::log_loss_score(y_true, y_pred)
     }
@@ -104,9 +104,42 @@ pub mod classification_metrics {
         c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
         Ok(CMetrics::f1_score(&c_matrix))
     }
+
+    pub fn balanced_accuracy_from_label<T: PartialEq>(
+        y_true: &[T],
+        y_pred: &[T],
+        positive_threshold: T,
+    ) -> Result<f32, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        let mut c_matrix = ConfusionMatrix::default();
+
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_threshold));
+        Ok(CMetrics::balanced_accuracy(&c_matrix))
+    }
+
+    pub fn balanced_accuracy_from_threshold<T: PartialOrd>(
+        y_true: &[T],
+        y_pred: &[T],
+        positive_threshold: T,
+    ) -> Result<f32, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        let mut c_matrix = ConfusionMatrix::default();
+
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
+        Ok(CMetrics::balanced_accuracy(&c_matrix))
+    }
 }
 
 pub mod linear_regression_metric {
+    /// All methods accept any type that implements Into<f64>, to account for scenarios where scores and
+    /// ground truth values may overflow on f32, and to allow the most flexibility in terms of typing.
+    /// Copy is also a requirement, internally the function performs the computation on f64 values,
+    /// thus requiring copy for performance related implications on deref and into f64. All slices must
+    /// be the same length and be of the same type.
     use crate::errors::ModelPerformanceError;
     use crate::zip_iters;
 
