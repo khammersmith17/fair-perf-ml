@@ -624,7 +624,7 @@ impl BinaryClassificationRuntime {
     where
         T: PartialOrd,
     {
-        use crate::model_perf::statistics::classification_metrics as metrics;
+        use crate::model_perf::statistics::classification_metrics_from_parts as metrics;
         let mut c_matrix = ConfusionMatrix::default();
 
         for (t, p) in zip_iters!(y_true, y_pred) {
@@ -661,7 +661,7 @@ impl BinaryClassificationRuntime {
         c_matrix: &ConfusionMatrix,
         accuracy: f32,
     ) -> BinaryClassificationRuntime {
-        use crate::model_perf::statistics::classification_metrics as metrics;
+        use crate::model_perf::statistics::classification_metrics_from_parts as metrics;
 
         let balanced_accuracy = metrics::balanced_accuracy(c_matrix);
         let precision_positive = metrics::precision_positive(c_matrix);
@@ -868,7 +868,7 @@ impl LogisticRegressionRuntime {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
 
-        use crate::model_perf::statistics::classification_metrics as metrics;
+        use crate::model_perf::statistics::classification_metrics_from_parts as metrics;
         let mut c_matrix = ConfusionMatrix::default();
 
         for (t, p) in zip_iters!(y_true, y_pred) {
@@ -912,7 +912,7 @@ impl LogisticRegressionRuntime {
         if c_matrix.len() == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         };
-        use crate::model_perf::statistics::classification_metrics as metrics;
+        use crate::model_perf::statistics::classification_metrics_from_parts as metrics;
         Ok(LogisticRegressionRuntime {
             balanced_accuracy: metrics::balanced_accuracy(c_matrix),
             precision_positive: metrics::precision_positive(c_matrix),

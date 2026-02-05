@@ -4,11 +4,114 @@
 /// thus requiring copy for performance related implications on deref and into f64. All slices must
 /// be the same length and be of the same type.
 
+pub mod classification_metrics {
+    use super::classification_metrics_from_parts as CMetrics;
+    use crate::data_handler::ConfusionMatrix;
+    use crate::errors::ModelPerformanceError;
+
+    pub fn precision_from_label<T: PartialEq>(
+        y_true: &[T],
+        y_pred: &[T],
+        positive_label: T,
+    ) -> Result<f32, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        let mut c_matrix = ConfusionMatrix::default();
+
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label));
+        Ok(CMetrics::precision_positive(&c_matrix))
+    }
+
+    pub fn precision_from_threshold<T: PartialOrd>(
+        y_true: &[T],
+        y_pred: &[T],
+        positive_threshold: T,
+    ) -> Result<f32, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        let mut c_matrix = ConfusionMatrix::default();
+
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
+        Ok(CMetrics::precision_positive(&c_matrix))
+    }
+
+    pub fn recall_from_label<T: PartialEq>(
+        y_true: &[T],
+        y_pred: &[T],
+        positive_label: T,
+    ) -> Result<f32, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        let mut c_matrix = ConfusionMatrix::default();
+
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label));
+        Ok(CMetrics::recall_positive(&c_matrix))
+    }
+
+    pub fn recall_from_threshold<T: PartialOrd>(
+        y_true: &[T],
+        y_pred: &[T],
+        positive_threshold: T,
+    ) -> Result<f32, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        let mut c_matrix = ConfusionMatrix::default();
+
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
+        Ok(CMetrics::recall_positive(&c_matrix))
+    }
+
+    pub fn accuracy_from_label<T: PartialEq>(
+        y_true: &[T],
+        y_pred: &[T],
+    ) -> Result<f32, ModelPerformanceError> {
+        CMetrics::accuracy(y_true, y_pred)
+    }
+
+    // TODO: Does this need to be limited f32 slices?
+    pub fn log_loss_score(y_true: &[f32], y_pred: &[f32]) -> Result<f32, ModelPerformanceError> {
+        CMetrics::log_loss_score(y_true, y_pred)
+    }
+
+    pub fn f1_score_from_label<T: PartialEq>(
+        y_true: &[T],
+        y_pred: &[T],
+        positive_label: T,
+    ) -> Result<f32, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        let mut c_matrix = ConfusionMatrix::default();
+
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label));
+        Ok(CMetrics::f1_score(&c_matrix))
+    }
+
+    pub fn f1_score_from_threshold<T: PartialOrd>(
+        y_true: &[T],
+        y_pred: &[T],
+        positive_threshold: T,
+    ) -> Result<f32, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        let mut c_matrix = ConfusionMatrix::default();
+
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
+        Ok(CMetrics::f1_score(&c_matrix))
+    }
+}
+
 pub mod linear_regression_metric {
     use crate::errors::ModelPerformanceError;
     use crate::zip_iters;
 
-    /// Root Mean Squared Error.
+    /// Root Mean Squared Error. This will error when the y_true and y_pred slices are not the same
+    /// length.
     pub fn root_mean_squared_error<T>(
         y_true: &[T],
         y_pred: &[T],
@@ -29,7 +132,9 @@ pub mod linear_regression_metric {
         Ok((errors / n).powf(0.5_f64))
     }
 
-    /// Mean Squared Error
+    /// Mean Squared Error. This will error when the y_true and y_pred slices are not the same
+    /// length.
+
     pub fn mean_squared_error<T>(y_true: &[T], y_pred: &[T]) -> Result<f64, ModelPerformanceError>
     where
         T: Into<f64> + Copy,
@@ -47,7 +152,9 @@ pub mod linear_regression_metric {
         Ok(errors / n)
     }
 
-    /// Mean Absolute Error
+    /// Mean Absolute Error. This will error when the y_true and y_pred slices are not the same
+    /// length.
+
     pub fn mean_absolute_error<T>(y_true: &[T], y_pred: &[T]) -> Result<f64, ModelPerformanceError>
     where
         T: Into<f64> + Copy,
@@ -65,7 +172,9 @@ pub mod linear_regression_metric {
         Ok(errors / n)
     }
 
-    /// Mean Absolute Error
+    /// Mean Absolute Error. This will error when the y_true and y_pred slices are not the same
+    /// length.
+
     pub fn r_squared<T>(y_true: &[T], y_pred: &[T]) -> Result<f64, ModelPerformanceError>
     where
         T: Into<f64> + Copy,
@@ -93,7 +202,9 @@ pub mod linear_regression_metric {
         Ok(1_f64 - (ss_regression / ss_total))
     }
 
-    /// Mean Absolute Error
+    /// Mean Absolute Error. This will error when the y_true and y_pred slices are not the same
+    /// length.
+
     pub fn max_error<T>(y_true: &[T], y_pred: &[T]) -> Result<f64, ModelPerformanceError>
     where
         T: Into<f64> + Copy,
@@ -110,7 +221,9 @@ pub mod linear_regression_metric {
         Ok(res)
     }
 
-    /// Mean sqaured Log Error
+    /// Mean sqaured Log Error. This will error when the y_true and y_pred slices are not the same
+    /// length.
+
     pub fn mean_squared_log_error<T>(
         y_true: &[T],
         y_pred: &[T],
@@ -131,7 +244,9 @@ pub mod linear_regression_metric {
         Ok(sum.powi(2) / n)
     }
 
-    /// Root Mean Sqaured Log Error
+    /// Root Mean Sqaured Log Error. This will error when the y_true and y_pred slices are not the same
+    /// length.
+
     pub fn root_mean_squared_log_error<T>(
         y_true: &[T],
         y_pred: &[T],
@@ -152,7 +267,8 @@ pub mod linear_regression_metric {
         Ok(sum.powi(2).sqrt() / n)
     }
 
-    /// Ad hoc method to compute the mean absolute percentage error Linear Regression metric. pub fn mean_absolute_percentage_error<T>(
+    /// Ad hoc method to compute the mean absolute percentage error Linear Regression metric. This will error
+    /// when the y_true and y_pred slices are not the same length.
     pub fn mean_absolute_percentage_error<T>(
         y_true: &[T],
         y_pred: &[T],
@@ -174,7 +290,7 @@ pub mod linear_regression_metric {
     }
 }
 
-pub(crate) mod classification_metrics {
+pub(crate) mod classification_metrics_from_parts {
     use crate::data_handler::ConfusionMatrix;
     use crate::errors::ModelPerformanceError;
     use crate::zip_iters;
@@ -220,7 +336,7 @@ pub(crate) mod classification_metrics {
     #[inline]
     pub(crate) fn accuracy<T>(y_true: &[T], y_pred: &[T]) -> Result<f32, ModelPerformanceError>
     where
-        T: PartialOrd,
+        T: PartialEq,
     {
         if y_pred.len() != y_true.len() {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
@@ -229,7 +345,7 @@ pub(crate) mod classification_metrics {
         let n = y_true.len();
         let mut correct: f32 = 0_f32;
         for (t, p) in zip_iters!(y_true, y_pred) {
-            if t == p {
+            if t.eq(p) {
                 correct += 1_f32;
             }
         }

@@ -224,6 +224,23 @@ impl ConfusionMatrix {
         self.true_n += bool_to_f32(!true_gt && !true_pred);
         self.false_n += bool_to_f32(true_gt && !true_pred);
     }
+
+    /// Pushes a batch dataset of inference and ground truth examples into the confusion matrix.
+    /// The true/false label is applied by the closure passed to compute the result. This allows
+    /// for dynamic labeling, and this method can be used accross binary classification and
+    /// logistic regression contexts.
+    pub(crate) fn push_dataset<T, F: Fn(&T) -> bool>(
+        &mut self,
+        y_true: &[T],
+        y_pred: &[T],
+        label_f: F,
+    ) {
+        for (y_true, y_pred) in crate::zip_iters!(y_true, y_pred) {
+            let true_label = label_f(y_true);
+            let pred_label = label_f(y_pred);
+            self.push(true_label, pred_label);
+        }
+    }
 }
 
 /// Enum to differentiate between an array that is going to be segmented by label versus by a
