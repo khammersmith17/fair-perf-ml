@@ -26,6 +26,44 @@ pub(crate) mod py_types_handler {
         dict
     }
 
+    /// The purpose of this type is to be able to use floating point values to create a HashSet.
+    /// This is used below when attempting to determine which labeling functionality should be
+    /// dispached to based on the number of unique values in the dataset.
+    /// Floating point values are typically not supported because they do not implement Eq. This is
+    /// simply a wrapper type to manually override the convetional edge case behavior such as
+    /// comparison of NaNs. This type uses the same convention as the ordered_float package,
+    /// and diverges from the IEEE standard for some NaN properties.
+    #[derive(PartialEq)]
+    struct OrderedFloat(f64);
+
+    impl PartialOrd for OrderedFloat {
+        /// None will ever be returned here. The only time the interanl floating point values are
+        /// comapred here is when it is validated that neither are NaN.
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            match (self.0.is_nan(), other.0.is_nan()) {
+                (true, true) => Some(std::cmp::Ordering::Equal),
+                (true, false) => Some(std::cmp::Ordering::Greater),
+                (false, true) => Some(std::cmp::Ordering::Less),
+                (false, false) => self.0.partial_cmp(&other.0),
+            }
+        }
+    }
+
+    impl Ord for OrderedFloat {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            // The PartialOrd implmenetation does not present a case where None is returned.
+            self.partial_cmp(other).unwrap()
+        }
+    }
+
+    impl Eq for OrderedFloat {}
+
+    impl std::hash::Hash for OrderedFloat {
+        fn hash<H: std::hash::Hasher>(&self, hash_state: &mut H) {
+            hash_state.write_u64(self.0.to_bits())
+        }
+    }
+
     #[derive(PartialEq)]
     pub enum PassedType {
         Float,
@@ -67,11 +105,8 @@ pub(crate) mod py_types_handler {
     // labeling logic to dispatch to. Takes in a closure to map the values to an OrderedFloat so the data
     // can be hashed into a HashSet. OrderedFloat is used to allow for the precision of floating
     // point values.
-    fn resolve_num_unique_values<T>(
-        arr: &[T],
-        f: &dyn Fn(&T) -> ordered_float::OrderedFloat<f32>,
-    ) -> usize {
-        let arr_set: std::collections::HashSet<ordered_float::OrderedFloat<f32>> =
+    fn resolve_num_unique_values<T>(arr: &[T], f: &dyn Fn(&T) -> OrderedFloat) -> usize {
+        let arr_set: std::collections::HashSet<OrderedFloat> =
             arr.iter().map(|v| (*f)(v)).collect();
         arr_set.len()
     }
@@ -110,7 +145,7 @@ pub(crate) mod py_types_handler {
                     return Err("float".into());
                 };
 
-                let f = Box::new(|v: &f64| ordered_float::OrderedFloat(*v as f32));
+                let f = Box::new(|v: &f64| OrderedFloat(*v));
                 let num_unique = resolve_num_unique_values(&data_vec, &f);
 
                 if num_unique == 2 {
@@ -131,7 +166,7 @@ pub(crate) mod py_types_handler {
                     return Err("float".into());
                 };
 
-                let f = Box::new(|v: &i64| ordered_float::OrderedFloat(*v as f32));
+                let f = Box::new(|v: &i64| OrderedFloat(*v as f64));
                 let num_unique = resolve_num_unique_values(&data_vec, &f);
 
                 if num_unique == 2 {
