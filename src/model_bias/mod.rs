@@ -1,5 +1,6 @@
 use crate::data_handler::{
-    bool_to_f32, BiasDataPayload, BiasSegmentationCriteria, BiasSegmentationType, ConfusionMatrix,
+    BiasDataPayload, BiasSegmentationCriteria, BiasSegmentationType,
+    ConditionalConfusionPushPayload, ConfusionMatrix,
 };
 use crate::errors::{BiasError, ModelBiasRuntimeError};
 use crate::metrics::{ModelBiasMetric, FULL_MODEL_BIAS_METRICS};
@@ -327,22 +328,20 @@ impl PostTraining {
         self.dist_d.positive_pred += (!is_a && pred_is_positive) as u64;
         self.dist_d.positive_gt += (!is_a && gt_is_positive) as u64;
 
-        let is_true = pred_is_positive == gt_is_positive;
-        let tp = pred_is_positive && is_true;
-        let tn = !pred_is_positive && is_true;
-        let fp = pred_is_positive && !is_true;
-        let r#fn = !pred_is_positive && !is_true;
+        let pred_is_true = pred_is_positive == gt_is_positive;
 
-        // Updating the container inline here to avoid branching
-        self.confusion_a.true_p += bool_to_f32(is_a && tp);
-        self.confusion_a.true_n += bool_to_f32(is_a && tn);
-        self.confusion_a.false_p += bool_to_f32(is_a && fp);
-        self.confusion_a.false_n += bool_to_f32(is_a && r#fn);
-
-        self.confusion_d.true_p += bool_to_f32(!is_a && tp);
-        self.confusion_d.true_n += bool_to_f32(!is_a && tn);
-        self.confusion_d.false_p += bool_to_f32(!is_a && fp);
-        self.confusion_d.false_n += bool_to_f32(!is_a && r#fn);
+        self.confusion_a
+            .conditional_push(ConditionalConfusionPushPayload {
+                cond: is_a,
+                true_gt: gt_is_positive,
+                true_pred: pred_is_true,
+            });
+        self.confusion_d
+            .conditional_push(ConditionalConfusionPushPayload {
+                cond: is_a,
+                true_gt: gt_is_positive,
+                true_pred: pred_is_true,
+            });
     }
 
     /// Requires the slices passed to be none empty. Will error in that case that the slices are

@@ -1099,15 +1099,16 @@ impl LogisticRegressionRuntime {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct LinearRegressionRuntime {
-    rmse: f32,
-    mse: f32,
-    mae: f32,
-    r_squared: f32,
-    max_error: f32,
-    msle: f32,
-    rmsle: f32,
-    mape: f32,
+    pub(crate) rmse: f32,
+    pub(crate) mse: f32,
+    pub(crate) mae: f32,
+    pub(crate) r_squared: f32,
+    pub(crate) max_error: f32,
+    pub(crate) msle: f32,
+    pub(crate) rmsle: f32,
+    pub(crate) mape: f32,
 }
 
 impl LinearRegressionRuntime {
@@ -1161,7 +1162,7 @@ impl LinearRegressionRuntime {
 
         Ok(LinearRegressionRuntime {
             r_squared: (1_f64 - (squared_error_sum / ss_total)) as f32,
-            rmse: (mse).powf(0_f64) as f32,
+            rmse: (mse).powf(0.5_f64) as f32,
             mse: mse as f32,
             mae: (abs_error_sum / n) as f32,
             max_error: max_error as f32,

@@ -195,6 +195,16 @@ impl ApplyThreshold for f32 {
     }
 }
 
+pub(crate) struct ConfusionPushPayload {
+    pub(crate) true_gt: bool,
+    pub(crate) true_pred: bool,
+}
+
+pub(crate) struct ConditionalConfusionPushPayload {
+    pub(crate) true_gt: bool,
+    pub(crate) true_pred: bool,
+    pub(crate) cond: bool,
+}
 // Type to hold confusion matrix for binary type classification. This allows for much cheaper
 // computation of many of the classic classification metrics
 #[derive(Default, Debug, PartialEq)]
@@ -217,12 +227,31 @@ impl ConfusionMatrix {
         self.true_p + self.false_p + self.false_n + self.true_n
     }
 
+    /// Push a single record update to the confusion matrix.
     #[inline]
-    pub(crate) fn push(&mut self, true_gt: bool, true_pred: bool) {
+    pub(crate) fn push(&mut self, payload: ConfusionPushPayload) {
+        let ConfusionPushPayload { true_gt, true_pred } = payload;
         self.true_p += bool_to_f32(true_gt && true_pred);
         self.false_p += bool_to_f32(!true_gt && true_pred);
         self.true_n += bool_to_f32(!true_gt && !true_pred);
         self.false_n += bool_to_f32(true_gt && !true_pred);
+    }
+
+    /// Method to conditionally update the confusion matrix state. The intention here to allow
+    /// upstream code to avoid branching based on which demographic class belongs to. Allows for
+    /// inline branchless computations to be maintained, and all update logic stays in the same
+    /// place.
+    #[inline]
+    pub(crate) fn conditional_push(&mut self, payload: ConditionalConfusionPushPayload) {
+        let ConditionalConfusionPushPayload {
+            cond,
+            true_gt,
+            true_pred,
+        } = payload;
+        self.true_p += bool_to_f32(cond && (true_gt && true_pred));
+        self.false_p += bool_to_f32(cond && (!true_gt && true_pred));
+        self.true_n += bool_to_f32(cond && (!true_gt && !true_pred));
+        self.false_n += bool_to_f32(cond && (true_gt && !true_pred));
     }
 
     /// Pushes a batch dataset of inference and ground truth examples into the confusion matrix.
@@ -236,9 +265,10 @@ impl ConfusionMatrix {
         label_f: F,
     ) {
         for (y_true, y_pred) in crate::zip_iters!(y_true, y_pred) {
-            let true_label = label_f(y_true);
-            let pred_label = label_f(y_pred);
-            self.push(true_label, pred_label);
+            self.push(ConfusionPushPayload {
+                true_gt: label_f(y_true),
+                true_pred: label_f(y_pred),
+            });
         }
     }
 }
@@ -396,10 +426,22 @@ mod data_handler_tests {
     fn test_confusion_push() {
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push(false, false);
-        c_matrix.push(true, true);
-        c_matrix.push(false, true);
-        c_matrix.push(true, false);
+        c_matrix.push(ConfusionPushPayload {
+            true_gt: false,
+            true_pred: false,
+        });
+        c_matrix.push(ConfusionPushPayload {
+            true_gt: true,
+            true_pred: true,
+        });
+        c_matrix.push(ConfusionPushPayload {
+            true_gt: false,
+            true_pred: true,
+        });
+        c_matrix.push(ConfusionPushPayload {
+            true_gt: true,
+            true_pred: false,
+        });
         dbg!(&c_matrix);
         assert!(
             c_matrix.true_n == 1_f32
@@ -408,7 +450,10 @@ mod data_handler_tests {
                 && c_matrix.false_p == 1_f32
         );
 
-        c_matrix.push(true, false);
+        c_matrix.push(ConfusionPushPayload {
+            true_gt: true,
+            true_pred: false,
+        });
         assert!(
             c_matrix.true_n == 1_f32
                 && c_matrix.true_p == 1_f32
@@ -416,21 +461,30 @@ mod data_handler_tests {
                 && c_matrix.false_p == 1_f32
         );
 
-        c_matrix.push(true, true);
+        c_matrix.push(ConfusionPushPayload {
+            true_gt: true,
+            true_pred: true,
+        });
         assert!(
             c_matrix.true_n == 1_f32
                 && c_matrix.true_p == 2_f32
                 && c_matrix.false_n == 2_f32
                 && c_matrix.false_p == 1_f32
         );
-        c_matrix.push(false, true);
+        c_matrix.push(ConfusionPushPayload {
+            true_gt: false,
+            true_pred: true,
+        });
         assert!(
             c_matrix.true_n == 1_f32
                 && c_matrix.true_p == 2_f32
                 && c_matrix.false_n == 2_f32
                 && c_matrix.false_p == 2_f32
         );
-        c_matrix.push(false, false);
+        c_matrix.push(ConfusionPushPayload {
+            true_gt: false,
+            true_pred: false,
+        });
         assert!(
             c_matrix.true_n == 2_f32
                 && c_matrix.true_p == 2_f32

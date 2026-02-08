@@ -407,3 +407,65 @@ pub(crate) mod classification_metrics_from_parts {
         }
     }
 }
+
+mod test_model_perf_stats {
+    use super::*;
+
+    #[test]
+    fn test_regression_ad_hoc_metrics_zero() {
+        use linear_regression_metric as metrics;
+        let y_pred = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
+        let y_true = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
+        let rmse = metrics::root_mean_squared_error(&y_true, &y_pred).unwrap();
+        assert!(rmse.abs() < 1e5_f64);
+        let mse = metrics::mean_squared_error(&y_true, &y_pred).unwrap();
+        assert!(mse.abs() < 1e5_f64);
+        let mae = metrics::mean_absolute_error(&y_true, &y_pred).unwrap();
+        assert!(mae.abs() < 1e5_f64);
+        let r2 = metrics::r_squared(&y_true, &y_pred).unwrap();
+        assert!((1_f64 - r2).abs() < 1e5_f64);
+        let max_error = metrics::max_error(&y_true, &y_pred).unwrap();
+        assert!(max_error.abs() < 1e5_f64);
+        let msle = metrics::mean_squared_log_error(&y_true, &y_pred).unwrap();
+        assert!(msle.abs() < 1e5_f64);
+        let rmsle = metrics::root_mean_squared_log_error(&y_true, &y_pred).unwrap();
+        assert!(rmsle.abs() < 1e5_f64);
+        let mape = metrics::mean_absolute_percentage_error(&y_true, &y_pred).unwrap();
+        assert!(mape.abs() < 1e5_f64);
+    }
+
+    #[test]
+    fn test_regression_ad_hoc_metrics_nonzero() {
+        use linear_regression_metric as metrics;
+        /*
+         * {
+         *       'rmse': 0.7781745019952505,
+         *       'mse': 0.6055555555555561,
+         *       'msle': 0.0030593723018136412,
+         *       'rmsle': 0.055311592833814156,
+         *       'r2': 0.7435160008366448,
+         *       'mape': 0.053999057284547014,
+         *       'max_error': 1.3000000000000007,
+         *       'mae': 0.7000000000000003
+         *   }
+         * */
+        let y_pred = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
+        let y_true = vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6];
+        let rmse = metrics::root_mean_squared_error(&y_true, &y_pred).unwrap();
+        assert!((0.77817_f64 - rmse).abs() < 1e5_f64);
+        let mse = metrics::mean_squared_error(&y_true, &y_pred).unwrap();
+        assert!((0.605555 - mse).abs() < 1e5_f64);
+        let mae = metrics::mean_absolute_error(&y_true, &y_pred).unwrap();
+        assert!((0.7000 - mae).abs() < 1e5_f64);
+        let r2 = metrics::r_squared(&y_true, &y_pred).unwrap();
+        assert!((0.7435_f64 - r2).abs() < 1e5_f64);
+        let max_error = metrics::max_error(&y_true, &y_pred).unwrap();
+        assert!((1.3 - max_error).abs() < 1e5_f64);
+        let msle = metrics::mean_squared_log_error(&y_true, &y_pred).unwrap();
+        assert!((0.003059_f64 - msle).abs() < 1e5_f64);
+        let rmsle = metrics::root_mean_squared_log_error(&y_true, &y_pred).unwrap();
+        assert!((0.055311 - rmsle).abs() < 1e5_f64);
+        let mape = metrics::mean_absolute_percentage_error(&y_true, &y_pred).unwrap();
+        assert!((0.05399_f64 - mape).abs() < 1e5_f64);
+    }
+}

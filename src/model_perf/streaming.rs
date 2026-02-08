@@ -1,5 +1,5 @@
 use crate::{
-    data_handler::ConfusionMatrix,
+    data_handler::{ConfusionMatrix, ConfusionPushPayload},
     errors::{ModelPerfResult, ModelPerformanceError},
     metrics::{ClassificationEvaluationMetric, LinearRegressionEvaluationMetric},
     reporting::{
@@ -442,10 +442,12 @@ where
     pub fn push(&mut self, y_true: &T, y_pred: &T) {
         let gt_is_true = self.label.eq(y_true);
         let pred_is_true = self.label.eq(y_pred);
-        let true_pred = gt_is_true == pred_is_true;
 
         self.accuracy_rt.push(gt_is_true == pred_is_true);
-        self.confusion_rt.push(gt_is_true, true_pred);
+        self.confusion_rt.push(ConfusionPushPayload {
+            true_gt: gt_is_true,
+            true_pred: gt_is_true == pred_is_true,
+        });
     }
 
     /// Push a batch prediction and ground truth observed example set into the stream.
@@ -553,7 +555,8 @@ impl LogisticRegressionStreaming {
         let true_gt = gt == 1_f32;
         let true_pred = pred >= self.decision_threshold;
 
-        self.confusion_rt.push(true_gt, true_pred);
+        self.confusion_rt
+            .push(ConfusionPushPayload { true_gt, true_pred });
         self.accuracy_bucket.push(true_gt == true_pred);
     }
 
@@ -640,6 +643,7 @@ impl LogisticRegressionStreaming {
 #[cfg(test)]
 mod test_perf_streaming {
     use super::*;
+    use crate::runtime::LinearRegressionRuntime;
 
     /*
      * 1. Test the accumulation of the error buckets from LinearRegressionErrorBuckets/
@@ -649,4 +653,42 @@ mod test_perf_streaming {
      *    implementation.
      *
      * */
+
+    #[test]
+    fn test_linear_regression_baseline() {
+        /*
+         * {
+         *       'rmse': 0.7781745019952505,
+         *       'mse': 0.6055555555555561,
+         *       'msle': 0.0030593723018136412,
+         *       'rmsle': 0.055311592833814156,
+         *       'r2': 0.7435160008366448,
+         *       'mape': 0.053999057284547014,
+         *       'max_error': 1.3000000000000007,
+         *       'mae': 0.7000000000000003
+         *   }
+         * */
+        let y_pred = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
+        let y_true = vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6];
+
+        let true_bl = LinearRegressionRuntime {
+            rmse: 0.7781745019952505,
+            mse: 0.6055555555555561,
+            msle: 0.0030593723018136412,
+            rmsle: 0.055311592833814156,
+            r_squared: 0.7435160008366448,
+            mape: 0.053999057284547014,
+            max_error: 1.3000000000000007,
+            mae: 0.7000000000000003,
+        };
+        let streaming = LinearRegressionStreaming::new(&y_true, &y_pred).unwrap();
+        assert!((streaming.bl.rmse - true_bl.rmse).abs() < 1e5_f32);
+        assert!((streaming.bl.mse - true_bl.mse).abs() < 1e5_f32);
+        assert!((streaming.bl.mae - true_bl.mae).abs() < 1e5_f32);
+        assert!((streaming.bl.r_squared - true_bl.r_squared).abs() < 1e5_f32);
+        assert!((streaming.bl.max_error - true_bl.max_error).abs() < 1e5_f32);
+        assert!((streaming.bl.msle - true_bl.msle).abs() < 1e5_f32);
+        assert!((streaming.bl.rmsle - true_bl.rmsle).abs() < 1e5_f32);
+        assert!((streaming.bl.mape - true_bl.mape).abs() < 1e5_f32);
+    }
 }

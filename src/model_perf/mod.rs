@@ -16,8 +16,8 @@ pub(crate) mod py_api {
     /// Python interface into the core logic.
     use super::{
         classification_performance_runtime, logistic_performance_runtime,
-        model_perf_binary_classification, model_perf_logistic_regression, model_perf_regression,
-        regression_performance_runtime, ModelPerformanceError,
+        model_perf_binary_classification_analysis, model_perf_logistic_regression_analysis,
+        model_perf_regression_analysis, regression_performance_runtime, ModelPerformanceError,
     };
     use crate::data_handler::py_types_handler::{determine_type, report_to_py_dict, PassedType};
     use crate::metrics::{
@@ -207,7 +207,7 @@ pub(crate) mod py_api {
         let Ok((y_true, y_pred)) = validate_and_cast_regression(py, y_true_src, y_pred_src) else {
             return Err(PyValueError::new_err("Invalid types passed"));
         };
-        let report = match model_perf_regression(&y_true, &y_pred) {
+        let report = match model_perf_regression_analysis(&y_true, &y_pred) {
             Ok(r) => r,
             Err(e) => return Err(e.into()),
         };
@@ -231,7 +231,7 @@ pub(crate) mod py_api {
             return Err(PyValueError::new_err("Invalid types passed"));
         };
 
-        let report = match model_perf_binary_classification(&y_true, &y_pred, 1_f32) {
+        let report = match model_perf_binary_classification_analysis(&y_true, &y_pred, 1_f32) {
             Ok(r) => r,
             Err(e) => return Err(e.into()),
         };
@@ -257,7 +257,7 @@ pub(crate) mod py_api {
             return Err(PyTypeError::new_err("Invalid type passed"));
         };
 
-        let report = match model_perf_logistic_regression(&y_true, &y_proba, threshold) {
+        let report = match model_perf_logistic_regression_analysis(&y_true, &y_proba, threshold) {
             Ok(r) => r,
             Err(e) => return Err(e.into()),
         };
@@ -342,7 +342,7 @@ pub fn regression_performance_runtime(
 /// positive label would equate to 1 if the result is numeric or otherwise. This method allows for
 /// arbitrary label type, to account for situations where a model might produce a String label, an
 /// enum, and so on. Given the arbitrary labeling, the type must implement 'PartialOrd'
-pub fn model_perf_binary_classification<T>(
+pub fn model_perf_binary_classification_analysis<T>(
     y_true: &[T],
     y_pred: &[T],
     positive_label: T,
@@ -354,7 +354,7 @@ where
     Ok(report.generate_report())
 }
 
-pub fn model_perf_regression<T>(
+pub fn model_perf_regression_analysis<T>(
     y_true: &[T],
     y_pred: &[T],
 ) -> Result<LinearRegressionAnalysisReport, ModelPerformanceError>
@@ -365,7 +365,7 @@ where
     Ok(report.generate_report())
 }
 
-pub fn model_perf_logistic_regression(
+pub fn model_perf_logistic_regression_analysis(
     y_true: &[f32],
     y_proba: &[f32],
     threshold: f32,
@@ -374,3 +374,6 @@ pub fn model_perf_logistic_regression(
         LogisticRegressionRuntime::new(y_true, y_proba, threshold)?;
     Ok(lr_report.generate_report())
 }
+
+#[cfg(test)]
+mod test_discrete_model_perf_utilities {}
