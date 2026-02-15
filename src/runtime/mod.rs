@@ -903,7 +903,6 @@ impl LogisticRegressionRuntime {
     // style containers used in the stream variants
     pub(crate) fn runtime_from_parts(
         c_matrix: &ConfusionMatrix,
-        accuracy: f32,
         log_loss: f32,
     ) -> Result<LogisticRegressionRuntime, ModelPerformanceError> {
         if c_matrix.len() == 0_f32 {
@@ -918,7 +917,7 @@ impl LogisticRegressionRuntime {
             recall_negative: metrics::recall_negative(c_matrix),
             f1_score: metrics::f1_score(c_matrix),
             log_loss,
-            accuracy,
+            accuracy: c_matrix.accuracy(),
         })
     }
 

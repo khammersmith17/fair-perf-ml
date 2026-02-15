@@ -366,27 +366,6 @@ impl LinearRegressionStreaming {
     }
 }
 
-// Buckets for cheap storage and computation of classication inference scores,
-// This is essentially just a named tuple.
-#[derive(Default)]
-struct BinaryClassificationAccuracyBucket {
-    len: u64,
-    true_preds: u64,
-}
-
-impl BinaryClassificationAccuracyBucket {
-    // Point in time snapshot
-    fn snapshot(&self) -> f32 {
-        self.true_preds as f32 / self.len as f32
-    }
-
-    #[inline]
-    fn push(&mut self, true_pred: bool) {
-        self.true_preds += true_pred as u64;
-        self.len += 1;
-    }
-}
-
 /// Streaming variant of Binary Classification monitoring tools offered in the crate. This type
 /// allows for flexible types as inference scores to account for non numeric labels that may be
 /// applied on inference class labels. To account for this, a positive label is required on type
@@ -506,10 +485,9 @@ where
 /// Streaming style variant for LogisticRegression models. Like the other streaming variants of the
 /// monitors, this type leverages a bucketing algorithm for compact space.
 pub struct LogisticRegressionStreaming {
-    decision_threshold: f32, // Logisitic decision threshold
-    accuracy_bucket: BinaryClassificationAccuracyBucket, // Runtime accuracy bucket of label
+    decision_threshold: f32,       // Logisitic decision threshold
     confusion_rt: ConfusionMatrix, // Runtime confusion matrix buckets of label
-    log_penalties: f32,      // Accumulated runtime log penalties
+    log_penalties: f32,            // Accumulated runtime log penalties
     bl: LogisticRegressionRuntime, // Baseline computations
 }
 
@@ -526,13 +504,11 @@ impl LogisticRegressionStreaming {
         let bl = LogisticRegressionRuntime::new(y_true, y_pred, decision_threshold)?;
         let confusion_rt = ConfusionMatrix::default();
         let log_penalties = 0_f32;
-        let accuracy_bucket = BinaryClassificationAccuracyBucket::default();
         Ok(LogisticRegressionStreaming {
             bl,
             confusion_rt,
             log_penalties,
             decision_threshold,
-            accuracy_bucket,
         })
     }
 
@@ -546,7 +522,6 @@ impl LogisticRegressionStreaming {
 
         self.confusion_rt
             .push(ConfusionPushPayload { true_gt, true_pred });
-        self.accuracy_bucket.push(true_gt == true_pred);
     }
 
     /// Push records into the stream from a batched dataset.
@@ -567,7 +542,6 @@ impl LogisticRegressionStreaming {
     /// Clear and reset the runtime state.
     pub fn flush(&mut self) {
         self.confusion_rt = ConfusionMatrix::default();
-        self.accuracy_bucket = BinaryClassificationAccuracyBucket::default();
         self.log_penalties = 0_f32;
     }
 
@@ -579,14 +553,12 @@ impl LogisticRegressionStreaming {
     /// stream. This method returns the absoulte drift from the baseline state.
     pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
         // compute log loss
-        let n = self.accuracy_bucket.len as f32;
+        let n = self.confusion_rt.len() as f32;
         if n == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
         let log_loss = (-1_f32 * self.log_penalties) / n;
-        let accuracy = self.accuracy_bucket.snapshot();
-        let rt =
-            LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, accuracy, log_loss)?;
+        let rt = LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, log_loss)?;
         let report = rt.runtime_drift_report(&self.bl);
         Ok(DriftReport::from_runtime(report))
     }
@@ -594,15 +566,13 @@ impl LogisticRegressionStreaming {
     /// Compute a snapshot of runtime model performance accumulated in the stream, irrelevant of
     /// the baseline state. This will error when no data has been pushed into the stream.
     pub fn performance_snapshot(&self) -> ModelPerfResult<LogisticRegressionAnalysisReport> {
-        let n = self.accuracy_bucket.len;
-        if n == 0 {
+        let n = self.confusion_rt.len() as f32;
+        if n == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
 
         let log_loss = (-1_f32 * self.log_penalties) / n as f32;
-        let accuracy = self.accuracy_bucket.snapshot();
-        let rt =
-            LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, accuracy, log_loss)?;
+        let rt = LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, log_loss)?;
         Ok(rt.generate_report())
     }
 
