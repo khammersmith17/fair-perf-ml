@@ -398,10 +398,9 @@ pub struct BinaryClassificationStreaming<T>
 where
     T: PartialOrd,
 {
-    label: T,                                        // Label to evaluate true/false prediction
-    bl: BinaryClassificationRuntime,                 // Baseline computations
-    confusion_rt: ConfusionMatrix,                   // Runtime Confusion matrix buckets
-    accuracy_rt: BinaryClassificationAccuracyBucket, // Runtime accuracy buckets
+    label: T,                        // Label to evaluate true/false prediction
+    bl: BinaryClassificationRuntime, // Baseline computations
+    confusion_rt: ConfusionMatrix,   // Runtime Confusion matrix buckets
 }
 
 impl<T> BinaryClassificationStreaming<T>
@@ -427,13 +426,11 @@ where
 
         let bl = BinaryClassificationRuntime::new(baseline_true, baseline_pred, &positive_label)?;
         let confusion_rt = ConfusionMatrix::default();
-        let accuracy_rt = BinaryClassificationAccuracyBucket::default();
 
         Ok(BinaryClassificationStreaming {
             label: positive_label,
             bl,
             confusion_rt,
-            accuracy_rt,
         })
     }
 
@@ -443,7 +440,6 @@ where
         let gt_is_true = self.label.eq(y_true);
         let pred_is_true = self.label.eq(y_pred);
 
-        self.accuracy_rt.push(gt_is_true == pred_is_true);
         self.confusion_rt.push(ConfusionPushPayload {
             true_gt: gt_is_true,
             true_pred: gt_is_true == pred_is_true,
@@ -480,14 +476,11 @@ where
     /// what was computed in the baseline state. This will error when no data has been pushed into
     /// the stream. This method returns the absoulte drift from the baseline state.
     pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
-        if self.accuracy_rt.len == 0 {
+        if self.confusion_rt.len() == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
 
-        let rt = BinaryClassificationRuntime::runtime_from_parts(
-            &self.confusion_rt,
-            self.accuracy_rt.snapshot(),
-        );
+        let rt = BinaryClassificationRuntime::runtime_from_parts(&self.confusion_rt);
         let report = rt.runtime_drift_report(&self.bl);
         Ok(DriftReport::from_runtime(report))
     }
@@ -497,20 +490,16 @@ where
     /// the stream.
 
     pub fn performance_snapshot(&self) -> ModelPerfResult<BinaryClassificationAnalysisReport> {
-        if self.accuracy_rt.len == 0 {
+        if self.confusion_rt.len() == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
-        let rt = BinaryClassificationRuntime::runtime_from_parts(
-            &self.confusion_rt,
-            self.accuracy_rt.snapshot(),
-        );
+        let rt = BinaryClassificationRuntime::runtime_from_parts(&self.confusion_rt);
         Ok(rt.generate_report())
     }
 
     /// Clear the runtime stream.
     pub fn flush(&mut self) {
         self.confusion_rt = ConfusionMatrix::default();
-        self.accuracy_rt = BinaryClassificationAccuracyBucket::default();
     }
 }
 

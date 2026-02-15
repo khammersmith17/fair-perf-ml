@@ -657,10 +657,7 @@ impl BinaryClassificationRuntime {
 
     // Utlity to easliy compute the current model performance runtime state from the bucketing
     // style containers used in the stream variants
-    pub(crate) fn runtime_from_parts(
-        c_matrix: &ConfusionMatrix,
-        accuracy: f32,
-    ) -> BinaryClassificationRuntime {
+    pub(crate) fn runtime_from_parts(c_matrix: &ConfusionMatrix) -> BinaryClassificationRuntime {
         use crate::model_perf::statistics::classification_metrics_from_parts as metrics;
 
         let balanced_accuracy = metrics::balanced_accuracy(c_matrix);
@@ -676,7 +673,7 @@ impl BinaryClassificationRuntime {
             precision_negative,
             recall_positive,
             recall_negative,
-            accuracy,
+            accuracy: c_matrix.accuracy(),
             f1_score,
         }
     }

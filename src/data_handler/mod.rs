@@ -227,6 +227,12 @@ impl ConfusionMatrix {
         self.true_p + self.false_p + self.false_n + self.true_n
     }
 
+    /// Deriving the classifcation accuracy from TP + TN / TP + TN + FP + FN
+    #[inline]
+    pub(crate) fn accuracy(&self) -> f32 {
+        (self.true_p + self.true_n) / self.len()
+    }
+
     /// Push a single record update to the confusion matrix.
     #[inline]
     pub(crate) fn push(&mut self, payload: ConfusionPushPayload) {

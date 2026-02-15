@@ -308,6 +308,7 @@ mod model_bias_strming_tests {
         stream
             .push_batch(&feat_bl_data, &pred_bl_data, &gt_bl_data)
             .unwrap();
+
         assert_eq!(
             stream.rt.dist_a,
             crate::model_bias::PostTrainingDistribution {
