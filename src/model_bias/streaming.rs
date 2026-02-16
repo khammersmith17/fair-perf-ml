@@ -129,6 +129,7 @@ where
             features, &feat_seg, preds, &pred_seg, gt, &gt_seg,
         )
         .map_err(|e| ModelPerformanceError::BiasError(e))?;
+        dbg!(&bl_pt);
 
         let mut bl_ge_bucket = BucketGeneralizedEntropy::default();
         bl_ge_bucket.accumulate(gt, &gt_seg, preds, &pred_seg);
@@ -289,9 +290,9 @@ mod model_bias_strming_tests {
          *           positive pred: 3
          *           positive gt: 4
          * */
-        let pred_bl_data: Vec<usize> = vec![1, 0, 1, 1, 1, 0, 0, 1, 0];
-        let feat_bl_data: Vec<usize> = vec![0, 1, 1, 0, 1, 0, 1, 1, 1];
-        let gt_bl_data: Vec<usize> = vec![1, 1, 1, 0, 1, 0, 0, 1, 0];
+        let pred_bl_data: Vec<usize> = vec![1, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1];
+        let feat_bl_data: Vec<usize> = vec![0, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1];
+        let gt_bl_data: Vec<usize> = vec![1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0];
         let pred_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
         let feat_seg = BiasSegmentationCriteria::new(0_usize, BiasSegmentationType::Label);
         let gt_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
@@ -312,17 +313,17 @@ mod model_bias_strming_tests {
         assert_eq!(
             stream.rt.dist_a,
             crate::model_bias::PostTrainingDistribution {
-                len: 3,
+                len: 4,
                 positive_pred: 2,
-                positive_gt: 1
+                positive_gt: 2
             }
         );
 
         assert_eq!(
             stream.rt.dist_d,
             crate::model_bias::PostTrainingDistribution {
-                len: 6,
-                positive_pred: 3,
+                len: 7,
+                positive_pred: 4,
                 positive_gt: 4
             }
         );

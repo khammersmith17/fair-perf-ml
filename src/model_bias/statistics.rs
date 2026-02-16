@@ -436,12 +436,12 @@ pub(crate) mod inner {
     pub(crate) fn diff_in_pos_proportion_in_pred_labels(
         data: &PostTraining,
     ) -> Result<f32, ModelPerformanceError> {
-        Ok(data.dist_a.predicted_acceptance_rate()? - data.dist_d.predicted_acceptance_rate()?)
+        Ok(data.dist_a.positive_prediction_rate()? - data.dist_d.positive_prediction_rate()?)
     }
 
     pub(crate) fn disparate_impact(data: &PostTraining) -> ModelPerfResult<f32> {
-        let q_prime_a: f32 = data.dist_a.predicted_acceptance_rate()?;
-        let q_prime_d: f32 = data.dist_d.predicted_acceptance_rate()?;
+        let q_prime_a: f32 = data.dist_a.positive_prediction_rate()?;
+        let q_prime_d: f32 = data.dist_d.positive_prediction_rate()?;
 
         if q_prime_d == 0.0 {
             return Err(ModelPerformanceError::InvalidData);
@@ -476,33 +476,19 @@ pub(crate) mod inner {
         tnr(&data.confusion_a) - tnr(&data.confusion_d)
     }
 
-    pub(crate) fn diff_in_cond_rejection(data: &PostTraining) -> f32 {
-        // difference in ratio of observed negatives to predicted negatives
-        let r_a: f32 = (data.dist_a.len - data.dist_a.positive_gt) as f32
-            / (data.dist_a.len - data.dist_a.positive_pred) as f32;
-
-        let r_d: f32 = (data.dist_d.len - data.dist_d.positive_gt) as f32
-            / (data.dist_d.len - data.dist_d.positive_pred) as f32;
-
-        r_d - r_a
+    /// difference in ratio of observed negatives to predicted negatives
+    pub(crate) fn diff_in_cond_rejection(data: &PostTraining) -> ModelPerfResult<f32> {
+        Ok(data.dist_d.conditional_rejection()? - data.dist_a.conditional_rejection()?)
     }
 
-    pub(crate) fn diff_in_rejection_rate(data: &PostTraining) -> f32 {
-        // difference in correct rejection rate
-        let rr_a: f32 =
-            data.confusion_a.true_n / (data.confusion_a.true_n + data.confusion_a.false_n);
-        let rr_d: f32 =
-            data.confusion_d.true_n / (data.confusion_d.true_n + data.confusion_d.false_n);
-
-        rr_d - rr_a
+    /// difference in accuracy of rejection rate
+    pub(crate) fn diff_in_rejection_rate(data: &PostTraining) -> ModelPerfResult<f32> {
+        Ok(data.confusion_d.rejection_rate_acc()? - data.confusion_a.rejection_rate_acc()?)
     }
 
-    pub(crate) fn treatment_equity(data: &PostTraining) -> f32 {
-        // difference in ratio of fn/fp
-        let ta: f32 = data.confusion_a.false_n / data.confusion_a.false_p;
-        let td: f32 = data.confusion_d.false_n / data.confusion_d.false_p;
-
-        td - ta
+    /// difference in ratio of fn/fp
+    pub(crate) fn treatment_equity(data: &PostTraining) -> ModelPerfResult<f32> {
+        Ok(data.confusion_d.fn_fp_ratio()? - data.confusion_a.fn_fp_ratio()?)
     }
 
     pub(crate) fn cond_dem_desp_in_pred_labels(data: &PostTraining) -> f32 {

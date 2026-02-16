@@ -546,7 +546,6 @@ mod test_model_perf_stats {
         assert!((computed_bal_acc - 0.6904762).abs() < 1e-5);
 
         let computed_log_loss = metrics::log_loss_score(&y_true, &y_pred).unwrap();
-        println!("computed log loss: {computed_log_loss}");
         assert!((computed_log_loss - 0.7145021801144907).abs() < 1e-5)
     }
 }

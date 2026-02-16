@@ -275,9 +275,9 @@ impl ModelBiasRuntime {
             cdacc: stats::diff_in_cond_acceptance(post_training)?,
             dar: stats::diff_in_acceptance_rate(post_training),
             sd: stats::specailty_difference(post_training),
-            dcr: stats::diff_in_cond_rejection(post_training),
-            drr: stats::diff_in_rejection_rate(post_training),
-            te: stats::treatment_equity(post_training),
+            dcr: stats::diff_in_cond_rejection(post_training)?,
+            drr: stats::diff_in_rejection_rate(post_training)?,
+            te: stats::treatment_equity(post_training)?,
             ccdpl: stats::cond_dem_desp_in_pred_labels(post_training),
             ge,
         })
@@ -1379,8 +1379,8 @@ mod test_runtime_containers {
     #[test]
     fn model_bias_runtime_from_parts() {
         /*
-         * ddpl: 10 / 8 - 1
-         * */
+         * ddpl: (10 / 19) - (8 / 18)
+         */
         let pt = PostTraining {
             confusion_a: ConfusionMatrix {
                 true_p: 4_f32,
@@ -1407,8 +1407,12 @@ mod test_runtime_containers {
         };
 
         let mb_rt = super::ModelBiasRuntime::new_from_post_training(&pt, 1_f32).unwrap();
-        assert_eq!(mb_rt.ddpl, 0.25_f32);
-        assert_eq!(mb_rt.di, 1.25_f32);
+        assert_eq!(mb_rt.ddpl, 0.08187136_f32);
+        assert_eq!(mb_rt.di, 1.184210526_f32);
         assert_eq!(mb_rt.ad, (10_f32 / 19_f32) - (9_f32 / 18_f32));
+        assert_eq!(mb_rt.rd, (4_f32 / 8_f32) - (5_f32 / 11_f32));
+        assert_eq!(mb_rt.cdacc, (10_f32 / 8_f32) - 1_f32);
+        assert_eq!(mb_rt.dar, (4_f32 / 9_f32) - (5_f32 / 8_f32));
+        assert_eq!(mb_rt.sd, (6_f32 / 11_f32) - (4_f32 / 7_f32));
     }
 }

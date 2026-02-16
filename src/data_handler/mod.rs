@@ -1,3 +1,4 @@
+use crate::errors::{ModelPerfResult, ModelPerformanceError};
 #[cfg(feature = "python")]
 pub(crate) mod py_types_handler {
     use super::{apply_label_continuous, apply_label_discrete};
@@ -227,6 +228,25 @@ impl ConfusionMatrix {
         self.true_p + self.false_p + self.false_n + self.true_n
     }
 
+    /// The ratio of TN to FP. Describes how much the model biases toward a false negative
+    /// prediction versus a false positive prediction.
+    pub(crate) fn fn_fp_ratio(&self) -> ModelPerfResult<f32> {
+        if self.false_p == 0_f32 {
+            return Err(ModelPerformanceError::InvalidData);
+        }
+
+        Ok(self.false_n / self.false_p)
+    }
+
+    /// The rate of accurate rejection. TN / TN + FN
+    pub(crate) fn rejection_rate_acc(&self) -> ModelPerfResult<f32> {
+        let n_negative = self.true_n + self.false_n;
+        if n_negative == 0_f32 {
+            return Err(ModelPerformanceError::InvalidData);
+        }
+        Ok(self.true_n / n_negative)
+    }
+
     /// Deriving the classifcation accuracy from TP + TN / TP + TN + FP + FN
     #[inline]
     pub(crate) fn accuracy(&self) -> f32 {
@@ -278,7 +298,14 @@ impl ConfusionMatrix {
         }
     }
 }
-
+/// Defines segmentation definition for [`BiasSegmentationType::Threshold`].
+#[derive(PartialEq, Clone)]
+pub enum SegmentationThresholdType {
+    GreaterThan,
+    GreaterThanEqualTo,
+    LessThan,
+    LessThanEqualTo,
+}
 /// Enum to differentiate between an array that is going to be segmented by label versus by a
 /// threshold. Dicrete data should be segmented by a label and continuous data should be segmented
 /// by a threshold. For example a categorical dataset should use the label variant, where as a
@@ -286,7 +313,7 @@ impl ConfusionMatrix {
 #[derive(PartialEq, Clone)]
 pub enum BiasSegmentationType {
     Label,
-    Threshold,
+    Threshold(SegmentationThresholdType),
 }
 
 /// Type to identify how bias data will be segmented into positive and negative classes. This can
@@ -302,7 +329,8 @@ pub enum BiasSegmentationType {
 /// type that performs the segmentation must implement 'PartialOrd' and 'PartialEq'. The
 /// segmentation operation is dictated by the 'BiasSegmentationType' passed on construction.
 ///
-/// This intentionally does implement Clone, to avoid limiting possible types that can be used.
+/// This intentionally does not implement Clone, to avoid narrowing the scope of possible types that
+/// can be used.
 /// This type is cheap enough to reconstuct when needed
 pub struct BiasSegmentationCriteria<T>
 where
@@ -324,10 +352,16 @@ where
     /// with the favored class and false refers to the disfavored class.
     #[inline]
     pub(crate) fn label(&self, value: &T) -> bool {
-        if self.stype == BiasSegmentationType::Label {
-            self.value == *value
-        } else {
-            self.value <= *value
+        use BiasSegmentationType as BST;
+        use SegmentationThresholdType as STT;
+        match &self.stype {
+            BST::Label => self.value.eq(value),
+            BST::Threshold(ref ttype) => match ttype {
+                &STT::LessThan => value.lt(&self.value),
+                &STT::LessThanEqualTo => value.le(&self.value),
+                &STT::GreaterThan => value.gt(&self.value),
+                &STT::GreaterThanEqualTo => value.ge(&self.value),
+            },
         }
     }
 }
@@ -422,7 +456,10 @@ mod data_handler_tests {
     #[test]
     fn test_threshold_bias_seg() {
         // test that the correct label is assigned when the segmentation criteria is label
-        let seg = BiasSegmentationCriteria::new(0.5_f32, BiasSegmentationType::Threshold);
+        let seg = BiasSegmentationCriteria::new(
+            0.5_f32,
+            BiasSegmentationType::Threshold(SegmentationThresholdType::GreaterThanEqualTo),
+        );
         assert_eq!(seg.label(&0.1_f32), false);
         assert_eq!(seg.label(&0.5_f32), true);
         assert_eq!(seg.label(&0.6_f32), true);

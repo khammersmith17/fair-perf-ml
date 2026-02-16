@@ -2,7 +2,7 @@ use crate::data_handler::{
     BiasDataPayload, BiasSegmentationCriteria, BiasSegmentationType,
     ConditionalConfusionPushPayload, ConfusionMatrix,
 };
-use crate::errors::{BiasError, ModelBiasRuntimeError, ModelPerformanceError};
+use crate::errors::{BiasError, ModelBiasRuntimeError, ModelPerfResult, ModelPerformanceError};
 use crate::metrics::{ModelBiasMetric, FULL_MODEL_BIAS_METRICS};
 use crate::runtime::ModelBiasRuntime;
 use crate::zip_iters;
@@ -221,22 +221,36 @@ impl PostTrainingDistribution {
         self.positive_pred = 0;
     }
 
-    pub(crate) fn cond_acceptance(&self) -> Result<f32, ModelPerformanceError> {
+    pub(crate) fn cond_acceptance(&self) -> ModelPerfResult<f32> {
         if self.positive_gt == 0_u64 {
             return Err(ModelPerformanceError::InvalidData);
         }
         Ok(self.positive_pred as f32 / self.positive_gt as f32)
     }
 
-    pub(crate) fn predicted_acceptance_rate(&self) -> Result<f32, ModelPerformanceError> {
+    pub(crate) fn positive_prediction_rate(&self) -> ModelPerfResult<f32> {
         if self.len == 0_u64 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
         Ok(self.positive_pred as f32 / self.len as f32)
     }
+
+    pub(crate) fn conditional_rejection(&self) -> ModelPerfResult<f32> {
+        let len = self.len as f32;
+        let pos_pred = self.positive_pred as f32;
+        let pos_gt = self.positive_gt as f32;
+
+        let n = len - pos_gt;
+        let d = len - pos_pred;
+
+        if d == 0_f32 {
+            return Err(ModelPerformanceError::InvalidData);
+        }
+        Ok(n / d)
+    }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct PostTraining {
     pub confusion_a: ConfusionMatrix,
     pub confusion_d: ConfusionMatrix,

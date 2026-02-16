@@ -39,15 +39,15 @@ pub fn post_training_bias(
     );
     result.insert(
         M::DifferenceInConditionalRejection,
-        stats::diff_in_cond_rejection(&data.post_training),
+        stats::diff_in_cond_rejection(&data.post_training)?,
     );
     result.insert(
         M::DifferenceInRejectionRate,
-        stats::diff_in_rejection_rate(&data.post_training),
+        stats::diff_in_rejection_rate(&data.post_training)?,
     );
     result.insert(
         M::TreatmentEquity,
-        stats::treatment_equity(&data.post_training),
+        stats::treatment_equity(&data.post_training)?,
     );
     result.insert(
         M::ConditionalDemographicDesparityPredictedLabels,
