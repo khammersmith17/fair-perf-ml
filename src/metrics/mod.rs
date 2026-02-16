@@ -262,7 +262,7 @@ impl TryFrom<&str> for DataBiasMetric {
     }
 }
 
-#[derive(Deserialize, Serialize, Hash, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Hash, Eq, PartialEq, Debug)]
 pub enum ModelBiasMetric {
     DifferenceInPositivePredictedLabels,
     DisparateImpact,

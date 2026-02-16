@@ -269,14 +269,129 @@ where
 #[cfg(test)]
 mod model_bias_strming_tests {
     use super::*;
-    use crate::data_handler::BiasSegmentationType;
+    use crate::data_handler::{BiasSegmentationType, SegmentationThresholdType};
 
     /*
-     * 1. the baseline state is correct
-     * 2. snapshot computations are correct
-     * 3.
-     *
+     * These tests validate that the streaming accumulation logic is functionally equivalent to
+     * performing the same computations on a discrete dataset.
      * */
+
+    use crate::metrics::ModelBiasMetric;
+    use crate::runtime::EQUALITY_ERROR_ALLOWANCE;
+
+    #[derive(Debug)]
+    struct TestModelBiasAnalysisReport(crate::reporting::ModelBiasAnalysisReport);
+
+    impl PartialEq for TestModelBiasAnalysisReport {
+        fn eq(&self, other: &Self) -> bool {
+            use ModelBiasMetric as MBM;
+            /*
+                        DifferenceInPositivePredictedLabels,
+                DisparateImpact,
+                AccuracyDifference,
+                RecallDifference,
+                DifferenceInConditionalAcceptance,
+                DifferenceInAcceptanceRate,
+                SpecialityDifference,
+                DifferenceInConditionalRejection,
+                DifferenceInRejectionRate,
+                TreatmentEquity,
+                ConditionalDemographicDesparityPredictedLabels,
+                GeneralizedEntropy,
+            */
+            if (self
+                .0
+                .get(&MBM::DifferenceInPositivePredictedLabels)
+                .unwrap()
+                - other
+                    .0
+                    .get(&MBM::DifferenceInPositivePredictedLabels)
+                    .unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&MBM::DisparateImpact).unwrap()
+                - other.0.get(&MBM::DisparateImpact).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&MBM::AccuracyDifference).unwrap()
+                - other.0.get(&MBM::AccuracyDifference).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&MBM::RecallDifference).unwrap()
+                - other.0.get(&MBM::RecallDifference).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&MBM::DifferenceInAcceptanceRate).unwrap()
+                - other.0.get(&MBM::DifferenceInAcceptanceRate).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&MBM::SpecialityDifference).unwrap()
+                - other.0.get(&MBM::SpecialityDifference).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&MBM::DifferenceInConditionalRejection).unwrap()
+                - other.0.get(&MBM::DifferenceInConditionalRejection).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&MBM::DifferenceInRejectionRate).unwrap()
+                - other.0.get(&MBM::DifferenceInRejectionRate).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&MBM::TreatmentEquity).unwrap()
+                - other.0.get(&MBM::TreatmentEquity).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self
+                .0
+                .get(&MBM::ConditionalDemographicDesparityPredictedLabels)
+                .unwrap()
+                - other
+                    .0
+                    .get(&MBM::ConditionalDemographicDesparityPredictedLabels)
+                    .unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&MBM::GeneralizedEntropy).unwrap()
+                - other.0.get(&MBM::GeneralizedEntropy).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            true
+        }
+    }
+
     #[test]
     fn test_baseline_construction_label() {
         /*
@@ -327,5 +442,63 @@ mod model_bias_strming_tests {
                 positive_gt: 4
             }
         );
+    }
+
+    #[test]
+    fn test_baseline_construction_accum_label() {
+        let pred_bl_data: Vec<usize> = vec![1, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1];
+        let feat_bl_data: Vec<usize> = vec![0, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1];
+        let gt_bl_data: Vec<usize> = vec![1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0];
+        let pred_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let feat_seg = BiasSegmentationCriteria::new(0_usize, BiasSegmentationType::Label);
+        let gt_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let mut stream = StreamingModelBias::new(
+            &feat_bl_data,
+            feat_seg,
+            &pred_bl_data,
+            pred_seg,
+            &gt_bl_data,
+            gt_seg,
+        )
+        .unwrap();
+
+        stream
+            .push_batch(&feat_bl_data, &pred_bl_data, &gt_bl_data)
+            .unwrap();
+
+        let base = TestModelBiasAnalysisReport(stream.bl.generate_report());
+        let test = TestModelBiasAnalysisReport(stream.performance_snapshot().unwrap());
+        assert_eq!(base, test);
+    }
+    #[test]
+    fn test_baseline_construction_accum_threshold() {
+        let pred_bl_data: Vec<f32> = vec![
+            0.6, 0.12, 0.78, 0.56, 0.98, 0.43, 0.49, 0.60, 0.33, 0.23, 0.54,
+        ];
+        let feat_bl_data: Vec<usize> = vec![0, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1];
+        let gt_bl_data: Vec<usize> = vec![1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0];
+        let pred_seg = BiasSegmentationCriteria::new(
+            0.5_f32,
+            BiasSegmentationType::Threshold(SegmentationThresholdType::GreaterThanEqualTo),
+        );
+        let feat_seg = BiasSegmentationCriteria::new(0_usize, BiasSegmentationType::Label);
+        let gt_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let mut stream = StreamingModelBias::new(
+            &feat_bl_data,
+            feat_seg,
+            &pred_bl_data,
+            pred_seg,
+            &gt_bl_data,
+            gt_seg,
+        )
+        .unwrap();
+
+        stream
+            .push_batch(&feat_bl_data, &pred_bl_data, &gt_bl_data)
+            .unwrap();
+
+        let base = TestModelBiasAnalysisReport(stream.bl.generate_report());
+        let test = TestModelBiasAnalysisReport(stream.performance_snapshot().unwrap());
+        assert_eq!(base, test);
     }
 }
