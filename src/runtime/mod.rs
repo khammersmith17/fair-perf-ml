@@ -1,7 +1,10 @@
 use crate::{
     data_bias::PreTraining,
     data_handler::{bool_to_f32, ApplyThreshold, ConfusionMatrix},
-    errors::{DataBiasRuntimeError, ModelBiasRuntimeError, ModelPerformanceError},
+    errors::{
+        BiasError, DataBiasRuntimeError, ModelBiasRuntimeError, ModelPerfResult,
+        ModelPerformanceError,
+    },
     metrics::{
         ClassificationEvaluationMetric, DataBiasMetric, LinearRegressionEvaluationMetric,
         ModelBiasMetric,
@@ -18,6 +21,8 @@ use crate::{
 };
 use std::collections::HashMap;
 
+pub(crate) const EQUALITY_ERROR_ALLOWANCE: f32 = 1e-5;
+
 pub struct DataBiasRuntime {
     ci: f32,
     dpl: f32,
@@ -29,17 +34,19 @@ pub struct DataBiasRuntime {
 }
 
 impl DataBiasRuntime {
-    pub(crate) fn new_from_pre_training(pre_training: &PreTraining) -> DataBiasRuntime {
+    pub(crate) fn new_from_pre_training(
+        pre_training: &PreTraining,
+    ) -> Result<DataBiasRuntime, BiasError> {
         use crate::data_bias::statistics::inner as metrics;
-        DataBiasRuntime {
+        Ok(DataBiasRuntime {
             ci: metrics::class_imbalance(&pre_training),
-            dpl: metrics::diff_in_proportion_of_labels(&pre_training),
-            kl: metrics::kl_divergence(&pre_training),
-            js: metrics::jensen_shannon(&pre_training),
-            lpnorm: metrics::lp_norm(&pre_training),
-            tvd: metrics::total_variation_distance(&pre_training),
-            ks: metrics::kolmorogv_smirnov(&pre_training),
-        }
+            dpl: metrics::diff_in_proportion_of_labels(&pre_training)?,
+            kl: metrics::kl_divergence(&pre_training)?,
+            js: metrics::jensen_shannon(&pre_training)?,
+            lpnorm: metrics::lp_norm(&pre_training)?,
+            tvd: metrics::total_variation_distance(&pre_training)?,
+            ks: metrics::kolmorogv_smirnov(&pre_training)?,
+        })
     }
 }
 
@@ -257,15 +264,15 @@ impl ModelBiasRuntime {
     pub(crate) fn new_from_post_training(
         post_training: &PostTraining,
         ge: f32,
-    ) -> ModelBiasRuntime {
+    ) -> ModelPerfResult<ModelBiasRuntime> {
         use crate::model_bias::statistics::inner as stats;
 
-        ModelBiasRuntime {
-            ddpl: stats::diff_in_pos_proportion_in_pred_labels(post_training),
-            di: stats::disparate_impact(post_training),
+        Ok(ModelBiasRuntime {
+            ddpl: stats::diff_in_pos_proportion_in_pred_labels(post_training)?,
+            di: stats::disparate_impact(post_training)?,
             ad: stats::accuracy_difference(post_training),
             rd: stats::recall_difference(post_training),
-            cdacc: stats::diff_in_cond_acceptance(post_training),
+            cdacc: stats::diff_in_cond_acceptance(post_training)?,
             dar: stats::diff_in_acceptance_rate(post_training),
             sd: stats::specailty_difference(post_training),
             dcr: stats::diff_in_cond_rejection(post_training),
@@ -273,7 +280,7 @@ impl ModelBiasRuntime {
             te: stats::treatment_equity(post_training),
             ccdpl: stats::cond_dem_desp_in_pred_labels(post_training),
             ge,
-        }
+        })
     }
 
     pub(crate) fn runtime_drift_report(&self, bl: &Self) -> ModelBiasRuntimeReport {
@@ -605,14 +612,42 @@ impl ModelBiasRuntime {
     }
 }
 
+#[derive(Debug)]
 pub struct BinaryClassificationRuntime {
-    balanced_accuracy: f32,
-    precision_positive: f32,
-    precision_negative: f32,
-    recall_positive: f32,
-    recall_negative: f32,
-    accuracy: f32,
-    f1_score: f32,
+    pub(crate) balanced_accuracy: f32,
+    pub(crate) precision_positive: f32,
+    pub(crate) precision_negative: f32,
+    pub(crate) recall_positive: f32,
+    pub(crate) recall_negative: f32,
+    pub(crate) accuracy: f32,
+    pub(crate) f1_score: f32,
+}
+
+impl PartialEq for BinaryClassificationRuntime {
+    fn eq(&self, other: &Self) -> bool {
+        if (self.balanced_accuracy - other.balanced_accuracy).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.precision_positive - other.precision_positive).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.precision_negative - other.precision_negative).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.recall_positive - other.recall_positive).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.recall_negative - other.recall_negative).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.accuracy - other.accuracy).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.f1_score - other.f1_score).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        true
+    }
 }
 
 impl BinaryClassificationRuntime {
@@ -627,31 +662,16 @@ impl BinaryClassificationRuntime {
         use crate::model_perf::statistics::classification_metrics_from_parts as metrics;
         let mut c_matrix = ConfusionMatrix::default();
 
-        for (t, p) in zip_iters!(y_true, y_pred) {
-            let is_positive = p.eq(label);
-            let is_true = *p == *t;
-            c_matrix.true_p += bool_to_f32(is_true && is_positive);
-            c_matrix.false_p += bool_to_f32(!is_true && is_positive);
-            c_matrix.true_n += bool_to_f32(is_true && !is_positive);
-            c_matrix.false_n += bool_to_f32(!is_true && !is_positive);
-        }
-
-        let accuracy = metrics::accuracy(y_true, y_pred)?;
-        let balanced_accuracy = metrics::balanced_accuracy(&c_matrix);
-        let precision_positive = metrics::precision_positive(&c_matrix);
-        let precision_negative = metrics::precision_negative(&c_matrix);
-        let recall_positive = metrics::recall_positive(&c_matrix);
-        let recall_negative = metrics::recall_negative(&c_matrix);
-        let f1_score = metrics::f1_score(&c_matrix);
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(label));
 
         Ok(BinaryClassificationRuntime {
-            balanced_accuracy,
-            precision_positive,
-            precision_negative,
-            recall_positive,
-            recall_negative,
-            accuracy,
-            f1_score,
+            balanced_accuracy: metrics::balanced_accuracy(&c_matrix),
+            precision_positive: metrics::precision_positive(&c_matrix),
+            precision_negative: metrics::precision_negative(&c_matrix),
+            recall_positive: metrics::recall_positive(&c_matrix),
+            recall_negative: metrics::recall_negative(&c_matrix),
+            accuracy: metrics::accuracy(y_true, y_pred)?,
+            f1_score: metrics::f1_score(&c_matrix),
         })
     }
 
@@ -660,21 +680,14 @@ impl BinaryClassificationRuntime {
     pub(crate) fn runtime_from_parts(c_matrix: &ConfusionMatrix) -> BinaryClassificationRuntime {
         use crate::model_perf::statistics::classification_metrics_from_parts as metrics;
 
-        let balanced_accuracy = metrics::balanced_accuracy(c_matrix);
-        let precision_positive = metrics::precision_positive(c_matrix);
-        let precision_negative = metrics::precision_negative(c_matrix);
-        let recall_positive = metrics::recall_positive(c_matrix);
-        let recall_negative = metrics::recall_negative(c_matrix);
-        let f1_score = metrics::f1_score(c_matrix);
-
         BinaryClassificationRuntime {
-            balanced_accuracy,
-            precision_positive,
-            precision_negative,
-            recall_positive,
-            recall_negative,
+            balanced_accuracy: metrics::balanced_accuracy(c_matrix),
+            precision_positive: metrics::precision_positive(c_matrix),
+            precision_negative: metrics::precision_negative(c_matrix),
+            recall_positive: metrics::recall_positive(c_matrix),
+            recall_negative: metrics::recall_negative(c_matrix),
             accuracy: c_matrix.accuracy(),
-            f1_score,
+            f1_score: metrics::f1_score(c_matrix),
         }
     }
 
@@ -1110,28 +1123,28 @@ pub struct LinearRegressionRuntime {
 /// Implementing this by hand to allow for some small error.
 impl PartialEq for LinearRegressionRuntime {
     fn eq(&self, other: &Self) -> bool {
-        if (self.rmse - other.rmse).abs() > 1e-5 {
+        if (self.rmse - other.rmse).abs() > EQUALITY_ERROR_ALLOWANCE {
             return false;
         }
-        if (self.mse - other.mse).abs() > 1e-5 {
+        if (self.mse - other.mse).abs() > EQUALITY_ERROR_ALLOWANCE {
             return false;
         }
-        if (self.mae - other.mae).abs() > 1e-5 {
+        if (self.mae - other.mae).abs() > EQUALITY_ERROR_ALLOWANCE {
             return false;
         }
-        if (self.r_squared - other.r_squared).abs() > 1e-5 {
+        if (self.r_squared - other.r_squared).abs() > EQUALITY_ERROR_ALLOWANCE {
             return false;
         }
-        if (self.max_error - other.max_error).abs() > 1e-5 {
+        if (self.max_error - other.max_error).abs() > EQUALITY_ERROR_ALLOWANCE {
             return false;
         }
-        if (self.msle - other.msle).abs() > 1e-5 {
+        if (self.msle - other.msle).abs() > EQUALITY_ERROR_ALLOWANCE {
             return false;
         }
-        if (self.rmsle - other.rmsle).abs() > 1e-5 {
+        if (self.rmsle - other.rmsle).abs() > EQUALITY_ERROR_ALLOWANCE {
             return false;
         }
-        if (self.mape - other.mape).abs() > 1e-5 {
+        if (self.mape - other.mape).abs() > EQUALITY_ERROR_ALLOWANCE {
             return false;
         }
         true
@@ -1360,12 +1373,14 @@ impl TryFrom<HashMap<String, f32>> for LinearRegressionRuntime {
 
 #[cfg(test)]
 mod test_runtime_containers {
-    use super::*;
     use crate::data_handler::ConfusionMatrix;
     use crate::model_bias::{PostTraining, PostTrainingDistribution};
 
     #[test]
     fn model_bias_runtime_from_parts() {
+        /*
+         * ddpl: 10 / 8 - 1
+         * */
         let pt = PostTraining {
             confusion_a: ConfusionMatrix {
                 true_p: 4_f32,
@@ -1390,5 +1405,10 @@ mod test_runtime_containers {
                 positive_gt: 8,
             },
         };
+
+        let mb_rt = super::ModelBiasRuntime::new_from_post_training(&pt, 1_f32).unwrap();
+        assert_eq!(mb_rt.ddpl, 0.25_f32);
+        assert_eq!(mb_rt.di, 1.25_f32);
+        assert_eq!(mb_rt.ad, (10_f32 / 19_f32) - (9_f32 / 18_f32));
     }
 }

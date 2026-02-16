@@ -221,7 +221,6 @@ pub mod linear_regression_metric {
 
     /// Mean Absolute Error. This will error when the y_true and y_pred slices are not the same
     /// length.
-
     pub fn r_squared<T>(y_true: &[T], y_pred: &[T]) -> Result<f64, ModelPerformanceError>
     where
         T: Into<f64> + Copy,
@@ -287,7 +286,7 @@ pub mod linear_regression_metric {
             let t: f64 = (*t_ref).into();
             let p: f64 = (*p_ref).into();
             if t == -1_f64 || p == -1_f64 {
-                return Err(ModelPerformanceError::InvalidDataValue);
+                return Err(ModelPerformanceError::InvalidData);
             }
             sum += ((1_f64 + t).ln() - (1_f64 + p).ln()).powi(2);
         }
@@ -423,7 +422,7 @@ pub(crate) mod classification_metrics_from_parts {
         let res = (-1_f32 * penalties) / n;
 
         if res.is_nan() {
-            return Err(ModelPerformanceError::InvalidDataValue);
+            return Err(ModelPerformanceError::InvalidData);
         }
         Ok(res)
     }

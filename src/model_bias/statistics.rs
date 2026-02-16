@@ -430,70 +430,50 @@ where
 
 pub(crate) mod inner {
     use super::PostTraining;
+    use crate::errors::{ModelPerfResult, ModelPerformanceError};
     use crate::zip_iters;
 
-    pub(crate) fn diff_in_pos_proportion_in_pred_labels(data: &PostTraining) -> f32 {
-        let q_prime_a: f32 = data.dist_a.positive_pred as f32 / data.dist_a.positive_gt as f32;
-        let q_prime_d: f32 = data.dist_d.positive_pred as f32 / data.dist_d.positive_gt as f32;
-
-        q_prime_a - q_prime_d
+    pub(crate) fn diff_in_pos_proportion_in_pred_labels(
+        data: &PostTraining,
+    ) -> Result<f32, ModelPerformanceError> {
+        Ok(data.dist_a.predicted_acceptance_rate()? - data.dist_d.predicted_acceptance_rate()?)
     }
 
-    pub(crate) fn disparate_impact(data: &PostTraining) -> f32 {
-        let q_prime_a: f32 = data.dist_a.positive_pred as f32 / data.dist_d.positive_gt as f32;
-        let q_prime_d: f32 = data.dist_d.positive_pred as f32 / data.dist_a.positive_gt as f32;
+    pub(crate) fn disparate_impact(data: &PostTraining) -> ModelPerfResult<f32> {
+        let q_prime_a: f32 = data.dist_a.predicted_acceptance_rate()?;
+        let q_prime_d: f32 = data.dist_d.predicted_acceptance_rate()?;
 
         if q_prime_d == 0.0 {
-            return 0.0;
+            return Err(ModelPerformanceError::InvalidData);
         }
-        q_prime_a / q_prime_d
+        Ok(q_prime_a / q_prime_d)
     }
 
     pub(crate) fn accuracy_difference(data: &PostTraining) -> f32 {
-        let acc_a =
-            (data.confusion_a.true_p + data.confusion_a.true_n) as f32 / data.dist_a.len as f32;
-
-        let acc_d =
-            (data.confusion_d.true_p + data.confusion_d.true_n) as f32 / data.dist_d.len as f32;
-
-        acc_a - acc_d
+        data.confusion_a.accuracy() - data.confusion_d.accuracy()
     }
 
     pub(crate) fn recall_difference(data: &PostTraining) -> f32 {
-        let recall_a: f32 =
-            data.confusion_a.true_p / data.confusion_a.true_p + data.confusion_a.false_n;
-
-        let recall_d: f32 =
-            data.confusion_d.true_p / data.confusion_d.true_p + data.confusion_d.false_n;
-
-        recall_a - recall_d
+        use crate::model_perf::statistics::classification_metrics_from_parts::recall_positive as recall;
+        recall(&data.confusion_a) - recall(&data.confusion_d)
     }
 
-    pub(crate) fn diff_in_cond_acceptance(data: &PostTraining) -> f32 {
-        let c_facet_a: f32 = data.dist_a.positive_pred as f32 / data.dist_a.positive_gt as f32;
-        let c_facet_d: f32 = data.dist_d.positive_pred as f32 / data.dist_d.positive_gt as f32;
-
-        c_facet_a - c_facet_d
+    pub(crate) fn diff_in_cond_acceptance(
+        data: &PostTraining,
+    ) -> Result<f32, ModelPerformanceError> {
+        Ok(data.dist_a.cond_acceptance()? - data.dist_d.cond_acceptance()?)
     }
 
+    /// difference in precision across the 2 facets
     pub(crate) fn diff_in_acceptance_rate(data: &PostTraining) -> f32 {
-        // difference in precision across the 2 facets
-        let pa: f32 =
-            data.confusion_a.true_p / (data.confusion_a.true_p + data.confusion_a.false_p);
-        let pd: f32 =
-            data.confusion_d.true_p / (data.confusion_d.true_p + data.confusion_d.false_p);
-
-        pa - pd
+        use crate::model_perf::statistics::classification_metrics_from_parts::precision_positive as precision;
+        precision(&data.confusion_a) - precision(&data.confusion_d)
     }
 
+    /// difference in true negative rate
     pub(crate) fn specailty_difference(data: &PostTraining) -> f32 {
-        // difference in true negative rate
-        let tnr_a: f32 =
-            data.confusion_a.true_n / (data.confusion_a.true_n + data.confusion_a.false_p);
-        let tnr_d: f32 =
-            data.confusion_d.true_n / (data.confusion_d.true_n + data.confusion_d.false_p);
-
-        tnr_d - tnr_a
+        use crate::model_perf::statistics::classification_metrics_from_parts::recall_negative as tnr;
+        tnr(&data.confusion_a) - tnr(&data.confusion_d)
     }
 
     pub(crate) fn diff_in_cond_rejection(data: &PostTraining) -> f32 {
@@ -509,7 +489,6 @@ pub(crate) mod inner {
 
     pub(crate) fn diff_in_rejection_rate(data: &PostTraining) -> f32 {
         // difference in correct rejection rate
-
         let rr_a: f32 =
             data.confusion_a.true_n / (data.confusion_a.true_n + data.confusion_a.false_n);
         let rr_d: f32 =

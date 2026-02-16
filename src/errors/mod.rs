@@ -15,6 +15,16 @@ pub enum BiasError {
     DataLengthError,
 }
 
+impl From<ModelPerformanceError> for BiasError {
+    fn from(err: ModelPerformanceError) -> BiasError {
+        match err {
+            ModelPerformanceError::InvalidData => BiasError::NoFacetDeviation,
+            ModelPerformanceError::EmptyDataVector => BiasError::DataLengthError,
+            _ => panic!("Invalid error conversion"),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum DriftError {
     #[error("Data used for runtime drift analysis must be non empty")]
@@ -89,8 +99,8 @@ pub enum ModelBiasRuntimeError {
 
 #[derive(Debug, Error)]
 pub enum ModelPerformanceError {
-    #[error("Unsupported data values")]
-    InvalidDataValue,
+    #[error("Metric cannot be computed with given data")]
+    InvalidData,
     #[error("Empty data vectors")]
     EmptyDataVector,
     #[error("Data vectors must be equal length")]
@@ -106,6 +116,12 @@ pub enum ModelPerformanceError {
     #[allow(unused)]
     #[error("UnSupportedType")]
     UnsupportedTypeError,
+}
+
+impl From<BiasError> for ModelPerformanceError {
+    fn from(err: BiasError) -> ModelPerformanceError {
+        ModelPerformanceError::BiasError(err)
+    }
 }
 
 #[cfg(feature = "python")]

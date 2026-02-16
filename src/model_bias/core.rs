@@ -1,18 +1,21 @@
 use super::{DiscretePostTraining, ModelBiasAnalysisReport};
+use crate::errors::BiasError;
 use crate::metrics::ModelBiasMetric;
 use std::collections::HashMap;
 
-pub fn post_training_bias(data: &DiscretePostTraining) -> ModelBiasAnalysisReport {
+pub fn post_training_bias(
+    data: &DiscretePostTraining,
+) -> Result<ModelBiasAnalysisReport, BiasError> {
     use super::statistics::inner as stats;
     use ModelBiasMetric as M;
     let mut result: HashMap<ModelBiasMetric, f32> = HashMap::with_capacity(12);
     result.insert(
         M::DifferenceInPositivePredictedLabels,
-        stats::diff_in_pos_proportion_in_pred_labels(&data.post_training),
+        stats::diff_in_pos_proportion_in_pred_labels(&data.post_training)?,
     );
     result.insert(
         M::DisparateImpact,
-        stats::disparate_impact(&data.post_training),
+        stats::disparate_impact(&data.post_training)?,
     );
     result.insert(
         M::AccuracyDifference,
@@ -24,7 +27,7 @@ pub fn post_training_bias(data: &DiscretePostTraining) -> ModelBiasAnalysisRepor
     );
     result.insert(
         M::DifferenceInConditionalAcceptance,
-        stats::diff_in_cond_acceptance(&data.post_training),
+        stats::diff_in_cond_acceptance(&data.post_training)?,
     );
     result.insert(
         M::DifferenceInAcceptanceRate,
@@ -52,5 +55,5 @@ pub fn post_training_bias(data: &DiscretePostTraining) -> ModelBiasAnalysisRepor
     );
     result.insert(M::GeneralizedEntropy, data.ge);
 
-    result
+    Ok(result)
 }

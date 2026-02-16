@@ -461,7 +461,7 @@ where
 
         self.confusion_rt.push(ConfusionPushPayload {
             true_gt: gt_is_true,
-            true_pred: gt_is_true == pred_is_true,
+            true_pred: pred_is_true,
         });
     }
 
@@ -673,7 +673,9 @@ impl LogisticRegressionStreaming {
 #[cfg(test)]
 mod test_perf_streaming {
     use super::*;
-    use crate::runtime::LinearRegressionRuntime;
+    use crate::runtime::{
+        BinaryClassificationRuntime, LinearRegressionRuntime, EQUALITY_ERROR_ALLOWANCE,
+    };
 
     /*
      * 1. Test the accumulation of the error buckets from LinearRegressionErrorBuckets/
@@ -804,6 +806,119 @@ mod test_perf_streaming {
         streaming.push_batch(&y_true, &y_pred).unwrap();
         let base = TestLinearRegressionReport(true_bl.generate_report());
         let test = TestLinearRegressionReport(streaming.performance_snapshot().unwrap());
+        assert_eq!(base, test);
+    }
+
+    use crate::metrics::ClassificationEvaluationMetric as CM;
+
+    #[derive(Debug)]
+    struct TestBinaryClassificationAnalysisReport(
+        crate::reporting::BinaryClassificationAnalysisReport,
+    );
+
+    impl PartialEq for TestBinaryClassificationAnalysisReport {
+        fn eq(&self, other: &Self) -> bool {
+            if (self.0.get(&CM::BalancedAccuracy).unwrap()
+                - other.0.get(&CM::BalancedAccuracy).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::PrecisionPositive).unwrap()
+                - other.0.get(&CM::PrecisionPositive).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::PrecisionNegative).unwrap()
+                - other.0.get(&CM::PrecisionNegative).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::RecallPositive).unwrap()
+                - other.0.get(&CM::RecallPositive).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::RecallNegative).unwrap()
+                - other.0.get(&CM::RecallNegative).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::Accuracy).unwrap() - other.0.get(&CM::Accuracy).unwrap()).abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::F1Score).unwrap() - other.0.get(&CM::F1Score).unwrap()).abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::BalancedAccuracy).unwrap()
+                - other.0.get(&CM::BalancedAccuracy).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            true
+        }
+    }
+
+    #[test]
+    fn test_classification_baseline() {
+        /*
+         * {
+         *       'precision': 0.75,
+         *       'recall': 0.6666666666666666,
+         *       'f1': 0.7058823529411765,
+         *       'accuracy': 0.6875,
+         *       'balanced_accuracy': 0.6904761904761905
+         *   }
+         * */
+
+        let y_pred = [1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1];
+        let y_true = [0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1];
+        let streaming = super::BinaryClassificationStreaming::new(1, &y_true, &y_pred);
+        let true_bl = BinaryClassificationRuntime {
+            balanced_accuracy: 0.690476190,
+            precision_positive: 0.75,
+            precision_negative: 0.625,
+            recall_positive: 0.666666,
+            recall_negative: 0.71428,
+            accuracy: 0.6875,
+            f1_score: 0.70588235,
+        };
+        assert_eq!(true_bl, streaming.unwrap().bl);
+    }
+
+    #[test]
+    fn test_binary_classification_streaming_accumulation() {
+        let y_pred = [1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1];
+        let y_true = [0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1];
+        let mut streaming = super::BinaryClassificationStreaming::new(1, &y_true, &y_pred).unwrap();
+        streaming.push_batch(&y_true, &y_pred).unwrap();
+        let true_bl = BinaryClassificationRuntime {
+            balanced_accuracy: 0.690476190,
+            precision_positive: 0.75,
+            precision_negative: 0.625,
+            recall_positive: 0.666666,
+            recall_negative: 0.71428,
+            accuracy: 0.6875,
+            f1_score: 0.70588235,
+        };
+        let base = TestBinaryClassificationAnalysisReport(true_bl.generate_report());
+        let test =
+            TestBinaryClassificationAnalysisReport(streaming.performance_snapshot().unwrap());
         assert_eq!(base, test);
     }
 }

@@ -1,5 +1,5 @@
 use crate::data_handler::{BiasDataPayload, BiasSegmentationCriteria};
-use crate::errors::{BiasError, DataBiasRuntimeError};
+use crate::errors::{BiasError, DataBiasRuntimeError, ModelPerfResult, ModelPerformanceError};
 use crate::metrics::{DataBiasMetric, DataBiasMetricVec, FULL_DATA_BIAS_METRICS};
 use crate::reporting::{DataBiasAnalysisReport, DriftReport, DEFAULT_DRIFT_THRESHOLD};
 use crate::runtime::DataBiasRuntime;
@@ -167,8 +167,11 @@ pub(crate) struct PreTrainingDistribution {
 
 impl PreTrainingDistribution {
     #[inline]
-    pub(crate) fn acceptance(&self) -> f32 {
-        self.positive as f32 / self.len as f32
+    pub(crate) fn acceptance(&self) -> ModelPerfResult<f32> {
+        if self.len == 0_u64 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        Ok(self.positive as f32 / self.len as f32)
     }
 
     fn clear(&mut self) {

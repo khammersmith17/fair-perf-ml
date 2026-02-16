@@ -125,7 +125,7 @@ where
         };
         let rt = PreTraining::default();
 
-        let baseline_report = DataBiasRuntime::new_from_pre_training(&bl);
+        let baseline_report = DataBiasRuntime::new_from_pre_training(&bl)?;
 
         Ok(StreamingDataBias {
             feature_seg_criteria,
@@ -214,7 +214,7 @@ where
         if self.rt.size() == 0_u64 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
-        let curr_rt = DataBiasRuntime::new_from_pre_training(&self.rt);
+        let curr_rt = DataBiasRuntime::new_from_pre_training(&self.rt)?;
         let rt_report = curr_rt.runtime_drift_report(&self.baseline_report);
         Ok(DriftReport::from_runtime(rt_report))
     }
@@ -225,7 +225,7 @@ where
         if self.rt.size() == 0_u64 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
-        let curr_rt = DataBiasRuntime::new_from_pre_training(&self.rt);
+        let curr_rt = DataBiasRuntime::new_from_pre_training(&self.rt)?;
         Ok(curr_rt.generate_report())
     }
 }

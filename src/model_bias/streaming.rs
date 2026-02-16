@@ -133,7 +133,7 @@ where
         let mut bl_ge_bucket = BucketGeneralizedEntropy::default();
         bl_ge_bucket.accumulate(gt, &gt_seg, preds, &pred_seg);
         let bl_ge = bl_ge_bucket.ge_snapshot();
-        let bl = ModelBiasRuntime::new_from_post_training(&bl_pt, bl_ge);
+        let bl = ModelBiasRuntime::new_from_post_training(&bl_pt, bl_ge)?;
 
         Ok(StreamingModelBias {
             feat_seg,
@@ -208,7 +208,7 @@ where
         let mut bl_ge_bucket = BucketGeneralizedEntropy::default();
         bl_ge_bucket.accumulate(ground_truth, &self.gt_seg, prediction, &self.pred_seg);
         let bl_ge = bl_ge_bucket.ge_snapshot();
-        self.bl = ModelBiasRuntime::new_from_post_training(&bl_pt, bl_ge);
+        self.bl = ModelBiasRuntime::new_from_post_training(&bl_pt, bl_ge)?;
         Ok(())
     }
 
@@ -235,7 +235,7 @@ where
         let mut bl_ge_bucket = BucketGeneralizedEntropy::default();
         bl_ge_bucket.accumulate(ground_truth, &self.gt_seg, prediction, &self.pred_seg);
         let bl_ge = bl_ge_bucket.ge_snapshot();
-        self.bl = ModelBiasRuntime::new_from_post_training(&bl_pt, bl_ge);
+        self.bl = ModelBiasRuntime::new_from_post_training(&bl_pt, bl_ge)?;
         Ok(())
     }
 
@@ -247,7 +247,7 @@ where
             return Err(ModelPerformanceError::EmptyDataVector);
         }
         let rt_ge = self.ge.ge_snapshot();
-        let rt_snapshot = ModelBiasRuntime::new_from_post_training(&self.rt, rt_ge);
+        let rt_snapshot = ModelBiasRuntime::new_from_post_training(&self.rt, rt_ge)?;
         let report = rt_snapshot.runtime_drift_report(&self.bl);
         Ok(DriftReport::from_runtime(report))
     }
@@ -260,7 +260,7 @@ where
             return Err(ModelPerformanceError::EmptyDataVector);
         }
         let rt_ge = self.ge.ge_snapshot();
-        let rt_snapshot = ModelBiasRuntime::new_from_post_training(&self.rt, rt_ge);
+        let rt_snapshot = ModelBiasRuntime::new_from_post_training(&self.rt, rt_ge)?;
         Ok(rt_snapshot.generate_report())
     }
 }

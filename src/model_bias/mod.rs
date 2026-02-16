@@ -2,7 +2,7 @@ use crate::data_handler::{
     BiasDataPayload, BiasSegmentationCriteria, BiasSegmentationType,
     ConditionalConfusionPushPayload, ConfusionMatrix,
 };
-use crate::errors::{BiasError, ModelBiasRuntimeError};
+use crate::errors::{BiasError, ModelBiasRuntimeError, ModelPerformanceError};
 use crate::metrics::{ModelBiasMetric, FULL_MODEL_BIAS_METRICS};
 use crate::runtime::ModelBiasRuntime;
 use crate::zip_iters;
@@ -96,7 +96,7 @@ pub(crate) mod py_api {
         let post_training_data = DiscretePostTraining::new(&feats, &preds, &gt)?;
         let analysis_res = post_training_bias(&post_training_data);
 
-        let py_dict = report_to_py_dict(py, analysis_res);
+        let py_dict = report_to_py_dict(py, analysis_res?);
         Ok(py_dict)
     }
 }
@@ -150,7 +150,7 @@ where
         DiscretePostTraining::new(&labeled_features, &labeled_preds, &labeled_gt)?;
 
     let analysis_res = post_training_bias(&post_training_base);
-    Ok(analysis_res)
+    Ok(analysis_res?)
 }
 
 #[derive(Default)]
@@ -219,6 +219,20 @@ impl PostTrainingDistribution {
         self.len = 0;
         self.positive_gt = 0;
         self.positive_pred = 0;
+    }
+
+    pub(crate) fn cond_acceptance(&self) -> Result<f32, ModelPerformanceError> {
+        if self.positive_gt == 0_u64 {
+            return Err(ModelPerformanceError::InvalidData);
+        }
+        Ok(self.positive_pred as f32 / self.positive_gt as f32)
+    }
+
+    pub(crate) fn predicted_acceptance_rate(&self) -> Result<f32, ModelPerformanceError> {
+        if self.len == 0_u64 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        Ok(self.positive_pred as f32 / self.len as f32)
     }
 }
 
