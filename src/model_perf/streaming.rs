@@ -1,7 +1,9 @@
 use crate::{
     data_handler::{ConfusionMatrix, ConfusionPushPayload},
     errors::{ModelPerfResult, ModelPerformanceError},
-    metrics::{ClassificationEvaluationMetric, LinearRegressionEvaluationMetric},
+    metrics::{
+        get_stability_eps, ClassificationEvaluationMetric, LinearRegressionEvaluationMetric,
+    },
     reporting::{
         BinaryClassificationAnalysisReport, DriftReport, LinearRegressionAnalysisReport,
         LogisticRegressionAnalysisReport,
@@ -207,19 +209,53 @@ pub(crate) mod py_api {
     }
 }
 
+/*
+*
+pub fn r_squared<T>(y_true: &[T], y_pred: &[T]) -> Result<f64, ModelPerformanceError>
+    where
+        T: Into<f64> + Copy,
+    {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        let n = y_true.len() as f64;
+        let mut y_true_sum = 0_f64;
+        let mut ss_regression = 0_f64;
+        for (t_ref, p_ref) in zip_iters!(y_true, y_pred) {
+            let t: f64 = (*t_ref).into();
+            let p: f64 = (*p_ref).into();
+            ss_regression += (t - p).powi(2);
+            y_true_sum += t;
+        }
+
+        let y_true_mean = y_true_sum / n;
+        let mut ss_total = 0_f64;
+        for t_ref in y_true.iter() {
+            let t: f64 = (*t_ref).into();
+            ss_total += (t - y_true_mean).powi(2);
+        }
+
+        Ok(1_f64 - (ss_regression / ss_total))
+    }
+*/
+
 #[derive(Default)]
 pub(crate) struct RSquaredSupplement {
-    sum_y_true2: f64, // sum of y true ^ 2 across all examples
-    sum_y_pred: f64,  // sum of y pred across all examples
-    sum_y_pred2: f64, // sum of y pred ^ 2 across all examples
+    sum_y_true2: f64,       // sum of y true ^ 2 across all examples
+    sum_y_pred2: f64,       // sum of y pred across all examples
+    sum_y_true_y_pred: f64, // sum of y pred ^ 2 across all examples
 }
 
 impl RSquaredSupplement {
     /// Using the state bucket members in the type to compute a snapshot R^2.
     #[inline]
     fn snapshot(&self, y_true_sum: f64, n: f64) -> f64 {
-        let sse = self.sum_y_true2 - 2_f64 * self.sum_y_pred + self.sum_y_pred2;
+        let sse = self.sum_y_true2 - 2.0 * self.sum_y_true_y_pred + self.sum_y_pred2;
         let sst = self.sum_y_true2 - (y_true_sum.powi(2)) / n;
+
+        if sst == 0_f64 {
+            return if sse == 0_f64 { 1_f64 } else { 0_f64 };
+        }
 
         return 1_f64 - (sse / sst);
     }
@@ -227,8 +263,8 @@ impl RSquaredSupplement {
     /// Push a single example. Takes in the true value and the predicted value.
     fn update(&mut self, y_true: f64, y_pred: f64) {
         self.sum_y_true2 += y_true.powi(2);
-        self.sum_y_pred += y_pred;
         self.sum_y_pred2 += y_pred.powi(2);
+        self.sum_y_true_y_pred += y_true * y_pred;
     }
 }
 
@@ -258,8 +294,8 @@ impl LinearRegressionErrorBuckets {
         self.r2.update(y_true, y_pred);
         self.squared_error_sum += error.powi(2);
         self.abs_error_sum += abs_error;
-        self.max_error = self.max_error.max(error);
-        self.squared_log_error_sum += ((1_f64 + y_true).log10() - (1_f64 + y_pred).log10()).powi(2);
+        self.max_error = self.max_error.max(abs_error);
+        self.squared_log_error_sum += ((1_f64 + y_true).ln() - (1_f64 + y_pred).ln()).powi(2);
         self.y_true_sum += y_true;
         self.abs_percent_error_sum += (abs_error / y_true).abs();
     }
@@ -413,6 +449,10 @@ where
         })
     }
 
+    fn len(&self) -> f32 {
+        self.confusion_rt.len()
+    }
+
     /// Push a single observed runtime example to the stream.
     #[inline]
     pub fn push(&mut self, y_true: &T, y_pred: &T) {
@@ -455,7 +495,7 @@ where
     /// what was computed in the baseline state. This will error when no data has been pushed into
     /// the stream. This method returns the absoulte drift from the baseline state.
     pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
-        if self.confusion_rt.len() == 0_f32 {
+        if self.len() == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
 
@@ -469,7 +509,7 @@ where
     /// the stream.
 
     pub fn performance_snapshot(&self) -> ModelPerfResult<BinaryClassificationAnalysisReport> {
-        if self.confusion_rt.len() == 0_f32 {
+        if self.len() == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
         let rt = BinaryClassificationRuntime::runtime_from_parts(&self.confusion_rt);
@@ -482,12 +522,40 @@ where
     }
 }
 
+/// Small utitity to hold the log loss penalties with some numeric smoothing.
+struct LogPenalty {
+    p: f32,
+    eps: f32,
+}
+
+impl Default for LogPenalty {
+    fn default() -> LogPenalty {
+        LogPenalty {
+            p: 0_f32,
+            eps: get_stability_eps() as f32,
+        }
+    }
+}
+
+impl LogPenalty {
+    #[inline]
+    fn push(&mut self, gt: f32, mut pred: f32) {
+        pred = pred.clamp(self.eps, 1_f32 - self.eps);
+        self.p += gt * pred.ln() + (1_f32 - gt) * (1_f32 - pred).ln();
+    }
+
+    #[inline]
+    fn compute(&self, n: f32) -> f32 {
+        return (-1_f32 * self.p) / n;
+    }
+}
+
 /// Streaming style variant for LogisticRegression models. Like the other streaming variants of the
 /// monitors, this type leverages a bucketing algorithm for compact space.
 pub struct LogisticRegressionStreaming {
     decision_threshold: f32,       // Logisitic decision threshold
     confusion_rt: ConfusionMatrix, // Runtime confusion matrix buckets of label
-    log_penalties: f32,            // Accumulated runtime log penalties
+    log_penalties: LogPenalty,     // Accumulated runtime log penalties
     bl: LogisticRegressionRuntime, // Baseline computations
 }
 
@@ -503,7 +571,7 @@ impl LogisticRegressionStreaming {
         let decision_threshold = threshold_opt.unwrap_or(0.5_f32);
         let bl = LogisticRegressionRuntime::new(y_true, y_pred, decision_threshold)?;
         let confusion_rt = ConfusionMatrix::default();
-        let log_penalties = 0_f32;
+        let log_penalties = LogPenalty::default();
         Ok(LogisticRegressionStreaming {
             bl,
             confusion_rt,
@@ -512,11 +580,14 @@ impl LogisticRegressionStreaming {
         })
     }
 
+    fn len(&self) -> f32 {
+        self.confusion_rt.len()
+    }
+
     /// Push a single record into the stream and update runtime stream state.
     #[inline]
     pub fn push(&mut self, gt: f32, pred: f32) {
-        self.log_penalties += gt * f32::log10(pred) + (1_f32 - gt) * f32::log10(1_f32 - pred);
-
+        self.log_penalties.push(gt, pred);
         let true_gt = gt == 1_f32;
         let true_pred = pred >= self.decision_threshold;
 
@@ -542,7 +613,7 @@ impl LogisticRegressionStreaming {
     /// Clear and reset the runtime state.
     pub fn flush(&mut self) {
         self.confusion_rt = ConfusionMatrix::default();
-        self.log_penalties = 0_f32;
+        self.log_penalties = LogPenalty::default();
     }
 
     /// Compute a snapshot drift report. The drift scalar values are compute by taking the
@@ -553,11 +624,11 @@ impl LogisticRegressionStreaming {
     /// stream. This method returns the absoulte drift from the baseline state.
     pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
         // compute log loss
-        let n = self.confusion_rt.len() as f32;
+        let n = self.len() as f32;
         if n == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
-        let log_loss = (-1_f32 * self.log_penalties) / n;
+        let log_loss = self.log_penalties.compute(n);
         let rt = LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, log_loss)?;
         let report = rt.runtime_drift_report(&self.bl);
         Ok(DriftReport::from_runtime(report))
@@ -566,12 +637,12 @@ impl LogisticRegressionStreaming {
     /// Compute a snapshot of runtime model performance accumulated in the stream, irrelevant of
     /// the baseline state. This will error when no data has been pushed into the stream.
     pub fn performance_snapshot(&self) -> ModelPerfResult<LogisticRegressionAnalysisReport> {
-        let n = self.confusion_rt.len() as f32;
+        let n = self.len() as f32;
         if n == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
 
-        let log_loss = (-1_f32 * self.log_penalties) / n as f32;
+        let log_loss = self.log_penalties.compute(n);
         let rt = LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, log_loss)?;
         Ok(rt.generate_report())
     }
@@ -649,5 +720,90 @@ mod test_perf_streaming {
         assert!((streaming.bl.msle - true_bl.msle).abs() < 1e5_f32);
         assert!((streaming.bl.rmsle - true_bl.rmsle).abs() < 1e5_f32);
         assert!((streaming.bl.mape - true_bl.mape).abs() < 1e5_f32);
+    }
+
+    use crate::metrics::LinearRegressionEvaluationMetric as LRM;
+    #[derive(Debug)]
+    struct TestLinearRegressionReport(crate::reporting::LinearRegressionAnalysisReport);
+
+    impl PartialEq for TestLinearRegressionReport {
+        fn eq(&self, other: &Self) -> bool {
+            if (self.0.get(&LRM::RootMeanSquaredError).unwrap()
+                - other.0.get(&LRM::RootMeanSquaredError).unwrap())
+            .abs()
+                > 1e-5
+            {
+                return false;
+            }
+            if (self.0.get(&LRM::MeanSquaredError).unwrap()
+                - other.0.get(&LRM::MeanSquaredError).unwrap())
+            .abs()
+                > 1e-5
+            {
+                return false;
+            }
+            if (self.0.get(&LRM::MeanAbsoluteError).unwrap()
+                - other.0.get(&LRM::MeanAbsoluteError).unwrap())
+            .abs()
+                > 1e-5
+            {
+                return false;
+            }
+            if (self.0.get(&LRM::RSquared).unwrap() - other.0.get(&LRM::RSquared).unwrap()).abs()
+                > 1e-5
+            {
+                return false;
+            }
+            if (self.0.get(&LRM::MaxError).unwrap() - other.0.get(&LRM::MaxError).unwrap()).abs()
+                > 1e-5
+            {
+                return false;
+            }
+            if (self.0.get(&LRM::MeanSquaredLogError).unwrap()
+                - other.0.get(&LRM::MeanSquaredLogError).unwrap())
+            .abs()
+                > 1e-5
+            {
+                return false;
+            }
+            if (self.0.get(&LRM::RootMeanSquaredLogError).unwrap()
+                - other.0.get(&LRM::RootMeanSquaredLogError).unwrap())
+            .abs()
+                > 1e-5
+            {
+                return false;
+            }
+            if (self.0.get(&LRM::MeanAbsolutePercentageError).unwrap()
+                - other.0.get(&LRM::MeanAbsolutePercentageError).unwrap())
+            .abs()
+                > 1e-5
+            {
+                return false;
+            }
+            true
+        }
+    }
+
+    #[test]
+    fn test_linear_regression_streaming_accumulation() {
+        let y_pred = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
+        let y_true = vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6];
+
+        let true_bl = LinearRegressionRuntime {
+            rmse: 0.7781745019952505,
+            mse: 0.6055555555555561,
+            msle: 0.0030593723018136412,
+            rmsle: 0.055311592833814156,
+            r_squared: 0.7435160008366448,
+            mape: 0.053999057284547014,
+            max_error: 1.3000000000000007,
+            mae: 0.7000000000000003,
+        };
+
+        let mut streaming = LinearRegressionStreaming::new(&y_true, &y_pred).unwrap();
+        streaming.push_batch(&y_true, &y_pred).unwrap();
+        let base = TestLinearRegressionReport(true_bl.generate_report());
+        let test = TestLinearRegressionReport(streaming.performance_snapshot().unwrap());
+        assert_eq!(base, test);
     }
 }

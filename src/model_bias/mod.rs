@@ -328,19 +328,17 @@ impl PostTraining {
         self.dist_d.positive_pred += (!is_a && pred_is_positive) as u64;
         self.dist_d.positive_gt += (!is_a && gt_is_positive) as u64;
 
-        let pred_is_true = pred_is_positive == gt_is_positive;
-
         self.confusion_a
             .conditional_push(ConditionalConfusionPushPayload {
                 cond: is_a,
                 true_gt: gt_is_positive,
-                true_pred: pred_is_true,
+                true_pred: pred_is_positive,
             });
         self.confusion_d
             .conditional_push(ConditionalConfusionPushPayload {
-                cond: is_a,
+                cond: !is_a,
                 true_gt: gt_is_positive,
-                true_pred: pred_is_true,
+                true_pred: pred_is_positive,
             });
     }
 

@@ -373,7 +373,7 @@ pub const FULL_BINARY_CLASSIFICATION_METRICS: [ClassificationEvaluationMetric; 7
     ClassificationEvaluationMetric::F1Score,
 ];
 
-#[derive(Serialize, Deserialize, PartialEq, Hash, Eq)]
+#[derive(Serialize, Deserialize, PartialEq, Hash, Eq, Debug)]
 pub enum ClassificationEvaluationMetric {
     BalancedAccuracy,
     PrecisionPositive,
@@ -385,7 +385,7 @@ pub enum ClassificationEvaluationMetric {
     LogLoss,
 }
 
-#[derive(Serialize, Deserialize, Hash, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Debug)]
 pub enum LinearRegressionEvaluationMetric {
     RootMeanSquaredError,
     MeanSquaredError,

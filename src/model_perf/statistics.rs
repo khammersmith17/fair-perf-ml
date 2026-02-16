@@ -1,12 +1,12 @@
 pub mod classification_metrics {
+    use super::classification_metrics_from_parts as CMetrics;
     /// Methods to perform ad hoc loss function computations.
     /// Each method aside from log loss has two variants, one for binary labeled data and one for
     /// logisitc regression style labeling via a threshold. The only exception is the log loss
     /// score, which only provides a single variant.
-    ///
+
     /// Generic types can used that implement the associated [std::cmp::Ordering] trait. The label
     /// methods require [PartialEq], and the threshold methods take [ParitalOrd].
-    use super::classification_metrics_from_parts as CMetrics;
     use crate::data_handler::ConfusionMatrix;
     use crate::errors::ModelPerformanceError;
 
@@ -73,6 +73,20 @@ pub mod classification_metrics {
         CMetrics::accuracy(y_true, y_pred)
     }
 
+    pub fn accuracy_from_threshold<T: PartialOrd>(
+        y_true: &[T],
+        y_pred: &[T],
+        positive_threshold: T,
+    ) -> Result<f32, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        let mut c_matrix = ConfusionMatrix::default();
+
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
+        Ok(c_matrix.accuracy())
+    }
+
     pub fn log_loss_score(y_true: &[f32], y_pred: &[f32]) -> Result<f32, ModelPerformanceError> {
         CMetrics::log_loss_score(y_true, y_pred)
     }
@@ -108,14 +122,14 @@ pub mod classification_metrics {
     pub fn balanced_accuracy_from_label<T: PartialEq>(
         y_true: &[T],
         y_pred: &[T],
-        positive_threshold: T,
+        positive_label: T,
     ) -> Result<f32, ModelPerformanceError> {
         if y_true.len() != y_pred.len() {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_threshold));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label));
         Ok(CMetrics::balanced_accuracy(&c_matrix))
     }
 
@@ -249,7 +263,7 @@ pub mod linear_regression_metric {
         for (t_ref, p_ref) in zip_iters!(y_true, y_pred) {
             let t: f64 = (*t_ref).into();
             let p: f64 = (*p_ref).into();
-            res = f64::max(t - p, res);
+            res = f64::max((t - p).abs(), res);
         }
         Ok(res)
     }
@@ -272,9 +286,12 @@ pub mod linear_regression_metric {
         for (t_ref, p_ref) in zip_iters!(y_true, y_pred) {
             let t: f64 = (*t_ref).into();
             let p: f64 = (*p_ref).into();
-            sum += (1_f64 + t).log10() - (1_f64 + p).log10();
+            if t == -1_f64 || p == -1_f64 {
+                return Err(ModelPerformanceError::InvalidDataValue);
+            }
+            sum += ((1_f64 + t).ln() - (1_f64 + p).ln()).powi(2);
         }
-        Ok(sum.powi(2) / n)
+        Ok(sum / n)
     }
 
     /// Root Mean Sqaured Log Error. This will error when the y_true and y_pred slices are not the same
@@ -295,9 +312,9 @@ pub mod linear_regression_metric {
         for (t_ref, p_ref) in zip_iters!(y_true, y_pred) {
             let t: f64 = (*t_ref).into();
             let p: f64 = (*p_ref).into();
-            sum += (1_f64 + t).log10() - (1_f64 + p).log10();
+            sum += ((1_f64 + t).ln() - (1_f64 + p).ln()).powi(2);
         }
-        Ok(sum.powi(2).sqrt() / n)
+        Ok((sum / n).sqrt())
     }
 
     /// Ad hoc method to compute the mean absolute percentage error Linear Regression metric. This will error
@@ -319,13 +336,14 @@ pub mod linear_regression_metric {
             let p: f64 = (*p_ref).into();
             sum += (t - p).abs() / t;
         }
-        Ok((sum / n) * 100_f64)
+        Ok(sum / n)
     }
 }
 
 pub(crate) mod classification_metrics_from_parts {
     use crate::data_handler::ConfusionMatrix;
     use crate::errors::ModelPerformanceError;
+    use crate::metrics::get_stability_eps;
     use crate::zip_iters;
 
     /// TP / TP + FP
@@ -363,7 +381,7 @@ pub(crate) mod classification_metrics_from_parts {
     pub(crate) fn balanced_accuracy(confusion_matrix: &ConfusionMatrix) -> f32 {
         let rp = recall_positive(confusion_matrix);
         let rn = recall_negative(confusion_matrix);
-        rp * rn * 0.5_f32
+        (rp + rn) * 0.5_f32
     }
 
     #[inline]
@@ -394,49 +412,50 @@ pub(crate) mod classification_metrics_from_parts {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
         let n = y_proba.len() as f32;
+        let eps = get_stability_eps() as f32;
         let mut penalties = 0_f32;
         for (t, p) in zip_iters!(y_true, y_proba) {
-            penalties += t * f32::log10(*p) + (1_f32 - *t) * f32::log10(1_f32 - *p);
+            let t = *t;
+            let mut p = *p;
+            p = p.clamp(eps, 1_f32 - eps);
+            penalties += t * p.ln() + (1_f32 - t) * (1_f32 - p).ln();
         }
         let res = (-1_f32 * penalties) / n;
 
         if res.is_nan() {
-            Ok(0_f32)
-        } else {
-            Ok(res)
+            return Err(ModelPerformanceError::InvalidDataValue);
         }
+        Ok(res)
     }
 }
 
 mod test_model_perf_stats {
-    use super::*;
-
     #[test]
     fn test_regression_ad_hoc_metrics_zero() {
-        use linear_regression_metric as metrics;
+        use super::linear_regression_metric as metrics;
         let y_pred = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
         let y_true = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
         let rmse = metrics::root_mean_squared_error(&y_true, &y_pred).unwrap();
-        assert!(rmse.abs() < 1e5_f64);
+        assert!(rmse.abs() < 1e-5_f64);
         let mse = metrics::mean_squared_error(&y_true, &y_pred).unwrap();
-        assert!(mse.abs() < 1e5_f64);
+        assert!(mse.abs() < 1e-5_f64);
         let mae = metrics::mean_absolute_error(&y_true, &y_pred).unwrap();
-        assert!(mae.abs() < 1e5_f64);
+        assert!(mae.abs() < 1e-5_f64);
         let r2 = metrics::r_squared(&y_true, &y_pred).unwrap();
-        assert!((1_f64 - r2).abs() < 1e5_f64);
+        assert!((1_f64 - r2).abs() < 1e-5_f64);
         let max_error = metrics::max_error(&y_true, &y_pred).unwrap();
-        assert!(max_error.abs() < 1e5_f64);
+        assert!(max_error.abs() < 1e-5_f64);
         let msle = metrics::mean_squared_log_error(&y_true, &y_pred).unwrap();
-        assert!(msle.abs() < 1e5_f64);
+        assert!(msle.abs() < 1e-5_f64);
         let rmsle = metrics::root_mean_squared_log_error(&y_true, &y_pred).unwrap();
-        assert!(rmsle.abs() < 1e5_f64);
+        assert!(rmsle.abs() < 1e-5_f64);
         let mape = metrics::mean_absolute_percentage_error(&y_true, &y_pred).unwrap();
-        assert!(mape.abs() < 1e5_f64);
+        assert!(mape.abs() < 1e-5_f64);
     }
 
     #[test]
     fn test_regression_ad_hoc_metrics_nonzero() {
-        use linear_regression_metric as metrics;
+        use super::linear_regression_metric as metrics;
         /*
          * {
          *       'rmse': 0.7781745019952505,
@@ -452,20 +471,83 @@ mod test_model_perf_stats {
         let y_pred = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
         let y_true = vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6];
         let rmse = metrics::root_mean_squared_error(&y_true, &y_pred).unwrap();
-        assert!((0.77817_f64 - rmse).abs() < 1e5_f64);
+        assert!((0.77817_f64 - rmse).abs() < 1e-5_f64);
         let mse = metrics::mean_squared_error(&y_true, &y_pred).unwrap();
-        assert!((0.605555 - mse).abs() < 1e5_f64);
+        assert!((0.605555 - mse).abs() < 1e-5_f64);
         let mae = metrics::mean_absolute_error(&y_true, &y_pred).unwrap();
-        assert!((0.7000 - mae).abs() < 1e5_f64);
+        assert!((0.7000 - mae).abs() < 1e-5_f64);
         let r2 = metrics::r_squared(&y_true, &y_pred).unwrap();
-        assert!((0.7435_f64 - r2).abs() < 1e5_f64);
+        assert!((0.743516_f64 - r2).abs() < 1e-5_f64);
         let max_error = metrics::max_error(&y_true, &y_pred).unwrap();
-        assert!((1.3 - max_error).abs() < 1e5_f64);
+        assert!((1.3 - max_error).abs() < 1e-5_f64);
         let msle = metrics::mean_squared_log_error(&y_true, &y_pred).unwrap();
-        assert!((0.003059_f64 - msle).abs() < 1e5_f64);
+        assert!((0.003059_f64 - msle).abs() < 1e-5_f64);
         let rmsle = metrics::root_mean_squared_log_error(&y_true, &y_pred).unwrap();
-        assert!((0.055311 - rmsle).abs() < 1e5_f64);
+        assert!((0.055311 - rmsle).abs() < 1e-5_f64);
         let mape = metrics::mean_absolute_percentage_error(&y_true, &y_pred).unwrap();
-        assert!((0.05399_f64 - mape).abs() < 1e5_f64);
+        assert!((0.05399_f64 - mape).abs() < 1e-5_f64);
+    }
+
+    #[test]
+    fn test_add_hoc_classification_from_label() {
+        use super::classification_metrics as metrics;
+        /*
+         * {
+         *       'precision': 0.75,
+         *       'recall': 0.6666666666666666,
+         *       'f1': 0.7058823529411765,
+         *       'accuracy': 0.6875,
+         *       'balanced_accuracy': 0.6904761904761905
+         *   }
+         * */
+
+        let y_pred = [1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1];
+        let y_true = [0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1];
+        let computed_prec = metrics::precision_from_label(&y_true, &y_pred, 1).unwrap();
+        assert!((computed_prec - 0.75).abs() < 1e-5);
+
+        let computed_recall = metrics::recall_from_label(&y_true, &y_pred, 1).unwrap();
+        assert!((computed_recall - 0.66666).abs() < 1e-5);
+
+        let computed_f1 = metrics::f1_score_from_label(&y_true, &y_pred, 1).unwrap();
+        assert!((computed_f1 - 0.70588).abs() < 1e-5);
+
+        let computed_acc = metrics::accuracy_from_label(&y_true, &y_pred).unwrap();
+        assert!((computed_acc - 0.6875).abs() < 1e-5);
+
+        let computed_bal_acc = metrics::balanced_accuracy_from_label(&y_true, &y_pred, 1).unwrap();
+        assert!((computed_bal_acc - 0.6904762).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_add_hoc_classification_from_threshold() {
+        use super::classification_metrics as metrics;
+        let y_pred = [
+            0.7, 0.3, 0.65, 0.55, 0.1, 0.2, 0.25, 0.66, 0.12, 0.98, 0.23, 0.34, 0.67, 0.77, 0.45,
+            0.88,
+        ];
+        let y_true = [
+            0_f32, 0_f32, 1_f32, 1_f32, 1_f32, 0_f32, 0_f32, 1_f32, 1_f32, 1_f32, 0_f32, 0_f32,
+            1_f32, 0_f32, 1_f32, 1_f32,
+        ];
+        let computed_prec = metrics::precision_from_threshold(&y_true, &y_pred, 0.5_f32).unwrap();
+        assert!((computed_prec - 0.75).abs() < 1e-5);
+
+        let computed_recall = metrics::recall_from_threshold(&y_true, &y_pred, 0.5_f32).unwrap();
+        assert!((computed_recall - 0.66666).abs() < 1e-5);
+
+        let computed_f1 = metrics::f1_score_from_threshold(&y_true, &y_pred, 0.5_f32).unwrap();
+        assert!((computed_f1 - 0.70588).abs() < 1e-5);
+
+        let computed_acc = metrics::accuracy_from_threshold(&y_true, &y_pred, 0.5_f32).unwrap();
+        assert!((computed_acc - 0.6875).abs() < 1e-5);
+
+        let computed_bal_acc =
+            metrics::balanced_accuracy_from_threshold(&y_true, &y_pred, 0.5_f32).unwrap();
+        assert!((computed_bal_acc - 0.6904762).abs() < 1e-5);
+
+        let computed_log_loss = metrics::log_loss_score(&y_true, &y_pred).unwrap();
+        println!("computed log loss: {computed_log_loss}");
+        assert!((computed_log_loss - 0.7145021801144907).abs() < 1e-5)
     }
 }

@@ -89,6 +89,8 @@ pub enum ModelBiasRuntimeError {
 
 #[derive(Debug, Error)]
 pub enum ModelPerformanceError {
+    #[error("Unsupported data values")]
+    InvalidDataValue,
     #[error("Empty data vectors")]
     EmptyDataVector,
     #[error("Data vectors must be equal length")]

@@ -1095,7 +1095,7 @@ impl LogisticRegressionRuntime {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct LinearRegressionRuntime {
     pub(crate) rmse: f32,
     pub(crate) mse: f32,
@@ -1105,6 +1105,37 @@ pub struct LinearRegressionRuntime {
     pub(crate) msle: f32,
     pub(crate) rmsle: f32,
     pub(crate) mape: f32,
+}
+
+/// Implementing this by hand to allow for some small error.
+impl PartialEq for LinearRegressionRuntime {
+    fn eq(&self, other: &Self) -> bool {
+        if (self.rmse - other.rmse).abs() > 1e-5 {
+            return false;
+        }
+        if (self.mse - other.mse).abs() > 1e-5 {
+            return false;
+        }
+        if (self.mae - other.mae).abs() > 1e-5 {
+            return false;
+        }
+        if (self.r_squared - other.r_squared).abs() > 1e-5 {
+            return false;
+        }
+        if (self.max_error - other.max_error).abs() > 1e-5 {
+            return false;
+        }
+        if (self.msle - other.msle).abs() > 1e-5 {
+            return false;
+        }
+        if (self.rmsle - other.rmsle).abs() > 1e-5 {
+            return false;
+        }
+        if (self.mape - other.mape).abs() > 1e-5 {
+            return false;
+        }
+        true
+    }
 }
 
 impl LinearRegressionRuntime {
@@ -1189,7 +1220,7 @@ impl LinearRegressionRuntime {
             max_error: parts.max_error as f32,
             mae: (parts.abs_error_sum / n) as f32,
             msle,
-            rmsle: msle.powf(0.5_f32),
+            rmsle: msle.sqrt(),
             mape: (parts.abs_percent_error_sum / n) as f32,
         })
     }
@@ -1264,6 +1295,20 @@ impl LinearRegressionRuntime {
         result.insert(L::MeanAbsolutePercentageError, (bl.mape - self.mape).abs());
         result
     }
+
+    pub fn generate_report(&self) -> LinearRegressionAnalysisReport {
+        use LinearRegressionEvaluationMetric as L;
+        let mut map: HashMap<L, f32> = HashMap::with_capacity(8);
+        map.insert(L::RootMeanSquaredError, self.rmse);
+        map.insert(L::MeanSquaredError, self.mse);
+        map.insert(L::MeanAbsoluteError, self.mae);
+        map.insert(L::RSquared, self.r_squared);
+        map.insert(L::MaxError, self.max_error);
+        map.insert(L::MeanSquaredLogError, self.msle);
+        map.insert(L::RootMeanSquaredLogError, self.rmsle);
+        map.insert(L::MeanAbsolutePercentageError, self.mape);
+        map
+    }
 }
 
 impl TryFrom<&LinearRegressionAnalysisReport> for LinearRegressionRuntime {
@@ -1310,22 +1355,6 @@ impl TryFrom<HashMap<String, f32>> for LinearRegressionRuntime {
             rmsle: value_fetcher(&mut payload, "RootMeanSquaredLogError")?,
             mape: value_fetcher(&mut payload, "MeanAbsolutePercentageError")?,
         })
-    }
-}
-
-impl LinearRegressionRuntime {
-    pub fn generate_report(&self) -> LinearRegressionAnalysisReport {
-        use LinearRegressionEvaluationMetric as L;
-        let mut map: HashMap<L, f32> = HashMap::with_capacity(8);
-        map.insert(L::RootMeanSquaredError, self.rmse);
-        map.insert(L::MeanSquaredError, self.mse);
-        map.insert(L::MeanAbsoluteError, self.mae);
-        map.insert(L::RSquared, self.r_squared);
-        map.insert(L::MaxError, self.max_error);
-        map.insert(L::MeanSquaredLogError, self.msle);
-        map.insert(L::RootMeanSquaredLogError, self.rmsle);
-        map.insert(L::MeanAbsolutePercentageError, self.mape);
-        map
     }
 }
 
