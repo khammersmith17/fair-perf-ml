@@ -24,7 +24,7 @@ pub(crate) mod py_api {
     use pyo3::prelude::*;
     use pyo3::types::IntoPyDict;
 
-    // All types here are simply logic wrappers around core types, simply to expose the apis to
+    // All types here are simply logical wrappers around core types, simply to expose the apis to
     // python through FFI.
 
     // requires label to be applied in Python wrapper, for now at least
@@ -209,36 +209,6 @@ pub(crate) mod py_api {
     }
 }
 
-/*
-*
-pub fn r_squared<T>(y_true: &[T], y_pred: &[T]) -> Result<f64, ModelPerformanceError>
-    where
-        T: Into<f64> + Copy,
-    {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
-        let n = y_true.len() as f64;
-        let mut y_true_sum = 0_f64;
-        let mut ss_regression = 0_f64;
-        for (t_ref, p_ref) in zip_iters!(y_true, y_pred) {
-            let t: f64 = (*t_ref).into();
-            let p: f64 = (*p_ref).into();
-            ss_regression += (t - p).powi(2);
-            y_true_sum += t;
-        }
-
-        let y_true_mean = y_true_sum / n;
-        let mut ss_total = 0_f64;
-        for t_ref in y_true.iter() {
-            let t: f64 = (*t_ref).into();
-            ss_total += (t - y_true_mean).powi(2);
-        }
-
-        Ok(1_f64 - (ss_regression / ss_total))
-    }
-*/
-
 #[derive(Default)]
 pub(crate) struct RSquaredSupplement {
     sum_y_true2: f64,       // sum of y true ^ 2 across all examples
@@ -300,6 +270,7 @@ impl LinearRegressionErrorBuckets {
         self.abs_percent_error_sum += (abs_error / y_true).abs();
     }
 
+    /// Compute R^2 from partial state.
     #[inline]
     pub(crate) fn r2_snapshot(&self) -> f64 {
         self.r2.snapshot(self.y_true_sum, self.len)
@@ -525,7 +496,7 @@ where
 /// Small utitity to hold the log loss penalties with some numeric smoothing.
 struct LogPenalty {
     p: f32,
-    eps: f32,
+    eps: f32, // storing eps for the sake of looking from closer memory
 }
 
 impl Default for LogPenalty {
@@ -671,149 +642,76 @@ impl LogisticRegressionStreaming {
 }
 
 #[cfg(test)]
-mod test_perf_streaming {
-    use super::*;
-    use crate::runtime::{
-        BinaryClassificationRuntime, LinearRegressionRuntime, EQUALITY_ERROR_ALLOWANCE,
-    };
-
-    /*
-     * 1. Test the accumulation of the error buckets from LinearRegressionErrorBuckets/
-     *    RSquaredSupplement
-     * 2. Test accumulate of the BinaryClassificationAccuracyBuckets
-     * 3. Test push batch records into each stream, this will implicitly test the push single
-     *    implementation.
-     *
-     * */
-
-    #[test]
-    fn test_linear_regression_baseline() {
-        /*
-         * {
-         *       'rmse': 0.7781745019952505,
-         *       'mse': 0.6055555555555561,
-         *       'msle': 0.0030593723018136412,
-         *       'rmsle': 0.055311592833814156,
-         *       'r2': 0.7435160008366448,
-         *       'mape': 0.053999057284547014,
-         *       'max_error': 1.3000000000000007,
-         *       'mae': 0.7000000000000003
-         *   }
-         * */
-        let y_pred = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
-        let y_true = vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6];
-
-        let true_bl = LinearRegressionRuntime {
-            rmse: 0.7781745019952505,
-            mse: 0.6055555555555561,
-            msle: 0.0030593723018136412,
-            rmsle: 0.055311592833814156,
-            r_squared: 0.7435160008366448,
-            mape: 0.053999057284547014,
-            max_error: 1.3000000000000007,
-            mae: 0.7000000000000003,
-        };
-        let streaming = LinearRegressionStreaming::new(&y_true, &y_pred).unwrap();
-        assert!((streaming.bl.rmse - true_bl.rmse).abs() < 1e5_f32);
-        assert!((streaming.bl.mse - true_bl.mse).abs() < 1e5_f32);
-        assert!((streaming.bl.mae - true_bl.mae).abs() < 1e5_f32);
-        assert!((streaming.bl.r_squared - true_bl.r_squared).abs() < 1e5_f32);
-        assert!((streaming.bl.max_error - true_bl.max_error).abs() < 1e5_f32);
-        assert!((streaming.bl.msle - true_bl.msle).abs() < 1e5_f32);
-        assert!((streaming.bl.rmsle - true_bl.rmsle).abs() < 1e5_f32);
-        assert!((streaming.bl.mape - true_bl.mape).abs() < 1e5_f32);
-    }
-
+mod analysis_report_test_containers {
     use crate::metrics::LinearRegressionEvaluationMetric as LRM;
+    use crate::runtime::EQUALITY_ERROR_ALLOWANCE;
     #[derive(Debug)]
-    struct TestLinearRegressionReport(crate::reporting::LinearRegressionAnalysisReport);
+    pub struct TestLinearRegressionReport(
+        pub(super) crate::reporting::LinearRegressionAnalysisReport,
+    );
 
     impl PartialEq for TestLinearRegressionReport {
         fn eq(&self, other: &Self) -> bool {
             if (self.0.get(&LRM::RootMeanSquaredError).unwrap()
                 - other.0.get(&LRM::RootMeanSquaredError).unwrap())
             .abs()
-                > 1e-5
+                > EQUALITY_ERROR_ALLOWANCE
             {
                 return false;
             }
             if (self.0.get(&LRM::MeanSquaredError).unwrap()
                 - other.0.get(&LRM::MeanSquaredError).unwrap())
             .abs()
-                > 1e-5
+                > EQUALITY_ERROR_ALLOWANCE
             {
                 return false;
             }
             if (self.0.get(&LRM::MeanAbsoluteError).unwrap()
                 - other.0.get(&LRM::MeanAbsoluteError).unwrap())
             .abs()
-                > 1e-5
+                > EQUALITY_ERROR_ALLOWANCE
             {
                 return false;
             }
             if (self.0.get(&LRM::RSquared).unwrap() - other.0.get(&LRM::RSquared).unwrap()).abs()
-                > 1e-5
+                > EQUALITY_ERROR_ALLOWANCE
             {
                 return false;
             }
             if (self.0.get(&LRM::MaxError).unwrap() - other.0.get(&LRM::MaxError).unwrap()).abs()
-                > 1e-5
+                > EQUALITY_ERROR_ALLOWANCE
             {
                 return false;
             }
             if (self.0.get(&LRM::MeanSquaredLogError).unwrap()
                 - other.0.get(&LRM::MeanSquaredLogError).unwrap())
             .abs()
-                > 1e-5
+                > EQUALITY_ERROR_ALLOWANCE
             {
                 return false;
             }
             if (self.0.get(&LRM::RootMeanSquaredLogError).unwrap()
                 - other.0.get(&LRM::RootMeanSquaredLogError).unwrap())
             .abs()
-                > 1e-5
+                > EQUALITY_ERROR_ALLOWANCE
             {
                 return false;
             }
             if (self.0.get(&LRM::MeanAbsolutePercentageError).unwrap()
                 - other.0.get(&LRM::MeanAbsolutePercentageError).unwrap())
             .abs()
-                > 1e-5
+                > EQUALITY_ERROR_ALLOWANCE
             {
                 return false;
             }
             true
         }
     }
-
-    #[test]
-    fn test_linear_regression_streaming_accumulation() {
-        let y_pred = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
-        let y_true = vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6];
-
-        let true_bl = LinearRegressionRuntime {
-            rmse: 0.7781745019952505,
-            mse: 0.6055555555555561,
-            msle: 0.0030593723018136412,
-            rmsle: 0.055311592833814156,
-            r_squared: 0.7435160008366448,
-            mape: 0.053999057284547014,
-            max_error: 1.3000000000000007,
-            mae: 0.7000000000000003,
-        };
-
-        let mut streaming = LinearRegressionStreaming::new(&y_true, &y_pred).unwrap();
-        streaming.push_batch(&y_true, &y_pred).unwrap();
-        let base = TestLinearRegressionReport(true_bl.generate_report());
-        let test = TestLinearRegressionReport(streaming.performance_snapshot().unwrap());
-        assert_eq!(base, test);
-    }
-
     use crate::metrics::ClassificationEvaluationMetric as CM;
 
     #[derive(Debug)]
-    struct TestBinaryClassificationAnalysisReport(
-        crate::reporting::BinaryClassificationAnalysisReport,
+    pub(super) struct TestBinaryClassificationAnalysisReport(
+        pub(super) crate::reporting::BinaryClassificationAnalysisReport,
     );
 
     impl PartialEq for TestBinaryClassificationAnalysisReport {
@@ -872,6 +770,153 @@ mod test_perf_streaming {
             }
             true
         }
+    }
+    #[derive(Debug)]
+    pub(super) struct TestLogisticRegressionAnalysisReport(
+        pub(super) crate::reporting::LogisticRegressionAnalysisReport,
+    );
+
+    impl PartialEq for TestLogisticRegressionAnalysisReport {
+        fn eq(&self, other: &Self) -> bool {
+            if (self.0.get(&CM::BalancedAccuracy).unwrap()
+                - other.0.get(&CM::BalancedAccuracy).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::PrecisionPositive).unwrap()
+                - other.0.get(&CM::PrecisionPositive).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::PrecisionNegative).unwrap()
+                - other.0.get(&CM::PrecisionNegative).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::RecallPositive).unwrap()
+                - other.0.get(&CM::RecallPositive).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::RecallNegative).unwrap()
+                - other.0.get(&CM::RecallNegative).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::Accuracy).unwrap() - other.0.get(&CM::Accuracy).unwrap()).abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::F1Score).unwrap() - other.0.get(&CM::F1Score).unwrap()).abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::BalancedAccuracy).unwrap()
+                - other.0.get(&CM::BalancedAccuracy).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::LogLoss).unwrap() - other.0.get(&CM::LogLoss).unwrap()).abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            true
+        }
+    }
+}
+
+#[cfg(test)]
+mod test_perf_streaming {
+    use super::*;
+    use crate::runtime::{BinaryClassificationRuntime, LinearRegressionRuntime};
+    use analysis_report_test_containers::{
+        TestBinaryClassificationAnalysisReport, TestLinearRegressionReport,
+        TestLogisticRegressionAnalysisReport,
+    };
+
+    /*
+     * 1. Test the accumulation of the error buckets from LinearRegressionErrorBuckets/
+     *    RSquaredSupplement
+     * 2. Test accumulate of the BinaryClassificationAccuracyBuckets
+     * 3. Test push batch records into each stream, this will implicitly test the push single
+     *    implementation.
+     *
+     * */
+
+    #[test]
+    fn test_linear_regression_baseline() {
+        /*
+         * {
+         *       'rmse': 0.7781745019952505,
+         *       'mse': 0.6055555555555561,
+         *       'msle': 0.0030593723018136412,
+         *       'rmsle': 0.055311592833814156,
+         *       'r2': 0.7435160008366448,
+         *       'mape': 0.053999057284547014,
+         *       'max_error': 1.3000000000000007,
+         *       'mae': 0.7000000000000003
+         *   }
+         * */
+        let y_pred = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
+        let y_true = vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6];
+
+        let true_bl = LinearRegressionRuntime {
+            rmse: 0.7781745019952505,
+            mse: 0.6055555555555561,
+            msle: 0.0030593723018136412,
+            rmsle: 0.055311592833814156,
+            r_squared: 0.7435160008366448,
+            mape: 0.053999057284547014,
+            max_error: 1.3000000000000007,
+            mae: 0.7000000000000003,
+        };
+        let streaming = LinearRegressionStreaming::new(&y_true, &y_pred).unwrap();
+        assert!((streaming.bl.rmse - true_bl.rmse).abs() < 1e5_f32);
+        assert!((streaming.bl.mse - true_bl.mse).abs() < 1e5_f32);
+        assert!((streaming.bl.mae - true_bl.mae).abs() < 1e5_f32);
+        assert!((streaming.bl.r_squared - true_bl.r_squared).abs() < 1e5_f32);
+        assert!((streaming.bl.max_error - true_bl.max_error).abs() < 1e5_f32);
+        assert!((streaming.bl.msle - true_bl.msle).abs() < 1e5_f32);
+        assert!((streaming.bl.rmsle - true_bl.rmsle).abs() < 1e5_f32);
+        assert!((streaming.bl.mape - true_bl.mape).abs() < 1e5_f32);
+    }
+
+    #[test]
+    fn test_linear_regression_streaming_accumulation() {
+        let y_pred = vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0];
+        let y_true = vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6];
+
+        let true_bl = LinearRegressionRuntime {
+            rmse: 0.7781745019952505,
+            mse: 0.6055555555555561,
+            msle: 0.0030593723018136412,
+            rmsle: 0.055311592833814156,
+            r_squared: 0.7435160008366448,
+            mape: 0.053999057284547014,
+            max_error: 1.3000000000000007,
+            mae: 0.7000000000000003,
+        };
+
+        let mut streaming = LinearRegressionStreaming::new(&y_true, &y_pred).unwrap();
+        streaming.push_batch(&y_true, &y_pred).unwrap();
+        let base = TestLinearRegressionReport(true_bl.generate_report());
+        let test = TestLinearRegressionReport(streaming.performance_snapshot().unwrap());
+        assert_eq!(base, test);
     }
 
     #[test]
@@ -945,72 +990,6 @@ mod test_perf_streaming {
             log_loss: 0.7145021801144907,
         };
         assert_eq!(true_bl, streaming.bl);
-    }
-
-    #[derive(Debug)]
-    struct TestLogisticRegressionAnalysisReport(crate::reporting::LogisticRegressionAnalysisReport);
-
-    impl PartialEq for TestLogisticRegressionAnalysisReport {
-        fn eq(&self, other: &Self) -> bool {
-            if (self.0.get(&CM::BalancedAccuracy).unwrap()
-                - other.0.get(&CM::BalancedAccuracy).unwrap())
-            .abs()
-                > EQUALITY_ERROR_ALLOWANCE
-            {
-                return false;
-            }
-            if (self.0.get(&CM::PrecisionPositive).unwrap()
-                - other.0.get(&CM::PrecisionPositive).unwrap())
-            .abs()
-                > EQUALITY_ERROR_ALLOWANCE
-            {
-                return false;
-            }
-            if (self.0.get(&CM::PrecisionNegative).unwrap()
-                - other.0.get(&CM::PrecisionNegative).unwrap())
-            .abs()
-                > EQUALITY_ERROR_ALLOWANCE
-            {
-                return false;
-            }
-            if (self.0.get(&CM::RecallPositive).unwrap()
-                - other.0.get(&CM::RecallPositive).unwrap())
-            .abs()
-                > EQUALITY_ERROR_ALLOWANCE
-            {
-                return false;
-            }
-            if (self.0.get(&CM::RecallNegative).unwrap()
-                - other.0.get(&CM::RecallNegative).unwrap())
-            .abs()
-                > EQUALITY_ERROR_ALLOWANCE
-            {
-                return false;
-            }
-            if (self.0.get(&CM::Accuracy).unwrap() - other.0.get(&CM::Accuracy).unwrap()).abs()
-                > EQUALITY_ERROR_ALLOWANCE
-            {
-                return false;
-            }
-            if (self.0.get(&CM::F1Score).unwrap() - other.0.get(&CM::F1Score).unwrap()).abs()
-                > EQUALITY_ERROR_ALLOWANCE
-            {
-                return false;
-            }
-            if (self.0.get(&CM::BalancedAccuracy).unwrap()
-                - other.0.get(&CM::BalancedAccuracy).unwrap())
-            .abs()
-                > EQUALITY_ERROR_ALLOWANCE
-            {
-                return false;
-            }
-            if (self.0.get(&CM::LogLoss).unwrap() - other.0.get(&CM::LogLoss).unwrap()).abs()
-                > EQUALITY_ERROR_ALLOWANCE
-            {
-                return false;
-            }
-            true
-        }
     }
 
     #[test]
