@@ -8,19 +8,17 @@ pub mod classification_metrics {
     /// Generic types can used that implement the associated [std::cmp::Ordering] trait. The label
     /// methods require [PartialEq], and the threshold methods take [ParitalOrd].
     use crate::data_handler::ConfusionMatrix;
-    use crate::errors::ModelPerformanceError;
+    use crate::errors::{ModelPerfResult, ModelPerformanceError};
+    use crate::zip_iters;
 
     pub fn precision_from_label<T: PartialEq>(
         y_true: &[T],
         y_pred: &[T],
         positive_label: T,
-    ) -> Result<f32, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
+    ) -> ModelPerfResult<f32> {
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label))?;
         Ok(CMetrics::precision_positive(&c_matrix))
     }
 
@@ -28,13 +26,10 @@ pub mod classification_metrics {
         y_true: &[T],
         y_pred: &[T],
         positive_threshold: T,
-    ) -> Result<f32, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
+    ) -> ModelPerfResult<f32> {
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold))?;
         Ok(CMetrics::precision_positive(&c_matrix))
     }
 
@@ -42,13 +37,10 @@ pub mod classification_metrics {
         y_true: &[T],
         y_pred: &[T],
         positive_label: T,
-    ) -> Result<f32, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
+    ) -> ModelPerfResult<f32> {
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label))?;
         Ok(CMetrics::recall_positive(&c_matrix))
     }
 
@@ -56,38 +48,40 @@ pub mod classification_metrics {
         y_true: &[T],
         y_pred: &[T],
         positive_threshold: T,
-    ) -> Result<f32, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
+    ) -> ModelPerfResult<f32> {
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold))?;
         Ok(CMetrics::recall_positive(&c_matrix))
     }
 
-    pub fn accuracy_from_label<T: PartialEq>(
-        y_true: &[T],
-        y_pred: &[T],
-    ) -> Result<f32, ModelPerformanceError> {
-        CMetrics::accuracy(y_true, y_pred)
+    pub fn accuracy_from_label<T: PartialEq>(y_true: &[T], y_pred: &[T]) -> ModelPerfResult<f32> {
+        if y_pred.len() != y_true.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+
+        let n = y_true.len();
+        let mut correct: f32 = 0_f32;
+        for (t, p) in zip_iters!(y_true, y_pred) {
+            if t.eq(p) {
+                correct += 1_f32;
+            }
+        }
+        Ok(correct / n as f32)
     }
 
     pub fn accuracy_from_threshold<T: PartialOrd>(
         y_true: &[T],
         y_pred: &[T],
         positive_threshold: T,
-    ) -> Result<f32, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
+    ) -> ModelPerfResult<f32> {
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold))?;
         Ok(c_matrix.accuracy())
     }
 
-    pub fn log_loss_score(y_true: &[f32], y_pred: &[f32]) -> Result<f32, ModelPerformanceError> {
+    pub fn log_loss_score(y_true: &[f32], y_pred: &[f32]) -> ModelPerfResult<f32> {
         CMetrics::log_loss_score(y_true, y_pred)
     }
 
@@ -95,13 +89,10 @@ pub mod classification_metrics {
         y_true: &[T],
         y_pred: &[T],
         positive_label: T,
-    ) -> Result<f32, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
+    ) -> ModelPerfResult<f32> {
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label))?;
         Ok(CMetrics::f1_score(&c_matrix))
     }
 
@@ -109,13 +100,10 @@ pub mod classification_metrics {
         y_true: &[T],
         y_pred: &[T],
         positive_threshold: T,
-    ) -> Result<f32, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
+    ) -> ModelPerfResult<f32> {
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold))?;
         Ok(CMetrics::f1_score(&c_matrix))
     }
 
@@ -123,13 +111,10 @@ pub mod classification_metrics {
         y_true: &[T],
         y_pred: &[T],
         positive_label: T,
-    ) -> Result<f32, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
+    ) -> ModelPerfResult<f32> {
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(&positive_label))?;
         Ok(CMetrics::balanced_accuracy(&c_matrix))
     }
 
@@ -137,13 +122,10 @@ pub mod classification_metrics {
         y_true: &[T],
         y_pred: &[T],
         positive_threshold: T,
-    ) -> Result<f32, ModelPerformanceError> {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
+    ) -> ModelPerfResult<f32> {
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.ge(&positive_threshold))?;
         Ok(CMetrics::balanced_accuracy(&c_matrix))
     }
 }
@@ -384,22 +366,8 @@ pub(crate) mod classification_metrics_from_parts {
     }
 
     #[inline]
-    pub(crate) fn accuracy<T>(y_true: &[T], y_pred: &[T]) -> Result<f32, ModelPerformanceError>
-    where
-        T: PartialEq,
-    {
-        if y_pred.len() != y_true.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
-
-        let n = y_true.len();
-        let mut correct: f32 = 0_f32;
-        for (t, p) in zip_iters!(y_true, y_pred) {
-            if t.eq(p) {
-                correct += 1_f32;
-            }
-        }
-        Ok(correct / n as f32)
+    pub(crate) fn accuracy(confusion_matrix: &ConfusionMatrix) -> f32 {
+        confusion_matrix.accuracy()
     }
 
     #[inline]

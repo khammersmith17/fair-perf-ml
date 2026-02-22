@@ -921,4 +921,124 @@ mod test_perf_streaming {
             TestBinaryClassificationAnalysisReport(streaming.performance_snapshot().unwrap());
         assert_eq!(base, test);
     }
+
+    #[test]
+    fn test_logistic_regression_streaming_baseline() {
+        let y_pred = [
+            0.7, 0.3, 0.65, 0.55, 0.1, 0.2, 0.25, 0.66, 0.12, 0.98, 0.23, 0.34, 0.67, 0.77, 0.45,
+            0.88,
+        ];
+        let y_true = [
+            0_f32, 0_f32, 1_f32, 1_f32, 1_f32, 0_f32, 0_f32, 1_f32, 1_f32, 1_f32, 0_f32, 0_f32,
+            1_f32, 0_f32, 1_f32, 1_f32,
+        ];
+        let streaming =
+            super::LogisticRegressionStreaming::new(&y_true, &y_pred, Some(0.5_f32)).unwrap();
+        let true_bl = LogisticRegressionRuntime {
+            balanced_accuracy: 0.690476190,
+            precision_positive: 0.75,
+            precision_negative: 0.625,
+            recall_positive: 0.666666,
+            recall_negative: 0.71428,
+            accuracy: 0.6875,
+            f1_score: 0.70588235,
+            log_loss: 0.7145021801144907,
+        };
+        assert_eq!(true_bl, streaming.bl);
+    }
+
+    #[derive(Debug)]
+    struct TestLogisticRegressionAnalysisReport(crate::reporting::LogisticRegressionAnalysisReport);
+
+    impl PartialEq for TestLogisticRegressionAnalysisReport {
+        fn eq(&self, other: &Self) -> bool {
+            if (self.0.get(&CM::BalancedAccuracy).unwrap()
+                - other.0.get(&CM::BalancedAccuracy).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::PrecisionPositive).unwrap()
+                - other.0.get(&CM::PrecisionPositive).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::PrecisionNegative).unwrap()
+                - other.0.get(&CM::PrecisionNegative).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::RecallPositive).unwrap()
+                - other.0.get(&CM::RecallPositive).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::RecallNegative).unwrap()
+                - other.0.get(&CM::RecallNegative).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::Accuracy).unwrap() - other.0.get(&CM::Accuracy).unwrap()).abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::F1Score).unwrap() - other.0.get(&CM::F1Score).unwrap()).abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::BalancedAccuracy).unwrap()
+                - other.0.get(&CM::BalancedAccuracy).unwrap())
+            .abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            if (self.0.get(&CM::LogLoss).unwrap() - other.0.get(&CM::LogLoss).unwrap()).abs()
+                > EQUALITY_ERROR_ALLOWANCE
+            {
+                return false;
+            }
+            true
+        }
+    }
+
+    #[test]
+    fn test_logistic_regression_accumulation() {
+        let y_pred = [
+            0.7, 0.3, 0.65, 0.55, 0.1, 0.2, 0.25, 0.66, 0.12, 0.98, 0.23, 0.34, 0.67, 0.77, 0.45,
+            0.88,
+        ];
+        let y_true = [
+            0_f32, 0_f32, 1_f32, 1_f32, 1_f32, 0_f32, 0_f32, 1_f32, 1_f32, 1_f32, 0_f32, 0_f32,
+            1_f32, 0_f32, 1_f32, 1_f32,
+        ];
+        let mut streaming =
+            super::LogisticRegressionStreaming::new(&y_true, &y_pred, Some(0.5_f32)).unwrap();
+        let true_bl = LogisticRegressionRuntime {
+            balanced_accuracy: 0.690476190,
+            precision_positive: 0.75,
+            precision_negative: 0.625,
+            recall_positive: 0.666666,
+            recall_negative: 0.71428,
+            accuracy: 0.6875,
+            f1_score: 0.70588235,
+            log_loss: 0.7145021801144907,
+        };
+
+        streaming.push_batch(&y_true, &y_pred).unwrap();
+        let base = TestLogisticRegressionAnalysisReport(true_bl.generate_report());
+        let test = TestLogisticRegressionAnalysisReport(streaming.performance_snapshot().unwrap());
+        assert_eq!(base, test);
+    }
 }

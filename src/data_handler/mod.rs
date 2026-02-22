@@ -289,13 +289,17 @@ impl ConfusionMatrix {
         y_true: &[T],
         y_pred: &[T],
         label_f: F,
-    ) {
+    ) -> ModelPerfResult<()> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
         for (y_true, y_pred) in crate::zip_iters!(y_true, y_pred) {
             self.push(ConfusionPushPayload {
                 true_gt: label_f(y_true),
                 true_pred: label_f(y_pred),
             });
         }
+        Ok(())
     }
 }
 /// Defines segmentation definition for [`BiasSegmentationType::Threshold`].

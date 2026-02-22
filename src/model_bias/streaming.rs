@@ -86,7 +86,7 @@ pub(crate) mod py_api {
     }
 }
 
-/// This is a type geared toward a long running ML Observability service. Internally it leverages a
+/// This is a container geared toward a long running ML Observability service. Internally it leverages a
 /// bucketing alogrithm to store all information necessary to compute model bias metrics in compact
 /// space. This type takes in class segmentation logic for the feature, predictions, and ground
 /// truth. A single instance can store a single feature segmentation for a single feature, thus
@@ -471,7 +471,7 @@ mod model_bias_strming_tests {
         assert_eq!(base, test);
     }
     #[test]
-    fn test_baseline_construction_accum_threshold() {
+    fn test_accum_threshold() {
         let pred_bl_data: Vec<f32> = vec![
             0.6, 0.12, 0.78, 0.56, 0.98, 0.43, 0.49, 0.60, 0.33, 0.23, 0.54,
         ];

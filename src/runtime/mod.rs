@@ -1,6 +1,6 @@
 use crate::{
     data_bias::PreTraining,
-    data_handler::{bool_to_f32, ApplyThreshold, ConfusionMatrix},
+    data_handler::{ApplyThreshold, ConfusionMatrix},
     errors::{
         BiasError, DataBiasRuntimeError, ModelBiasRuntimeError, ModelPerfResult,
         ModelPerformanceError,
@@ -662,7 +662,7 @@ impl BinaryClassificationRuntime {
         use crate::model_perf::statistics::classification_metrics_from_parts as metrics;
         let mut c_matrix = ConfusionMatrix::default();
 
-        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(label));
+        c_matrix.push_dataset(y_true, y_pred, |v: &T| v.eq(label))?;
 
         Ok(BinaryClassificationRuntime {
             balanced_accuracy: metrics::balanced_accuracy(&c_matrix),
@@ -670,7 +670,7 @@ impl BinaryClassificationRuntime {
             precision_negative: metrics::precision_negative(&c_matrix),
             recall_positive: metrics::recall_positive(&c_matrix),
             recall_negative: metrics::recall_negative(&c_matrix),
-            accuracy: metrics::accuracy(y_true, y_pred)?,
+            accuracy: metrics::accuracy(&c_matrix),
             f1_score: metrics::f1_score(&c_matrix),
         })
     }
@@ -856,15 +856,46 @@ impl TryFrom<HashMap<String, f32>> for BinaryClassificationRuntime {
     }
 }
 
+#[derive(Debug)]
 pub struct LogisticRegressionRuntime {
-    balanced_accuracy: f32,
-    precision_positive: f32,
-    precision_negative: f32,
-    recall_positive: f32,
-    recall_negative: f32,
-    accuracy: f32,
-    f1_score: f32,
-    log_loss: f32,
+    pub(crate) balanced_accuracy: f32,
+    pub(crate) precision_positive: f32,
+    pub(crate) precision_negative: f32,
+    pub(crate) recall_positive: f32,
+    pub(crate) recall_negative: f32,
+    pub(crate) accuracy: f32,
+    pub(crate) f1_score: f32,
+    pub(crate) log_loss: f32,
+}
+
+impl PartialEq for LogisticRegressionRuntime {
+    fn eq(&self, other: &Self) -> bool {
+        if (self.balanced_accuracy - other.balanced_accuracy).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.precision_positive - other.precision_positive).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.precision_negative - other.precision_negative).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.recall_positive - other.recall_positive).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.recall_negative - other.recall_negative).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.accuracy - other.accuracy).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.f1_score - other.f1_score).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        if (self.log_loss - other.log_loss).abs() > EQUALITY_ERROR_ALLOWANCE {
+            return false;
+        }
+        true
+    }
 }
 
 // assume that positive label is 1
@@ -881,18 +912,23 @@ impl LogisticRegressionRuntime {
         use crate::model_perf::statistics::classification_metrics_from_parts as metrics;
         let mut c_matrix = ConfusionMatrix::default();
 
-        for (t, p) in zip_iters!(y_true, y_pred) {
-            let label = p.apply_threshold(&threshold);
-            let is_positive = label == 1_f32;
-            let is_true = label == *t;
+        let true_label = 1_f32;
+        c_matrix.push_dataset(y_true, y_pred, |v: &f32| {
+            v.apply_threshold(&threshold).eq(&true_label)
+        })?;
 
-            c_matrix.true_p += bool_to_f32(is_true && is_positive);
-            c_matrix.false_p += bool_to_f32(!is_true && is_positive);
-            c_matrix.true_n += bool_to_f32(is_true && !is_positive);
-            c_matrix.false_n += bool_to_f32(!is_true && !is_positive);
-        }
+        /*
+                for (t, p) in zip_iters!(y_true, y_pred) {
+                    let label = p.apply_threshold(&threshold);
 
-        let accuracy = metrics::accuracy(y_true, y_pred)?;
+                    c_matrix.push(ConfusionPushPayload {
+                        true_gt: t.eq(&true_label),
+                        true_pred: label.eq(&true_label),
+                    });
+                }
+        */
+
+        let accuracy = c_matrix.accuracy();
         let balanced_accuracy = metrics::balanced_accuracy(&c_matrix);
         let precision_positive = metrics::precision_positive(&c_matrix);
         let precision_negative = metrics::precision_negative(&c_matrix);
