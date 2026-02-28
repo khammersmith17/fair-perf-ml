@@ -113,13 +113,11 @@ pub fn data_bias_analyzer<'a, F, G>(
     ground_truth: BiasDataPayload<'a, G>,
 ) -> Result<DataBiasAnalysisReport, BiasError>
 where
-    G: PartialEq + PartialOrd,
-    F: PartialEq + PartialOrd,
+    G: PartialOrd,
+    F: PartialOrd,
 {
-    let labeled_feats = feature.generate_labeled_data();
-    let labeled_gt = ground_truth.generate_labeled_data();
-
-    Ok(core::data_bias_analysis_core(labeled_feats, labeled_gt)?)
+    let pre_training = PreTraining::new_from_bias_payload(feature, ground_truth);
+    Ok(core::pre_training_bias(pre_training)?)
 }
 
 /// Function to perform runtime check across all available DataBias metrics, see
@@ -217,6 +215,27 @@ impl PreTraining {
         }
 
         Ok(PreTraining { facet_a, facet_d })
+    }
+
+    pub(crate) fn new_from_bias_payload<'a, F: PartialOrd, G: PartialOrd>(
+        feat: BiasDataPayload<'a, F>,
+        gt: BiasDataPayload<'a, G>,
+    ) -> PreTraining {
+        let mut facet_a = PreTrainingDistribution::default();
+        let mut facet_d = PreTrainingDistribution::default();
+
+        for (f, g) in zip_iters!(feat.data, gt.data) {
+            let grp = feat.segmentation_criteria.label(f);
+            let is_p = gt.segmentation_criteria.label(g);
+
+            facet_a.len += grp as u64;
+            facet_a.positive += (grp && is_p) as u64;
+
+            facet_d.len += !grp as u64;
+            facet_a.positive += (!grp && is_p) as u64;
+        }
+
+        PreTraining { facet_a, facet_d }
     }
 
     pub(crate) fn size(&self) -> u64 {

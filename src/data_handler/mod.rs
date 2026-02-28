@@ -397,8 +397,8 @@ pub struct BiasDataPayload<'a, T>
 where
     T: PartialOrd,
 {
-    data: &'a [T],
-    segmentation_criteria: BiasSegmentationCriteria<T>,
+    pub(crate) data: &'a [T],
+    pub(crate) segmentation_criteria: BiasSegmentationCriteria<T>,
 }
 
 impl<'a, T> BiasDataPayload<'a, T>

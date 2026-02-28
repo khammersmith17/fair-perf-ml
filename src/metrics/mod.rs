@@ -211,7 +211,7 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub enum DataBiasMetric {
     ClassImbalance,
     DifferenceInProportionOfLabels,
