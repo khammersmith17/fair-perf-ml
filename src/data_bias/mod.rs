@@ -7,6 +7,7 @@ use crate::zip_iters;
 pub(crate) mod core;
 pub mod statistics;
 pub mod streaming;
+use statistics::AdHocSegmentation;
 
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
@@ -184,6 +185,13 @@ impl PreTrainingDistribution {
 pub(crate) struct PreTraining {
     facet_a: PreTrainingDistribution,
     facet_d: PreTrainingDistribution,
+}
+
+impl From<AdHocSegmentation> for PreTraining {
+    fn from(seg: AdHocSegmentation) -> Self {
+        let AdHocSegmentation { facet_a, facet_d } = seg;
+        Self { facet_a, facet_d }
+    }
 }
 
 impl PreTraining {

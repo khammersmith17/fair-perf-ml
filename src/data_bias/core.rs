@@ -26,7 +26,7 @@ pub fn pre_training_bias(data: PreTraining) -> ModelPerfResult<DataBiasAnalysisR
         M::TotalVariationDistance,
         stats::total_variation_distance(&data)?,
     );
-    result.insert(M::KolmorogvSmirnov, stats::kolmorogv_smirnov(&data)?);
+    result.insert(M::KolmorogvSmirnov, stats::kolmogorov_smirnov(&data)?);
 
     Ok(result)
 }

@@ -45,7 +45,7 @@ impl DataBiasRuntime {
             js: metrics::jensen_shannon(&pre_training)?,
             lpnorm: metrics::lp_norm(&pre_training)?,
             tvd: metrics::total_variation_distance(&pre_training)?,
-            ks: metrics::kolmorogv_smirnov(&pre_training)?,
+            ks: metrics::kolmogorov_smirnov(&pre_training)?,
         })
     }
 }

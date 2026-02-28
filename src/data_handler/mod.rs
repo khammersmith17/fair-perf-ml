@@ -340,7 +340,7 @@ pub struct BiasSegmentationCriteria<T>
 where
     T: PartialOrd,
 {
-    value: T,
+    seg_value: T,
     stype: BiasSegmentationType,
 }
 
@@ -348,25 +348,44 @@ impl<T> BiasSegmentationCriteria<T>
 where
     T: PartialOrd + PartialEq,
 {
-    pub fn new(value: T, stype: BiasSegmentationType) -> BiasSegmentationCriteria<T> {
-        BiasSegmentationCriteria { value, stype }
+    pub fn new(seg_value: T, stype: BiasSegmentationType) -> BiasSegmentationCriteria<T> {
+        BiasSegmentationCriteria { seg_value, stype }
     }
 
     /// Compute the class segmentation of the value passed. true refers to the abritrary label associated
     /// with the favored class and false refers to the disfavored class.
     #[inline]
-    pub(crate) fn label(&self, value: &T) -> bool {
+    pub(crate) fn label(&self, eval_value: &T) -> bool {
         use BiasSegmentationType as BST;
         use SegmentationThresholdType as STT;
         match &self.stype {
-            BST::Label => self.value.eq(value),
+            BST::Label => self.seg_value.eq(eval_value),
             BST::Threshold(ref ttype) => match ttype {
-                &STT::LessThan => value.lt(&self.value),
-                &STT::LessThanEqualTo => value.le(&self.value),
-                &STT::GreaterThan => value.gt(&self.value),
-                &STT::GreaterThanEqualTo => value.ge(&self.value),
+                &STT::LessThan => eval_value.lt(&self.seg_value),
+                &STT::LessThanEqualTo => eval_value.le(&self.seg_value),
+                &STT::GreaterThan => eval_value.gt(&self.seg_value),
+                &STT::GreaterThanEqualTo => eval_value.ge(&self.seg_value),
             },
         }
+    }
+
+    #[inline]
+    fn generate_labeled_array(&self, array: &[T]) -> Vec<i16> {
+        use BiasSegmentationType as BST;
+        use SegmentationThresholdType as STT;
+
+        // Generating a Boxed closure based on the segmentation criteria.
+        let map_f: Box<dyn Fn(&T) -> i16> = match &self.stype {
+            BST::Label => Box::new(|v: &T| self.seg_value.eq(v).into()),
+            BST::Threshold(ref ttype) => match ttype {
+                &STT::LessThan => Box::new(|v: &T| v.lt(&self.seg_value).into()),
+                &STT::LessThanEqualTo => Box::new(|v: &T| v.le(&self.seg_value).into()),
+                &STT::GreaterThan => Box::new(|v: &T| v.gt(&self.seg_value).into()),
+                &STT::GreaterThanEqualTo => Box::new(|v: &T| v.ge(&self.seg_value).into()),
+            },
+        };
+
+        array.iter().map(|v| (*map_f)(v)).collect()
     }
 }
 
@@ -390,10 +409,10 @@ where
     /// for the segmentation criteria.
     pub fn new_from_parts(
         data: &'a [T],
-        value: T,
+        seg_value: T,
         stype: BiasSegmentationType,
     ) -> BiasDataPayload<'a, T> {
-        let segmentation_criteria = BiasSegmentationCriteria { value, stype };
+        let segmentation_criteria = BiasSegmentationCriteria { seg_value, stype };
 
         BiasDataPayload {
             data,
@@ -413,11 +432,7 @@ where
     }
 
     pub(crate) fn generate_labeled_data(&self) -> Vec<i16> {
-        if self.segmentation_criteria.stype == BiasSegmentationType::Label {
-            apply_label_discrete(self.data, &self.segmentation_criteria.value)
-        } else {
-            apply_label_continuous(self.data, &self.segmentation_criteria.value)
-        }
+        self.segmentation_criteria.generate_labeled_array(self.data)
     }
 }
 

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum ModelType {
     LinearRegression,
     LogisticRegression,
@@ -16,5 +16,26 @@ impl TryFrom<&str> for ModelType {
             "BinaryClassification" => Ok(Self::BinaryClassification),
             _ => Err("invalid model type".into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_from_str() {
+        assert_eq!(
+            ModelType::try_from("LinearRegression").unwrap(),
+            ModelType::LinearRegression,
+        );
+        assert_eq!(
+            ModelType::try_from("LogisticRegression").unwrap(),
+            ModelType::LogisticRegression,
+        );
+        assert_eq!(
+            ModelType::try_from("BinaryClassification").unwrap(),
+            ModelType::BinaryClassification,
+        );
     }
 }
