@@ -371,21 +371,7 @@ where
 
     #[inline]
     fn generate_labeled_array(&self, array: &[T]) -> Vec<i16> {
-        use BiasSegmentationType as BST;
-        use SegmentationThresholdType as STT;
-
-        // Generating a Boxed closure based on the segmentation criteria.
-        let map_f: Box<dyn Fn(&T) -> i16> = match &self.stype {
-            BST::Label => Box::new(|v: &T| self.seg_value.eq(v).into()),
-            BST::Threshold(ref ttype) => match ttype {
-                &STT::LessThan => Box::new(|v: &T| v.lt(&self.seg_value).into()),
-                &STT::LessThanEqualTo => Box::new(|v: &T| v.le(&self.seg_value).into()),
-                &STT::GreaterThan => Box::new(|v: &T| v.gt(&self.seg_value).into()),
-                &STT::GreaterThanEqualTo => Box::new(|v: &T| v.ge(&self.seg_value).into()),
-            },
-        };
-
-        array.iter().map(|v| (*map_f)(v)).collect()
+        array.iter().map(|v| self.label(v).into()).collect()
     }
 }
 
@@ -418,6 +404,10 @@ where
             data,
             segmentation_criteria,
         }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.data.len()
     }
 
     /// Constructor from already formed 'BiasSegmentationCriteria'.
@@ -553,5 +543,56 @@ mod data_handler_tests {
                 && c_matrix.false_n == 2_f32
                 && c_matrix.false_p == 2_f32
         );
+    }
+
+    #[test]
+    fn bias_segmentation_label() {
+        let seg = BiasSegmentationCriteria::new(1, BiasSegmentationType::Label);
+
+        assert!(seg.label(&1));
+        assert!(!seg.label(&0));
+    }
+
+    #[test]
+    fn bias_segmentation_gt() {
+        let seg = BiasSegmentationCriteria::new(
+            0.5_f32,
+            BiasSegmentationType::Threshold(SegmentationThresholdType::GreaterThan),
+        );
+
+        assert!(seg.label(&1_f32));
+        assert!(!seg.label(&0_f32));
+    }
+
+    #[test]
+    fn bias_segmentation_ge() {
+        let seg = BiasSegmentationCriteria::new(
+            0.5_f32,
+            BiasSegmentationType::Threshold(SegmentationThresholdType::GreaterThanEqualTo),
+        );
+
+        assert!(seg.label(&0.5_f32));
+        assert!(!seg.label(&0_f32));
+    }
+
+    #[test]
+    fn bias_segmentation_lt() {
+        let seg = BiasSegmentationCriteria::new(
+            0.5_f32,
+            BiasSegmentationType::Threshold(SegmentationThresholdType::LessThan),
+        );
+
+        assert!(!seg.label(&1_f32));
+        assert!(seg.label(&0_f32));
+    }
+    #[test]
+    fn bias_segmentation_le() {
+        let seg = BiasSegmentationCriteria::new(
+            0.5_f32,
+            BiasSegmentationType::Threshold(SegmentationThresholdType::LessThanEqualTo),
+        );
+
+        assert!(seg.label(&0.5_f32));
+        assert!(!seg.label(&1_f32));
     }
 }
