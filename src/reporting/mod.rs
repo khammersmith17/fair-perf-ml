@@ -18,10 +18,16 @@ pub type BinaryClassificationAnalysisReport = HashMap<metrics::ClassificationEva
 pub type LinearRegressionAnalysisReport = HashMap<metrics::LinearRegressionEvaluationMetric, f32>;
 pub type LogisticRegressionAnalysisReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 
-pub(crate) const DEFAULT_DRIFT_THRESHOLD: f32 = 0.10;
+pub type ModelBiasDriftSnapshot = HashMap<metrics::ModelBiasMetric, f32>;
+pub type DataBiasDriftSnapshot = HashMap<metrics::DataBiasMetric, f32>;
+pub type BinaryClassificationDriftSnapshot = HashMap<metrics::ClassificationEvaluationMetric, f32>;
+pub type LinearRegressionDriftSnapshot = HashMap<metrics::LinearRegressionEvaluationMetric, f32>;
+pub type LogisticRegressionDriftSnapshot = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 
-#[derive(Serialize, Deserialize)]
-pub struct MetricDrift<T> {
+pub const DEFAULT_DRIFT_THRESHOLD: f32 = 0.10;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct MetricDrift<T: metrics::MachineLearningMetric> {
     metric: T,
     drift: f32,
 }
@@ -33,13 +39,13 @@ pub struct MetricDrift<T> {
 /// baseline. The failed_report will contain the metrics that drifted outside the allowable bounds
 /// and will contian the degree of drift. This type implements 'serde::Serialize' and
 /// 'serde::Deserialize' so the drift report payloads can be sent or loaded from external sources.
-#[derive(Serialize, Deserialize)]
-pub struct DriftReport<T> {
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct DriftReport<T: metrics::MachineLearningMetric> {
     pub passed: bool,
     pub failed_report: Option<Vec<MetricDrift<T>>>,
 }
 
-impl<T> DriftReport<T>
+impl<T: metrics::MachineLearningMetric> DriftReport<T>
 where
     T: metrics::MachineLearningMetric + Serialize + std::fmt::Display,
 {
@@ -64,42 +70,46 @@ where
 }
 
 #[cfg(feature = "python")]
-use pyo3::{
-    types::{IntoPyDict, PyDict, PyDictMethods, PyList, PyListMethods},
-    Bound, PyResult, Python,
-};
+pub(crate) mod py_report_utils {
+    use super::{DriftReport, MetricDrift};
+    use crate::metrics;
+    use pyo3::{
+        types::{IntoPyDict, PyDict, PyDictMethods, PyList, PyListMethods},
+        Bound, PyResult, Python,
+    };
+    use serde::Serialize;
 
-/// Utility to coerce a report into a Python dictionary.
-#[cfg(feature = "python")]
-impl<T> IntoPyDict<'_> for DriftReport<T>
-where
-    T: metrics::MachineLearningMetric + Serialize + std::fmt::Display,
-{
-    fn into_py_dict(self, py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
-        let dict = PyDict::new(py);
-        let Self {
-            passed,
-            failed_report,
-        } = self;
-        let _ = dict.set_item("passed", passed);
+    /// Utility to coerce a report into a Python dictionary.
+    impl<T> IntoPyDict<'_> for DriftReport<T>
+    where
+        T: metrics::MachineLearningMetric + Serialize + std::fmt::Display,
+    {
+        fn into_py_dict(self, py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+            let dict = PyDict::new(py);
+            let Self {
+                passed,
+                failed_report,
+            } = self;
+            let _ = dict.set_item("passed", passed);
 
-        if passed {
-            return Ok(dict);
+            if passed {
+                return Ok(dict);
+            }
+
+            let fp = failed_report.unwrap();
+
+            let failed_report_list = PyList::empty(py);
+
+            for report in fp.into_iter() {
+                let curr = PyDict::new(py);
+                let MetricDrift { metric, drift } = report;
+                let _ = curr.set_item("metric", metric.to_string());
+                let _ = curr.set_item("drift", drift);
+                failed_report_list.append(curr)?;
+            }
+            let _ = dict.set_item("failed_report", failed_report_list);
+
+            Ok(dict)
         }
-
-        let fp = failed_report.unwrap();
-
-        let failed_report_list = PyList::empty(py);
-
-        for report in fp.into_iter() {
-            let curr = PyDict::new(py);
-            let MetricDrift { metric, drift } = report;
-            let _ = curr.set_item("metric", metric.to_string());
-            let _ = curr.set_item("drift", drift);
-            failed_report_list.append(curr)?;
-        }
-        let _ = dict.set_item("failed_report", failed_report_list);
-
-        Ok(dict)
     }
 }

@@ -121,23 +121,23 @@ where
 }
 
 /// Function to perform runtime check across all available DataBias metrics, see
-/// `metrics::DataBiasMetric` for the full list. The threshold determines whether the metric is
+/// [`crate::metrics::DataBiasMetric`] for the full list. The threshold determines whether the metric is
 /// within the bounds of a "passing" score and represents the absolute percent drift from the
 /// baseline metric score. This is optional and defaults to 0.1.
 pub fn data_bias_runtime_check(
     baseline_report: DataBiasAnalysisReport,
     current_report: DataBiasAnalysisReport,
-    threshold: Option<f32>,
+    threshold_opt: Option<f32>,
 ) -> Result<DriftReport<DataBiasMetric>, DataBiasRuntimeError> {
-    let t = threshold.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
+    let threshold = threshold_opt.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
     let baseline = DataBiasRuntime::try_from(baseline_report)?;
     let current = DataBiasRuntime::try_from(current_report)?;
-    let check_res = current.runtime_check(baseline, t, &FULL_DATA_BIAS_METRICS);
+    let check_res = current.runtime_check(baseline, threshold, &FULL_DATA_BIAS_METRICS);
 
     Ok(DriftReport::from_runtime(check_res))
 }
 /// Function to perform runtime check across a subset of available DataBias metrics, see
-/// `metrics::DataBiasMetric` for the full list. The method accepts a 'metrics::DataBiasMetricVec'
+/// [`crate::metrics::DataBiasMetric`] for the full list. The method accepts a ['crate::metrics::DataBiasMetricVec']
 /// which implements 'From<Vec<DataBiasMetric>>' and 'From<&[T]>' where T is string like.
 /// The threshold determines whether the metric is within the bounds of a "passing" score and
 /// represents the absolute percent drift from the baseline metric score. This is optional and defaults to 0.1.
@@ -145,15 +145,15 @@ pub fn data_bias_partial_check<V>(
     baseline_report: DataBiasAnalysisReport,
     current_report: DataBiasAnalysisReport,
     metrics: V,
-    threshold: Option<f32>,
+    threshold_opt: Option<f32>,
 ) -> Result<DriftReport<DataBiasMetric>, DataBiasRuntimeError>
 where
     V: Into<DataBiasMetricVec>,
 {
-    let t = threshold.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
+    let threshold = threshold_opt.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
     let baseline = DataBiasRuntime::try_from(baseline_report)?;
     let current = DataBiasRuntime::try_from(current_report)?;
-    let check_res = current.runtime_check(baseline, t, metrics.into().as_ref());
+    let check_res = current.runtime_check(baseline, threshold, metrics.into().as_ref());
 
     Ok(DriftReport::from_runtime(check_res))
 }
@@ -179,7 +179,7 @@ impl PreTrainingDistribution {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, PartialEq)]
 pub(crate) struct PreTraining {
     facet_a: PreTrainingDistribution,
     facet_d: PreTrainingDistribution,
@@ -210,11 +210,20 @@ impl PreTraining {
             }
         }
 
+        Self::check_facet_deviation(&facet_a, &facet_d)?;
+
+        Ok(PreTraining { facet_a, facet_d })
+    }
+
+    // Utility to validate there exists samples in both demographic classes.
+    fn check_facet_deviation(
+        facet_a: &PreTrainingDistribution,
+        facet_d: &PreTrainingDistribution,
+    ) -> Result<(), BiasError> {
         if facet_a.positive == 0 || facet_d.positive == 0 {
             return Err(BiasError::NoFacetDeviation);
         }
-
-        Ok(PreTraining { facet_a, facet_d })
+        Ok(())
     }
 
     pub(crate) fn new_from_bias_payload<'a, F: PartialOrd, G: PartialOrd>(
@@ -238,6 +247,8 @@ impl PreTraining {
             facet_d.positive += (!grp && is_p) as u64;
         }
 
+        Self::check_facet_deviation(&facet_a, &facet_d)?;
+
         Ok(PreTraining { facet_a, facet_d })
     }
 
@@ -260,40 +271,26 @@ impl PreTraining {
         F: PartialOrd,
         G: PartialOrd,
     {
-        let mut len_a = 0_u64;
-        let mut positive_a = 0_u64;
-
-        let mut len_d = 0_u64;
-        let mut positive_d = 0_u64;
-
-        if feature.len() != gt.len() {
+        if feature.len() != gt.len() || gt.is_empty() {
             return Err(BiasError::DataLengthError);
         }
 
-        if gt.len() == 0 {
-            return Err(BiasError::DataLengthError);
-        }
+        let mut facet_a = PreTrainingDistribution::default();
+        let mut facet_d = PreTrainingDistribution::default();
 
         for (f, g) in zip_iters!(feature, gt) {
             let is_favored = feat_seg.label(f);
             let is_positive = gt_seg.label(g);
 
-            len_a += is_favored as u64;
-            positive_a += (is_favored && is_positive) as u64;
-            len_d += !is_favored as u64;
-            positive_d += (!is_favored && is_positive) as u64;
+            facet_a.len += is_favored as u64;
+            facet_a.positive += (is_favored && is_positive) as u64;
+            facet_d.len += !is_favored as u64;
+            facet_d.positive += (!is_favored && is_positive) as u64;
         }
 
-        Ok(PreTraining {
-            facet_a: PreTrainingDistribution {
-                len: len_a,
-                positive: positive_a,
-            },
-            facet_d: PreTrainingDistribution {
-                len: len_d,
-                positive: positive_d,
-            },
-        })
+        Self::check_facet_deviation(&facet_a, &facet_d)?;
+
+        Ok(PreTraining { facet_a, facet_d })
     }
 
     #[inline]
@@ -328,11 +325,7 @@ impl PreTraining {
         F: PartialOrd,
         G: PartialOrd,
     {
-        if features.len() != gt.len() {
-            return Err(BiasError::DataLengthError);
-        }
-
-        if features.is_empty() {
+        if features.len() != gt.len() || gt.is_empty() {
             return Err(BiasError::DataLengthError);
         }
 
@@ -374,6 +367,20 @@ mod data_bias_containers {
                 positive: 3
             }
         );
+    }
+
+    #[test]
+    fn pre_training_flush() {
+        let gt = vec![1, 0, 1, 0, 1, 1, 1, 0];
+        let feat = vec![1, 1, 0, 0, 1, 0, 1, 0];
+        let gt_seg = BiasSegmentationCriteria::new(1, BiasSegmentationType::Label);
+        let feat_seg = BiasSegmentationCriteria::new(0, BiasSegmentationType::Label);
+
+        let mut pre_training =
+            PreTraining::new_from_segmentation(&feat, &feat_seg, &gt, &gt_seg).unwrap();
+
+        pre_training.clear();
+        assert_eq!(pre_training, PreTraining::default());
     }
 
     #[test]
@@ -435,6 +442,7 @@ mod data_bias_containers {
             BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
         )
         .unwrap();
+
         let mut result: HashMap<M, f32> = HashMap::with_capacity(7);
         result.insert(M::ClassImbalance, ci);
         result.insert(M::DifferenceInProportionOfLabels, dpl);
@@ -457,5 +465,49 @@ mod data_bias_containers {
         .unwrap();
 
         assert_eq!(test, result)
+    }
+
+    #[test]
+    fn pre_training_from_label() {
+        let feature_data: Vec<i16> =
+            vec![1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1];
+        let gt_data: Vec<i16> = vec![0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1];
+        let pre_training = PreTraining::new_from_labeled(&feature_data, &gt_data).unwrap();
+        assert_eq!(pre_training.facet_a.len, 10);
+        assert_eq!(pre_training.facet_d.len, 10);
+        assert_eq!(pre_training.facet_a.positive, 7);
+        assert_eq!(pre_training.facet_d.positive, 2);
+    }
+
+    #[test]
+    fn pre_training_accum() {
+        let feature_data: Vec<i32> =
+            vec![1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1];
+        let gt_data: Vec<i32> = vec![0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1];
+        let feat_seg_criteria = BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label);
+        let gt_seg_criteria = BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label);
+        let mut pre_training = PreTraining::default();
+        pre_training
+            .accumulate_runtime_batch(
+                &feature_data,
+                &feat_seg_criteria,
+                &gt_data,
+                &gt_seg_criteria,
+            )
+            .unwrap();
+        assert_eq!(pre_training.facet_a.len, 10);
+        assert_eq!(pre_training.facet_d.len, 10);
+        assert_eq!(pre_training.facet_a.positive, 7);
+        assert_eq!(pre_training.facet_d.positive, 2);
+    }
+
+    #[test]
+    fn no_facet_deviation() {
+        let feature_data: Vec<i16> =
+            vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+        let gt_data: Vec<i16> = vec![0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1];
+        let pre_training = PreTraining::new_from_labeled(&feature_data, &gt_data);
+        assert!(pre_training.is_err());
+        assert_eq!(pre_training.err().unwrap(), BiasError::NoFacetDeviation);
     }
 }

@@ -5,8 +5,9 @@ use crate::{
         get_stability_eps, ClassificationEvaluationMetric, LinearRegressionEvaluationMetric,
     },
     reporting::{
-        BinaryClassificationAnalysisReport, DriftReport, LinearRegressionAnalysisReport,
-        LogisticRegressionAnalysisReport,
+        BinaryClassificationAnalysisReport, BinaryClassificationDriftSnapshot, DriftReport,
+        LinearRegressionAnalysisReport, LinearRegressionDriftSnapshot,
+        LogisticRegressionAnalysisReport, LogisticRegressionDriftSnapshot, DEFAULT_DRIFT_THRESHOLD,
     },
     runtime::{BinaryClassificationRuntime, LinearRegressionRuntime, LogisticRegressionRuntime},
     zip_iters,
@@ -22,7 +23,6 @@ pub(crate) mod py_api {
     };
     use crate::errors::ModelPerformanceError;
     use pyo3::prelude::*;
-    use pyo3::types::IntoPyDict;
 
     // All types here are simply logical wrappers around core types, simply to expose the apis to
     // python through FFI.
@@ -78,7 +78,7 @@ pub(crate) mod py_api {
                 .inner
                 .drift_snapshot()
                 .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
-            Ok(report.into_py_dict(py)?)
+            Ok(perf_report_to_py_dict(py, report))
         }
     }
 
@@ -133,7 +133,7 @@ pub(crate) mod py_api {
                 .inner
                 .drift_snapshot()
                 .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
-            Ok(report.into_py_dict(py)?)
+            Ok(perf_report_to_py_dict(py, report))
         }
     }
 
@@ -176,12 +176,12 @@ pub(crate) mod py_api {
         }
 
         fn drift_snapshot<'py>(&mut self, py: Python<'py>) -> PyDictResult<'py> {
-            let drift_report = self
+            let report = self
                 .inner
                 .drift_snapshot()
                 .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
 
-            Ok(drift_report.into_py_dict(py)?)
+            Ok(perf_report_to_py_dict(py, report))
         }
 
         fn flush(&mut self) {
@@ -366,10 +366,40 @@ impl LinearRegressionStreaming {
     /// a 'DriftReport<LinearRegressionEvaluationMetric>'. Will error when there is no runtime data
     /// accumulated since construction of last flush or, in other words, when runtime state is empty.
     /// This method returns the absoulte drift from the baseline state.
-    pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<LinearRegressionEvaluationMetric>> {
+    pub fn drift_snapshot(&self) -> ModelPerfResult<LinearRegressionDriftSnapshot> {
         let rt = LinearRegressionRuntime::runtime_from_parts(&self.rt_buckets)?;
         let drift_report = rt.runtime_drift_report(&self.bl);
-        Ok(DriftReport::from_runtime(drift_report))
+        Ok(drift_report)
+    }
+    pub fn drift_report(
+        &self,
+        drift_threshold_opt: Option<f32>,
+    ) -> ModelPerfResult<DriftReport<LinearRegressionEvaluationMetric>> {
+        let rt = LinearRegressionRuntime::runtime_from_parts(&self.rt_buckets)?;
+        let drift_report = rt.runtime_drift_report(&self.bl);
+        let drift_threshold = drift_threshold_opt.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
+        Ok(DriftReport::from_runtime(
+            drift_report
+                .into_iter()
+                .filter(|(_, v)| *v >= drift_threshold)
+                .collect(),
+        ))
+    }
+
+    pub fn drift_report_partial_metric(
+        &self,
+        metrics: &[LinearRegressionEvaluationMetric],
+        drift_threshold_opt: Option<f32>,
+    ) -> ModelPerfResult<DriftReport<LinearRegressionEvaluationMetric>> {
+        let rt = LinearRegressionRuntime::runtime_from_parts(&self.rt_buckets)?;
+        let drift_report = rt.runtime_drift_report(&self.bl);
+        let drift_threshold = drift_threshold_opt.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
+        Ok(DriftReport::from_runtime(
+            drift_report
+                .into_iter()
+                .filter(|(m, v)| *v >= drift_threshold && metrics.contains(&m))
+                .collect(),
+        ))
     }
 }
 
@@ -465,14 +495,52 @@ where
     /// for accuracy indicates that the accuracy computed at the snapshot if performing better than
     /// what was computed in the baseline state. This will error when no data has been pushed into
     /// the stream. This method returns the absoulte drift from the baseline state.
-    pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
+    pub fn drift_snapshot(&self) -> ModelPerfResult<BinaryClassificationDriftSnapshot> {
         if self.len() == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
 
         let rt = BinaryClassificationRuntime::runtime_from_parts(&self.confusion_rt);
         let report = rt.runtime_drift_report(&self.bl);
-        Ok(DriftReport::from_runtime(report))
+        Ok(report)
+    }
+
+    pub fn drift_report(
+        &self,
+        drift_threshold_opt: Option<f32>,
+    ) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
+        if self.len() == 0_f32 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+
+        let rt = BinaryClassificationRuntime::runtime_from_parts(&self.confusion_rt);
+        let report = rt.runtime_drift_report(&self.bl);
+        let drift_threshold = drift_threshold_opt.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
+        Ok(DriftReport::from_runtime(
+            report
+                .into_iter()
+                .filter(|(_, v)| *v >= drift_threshold)
+                .collect(),
+        ))
+    }
+    pub fn drift_report_partial_metrics(
+        &self,
+        metrics: &[ClassificationEvaluationMetric],
+        drift_threshold_opt: Option<f32>,
+    ) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
+        if self.len() == 0_f32 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+
+        let rt = BinaryClassificationRuntime::runtime_from_parts(&self.confusion_rt);
+        let report = rt.runtime_drift_report(&self.bl);
+        let drift_threshold = drift_threshold_opt.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
+        Ok(DriftReport::from_runtime(
+            report
+                .into_iter()
+                .filter(|(m, v)| *v >= drift_threshold && metrics.contains(&m))
+                .collect(),
+        ))
     }
 
     /// Performance snapshot of all runtime examples accumulated in the stream irrelevant of the
@@ -593,7 +661,7 @@ impl LogisticRegressionStreaming {
     /// value, by the absolute value of the drift score, indicating positive performance. In this
     /// sense, log loss would be the inverse. This will error when no data has been pushed into the
     /// stream. This method returns the absoulte drift from the baseline state.
-    pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
+    pub fn drift_snapshot(&self) -> ModelPerfResult<LogisticRegressionDriftSnapshot> {
         // compute log loss
         let n = self.len() as f32;
         if n == 0_f32 {
@@ -602,9 +670,49 @@ impl LogisticRegressionStreaming {
         let log_loss = self.log_penalties.compute(n);
         let rt = LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, log_loss)?;
         let report = rt.runtime_drift_report(&self.bl);
-        Ok(DriftReport::from_runtime(report))
+        Ok(report)
     }
-
+    pub fn drift_report(
+        &self,
+        drift_threshold_opt: Option<f32>,
+    ) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
+        // compute log loss
+        let n = self.len() as f32;
+        if n == 0_f32 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        let log_loss = self.log_penalties.compute(n);
+        let rt = LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, log_loss)?;
+        let report = rt.runtime_drift_report(&self.bl);
+        let drift_threshold = drift_threshold_opt.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
+        Ok(DriftReport::from_runtime(
+            report
+                .into_iter()
+                .filter(|(_, v)| *v >= drift_threshold)
+                .collect(),
+        ))
+    }
+    pub fn drift_report_partial_metrics(
+        &self,
+        metrics: &[ClassificationEvaluationMetric],
+        drift_threshold_opt: Option<f32>,
+    ) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
+        // compute log loss
+        let n = self.len() as f32;
+        if n == 0_f32 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        let log_loss = self.log_penalties.compute(n);
+        let rt = LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, log_loss)?;
+        let report = rt.runtime_drift_report(&self.bl);
+        let drift_threshold = drift_threshold_opt.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
+        Ok(DriftReport::from_runtime(
+            report
+                .into_iter()
+                .filter(|(m, v)| *v >= drift_threshold && metrics.contains(&m))
+                .collect(),
+        ))
+    }
     /// Compute a snapshot of runtime model performance accumulated in the stream, irrelevant of
     /// the baseline state. This will error when no data has been pushed into the stream.
     pub fn performance_snapshot(&self) -> ModelPerfResult<LogisticRegressionAnalysisReport> {

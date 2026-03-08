@@ -18,7 +18,10 @@ pub(crate) fn get_stability_eps() -> f64 {
 }
 
 /// Trait to enfore trait bounds around what is a crate supported machine learning/data metric.
-pub trait MachineLearningMetric {}
+pub trait MachineLearningMetric:
+    std::fmt::Debug + PartialEq + Serialize + std::fmt::Display
+{
+}
 impl MachineLearningMetric for DataBiasMetric {}
 impl MachineLearningMetric for ModelBiasMetric {}
 impl MachineLearningMetric for ClassificationEvaluationMetric {}

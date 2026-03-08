@@ -23,14 +23,15 @@ use std::collections::HashMap;
 
 pub(crate) const EQUALITY_ERROR_ALLOWANCE: f32 = 1e-5;
 
+#[derive(Debug, PartialEq)]
 pub struct DataBiasRuntime {
-    ci: f32,
-    dpl: f32,
-    kl: f32,
-    js: f32,
-    lpnorm: f32,
-    tvd: f32,
-    ks: f32,
+    pub(crate) ci: f32,
+    pub(crate) dpl: f32,
+    pub(crate) kl: f32,
+    pub(crate) js: f32,
+    pub(crate) lpnorm: f32,
+    pub(crate) tvd: f32,
+    pub(crate) ks: f32,
 }
 
 impl DataBiasRuntime {
@@ -202,7 +203,11 @@ impl DataBiasRuntime {
         let mut result = DataBiasRuntimeReport::with_capacity(7);
         result.insert(
             DataBiasMetric::ClassImbalance,
-            ((self.ci - baseline.ci).abs()) / baseline.ci.abs(),
+            ((self.ci - baseline.ci).abs())
+                / baseline
+                    .ci
+                    .abs()
+                    .max(crate::metrics::get_stability_eps() as f32),
         );
         result.insert(
             DataBiasMetric::DifferenceInProportionOfLabels,
@@ -1409,7 +1414,8 @@ impl TryFrom<HashMap<String, f32>> for LinearRegressionRuntime {
 
 #[cfg(test)]
 mod test_runtime_containers {
-    use crate::data_handler::ConfusionMatrix;
+    use super::*;
+    use crate::data_handler::{BiasSegmentationCriteria, BiasSegmentationType, ConfusionMatrix};
     use crate::model_bias::{PostTraining, PostTrainingDistribution};
 
     #[test]
@@ -1450,5 +1456,88 @@ mod test_runtime_containers {
         assert_eq!(mb_rt.cdacc, (10_f32 / 8_f32) - 1_f32);
         assert_eq!(mb_rt.dar, (4_f32 / 9_f32) - (5_f32 / 8_f32));
         assert_eq!(mb_rt.sd, (6_f32 / 11_f32) - (4_f32 / 7_f32));
+    }
+
+    #[test]
+    fn data_bias_runtime_from_pretraining() {
+        use crate::data_bias::statistics as stats;
+        let feature_data: Vec<i32> =
+            vec![1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1];
+        let gt_data: Vec<i32> = vec![0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1];
+
+        let ci = stats::class_imbalance(
+            &feature_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+            &gt_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+        )
+        .unwrap();
+
+        let dpl = stats::diff_in_proportion_of_labels(
+            &feature_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+            &gt_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+        )
+        .unwrap();
+
+        let kl = stats::kl_divergence(
+            &feature_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+            &gt_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+        )
+        .unwrap();
+        let js = stats::jensen_shannon(
+            &feature_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+            &gt_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+        )
+        .unwrap();
+
+        let lpnorm = stats::lp_norm(
+            &feature_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+            &gt_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+        )
+        .unwrap();
+
+        let tvd = stats::total_variation_distance(
+            &feature_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+            &gt_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+        )
+        .unwrap();
+        let ks = stats::kolmogorov_smirnov(
+            &feature_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+            &gt_data,
+            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+        )
+        .unwrap();
+
+        let base = DataBiasRuntime {
+            ci,
+            dpl,
+            js,
+            kl,
+            ks,
+            lpnorm,
+            tvd,
+        };
+
+        let pretraining = PreTraining::new_from_segmentation(
+            &feature_data,
+            &BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+            &gt_data,
+            &BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+        )
+        .unwrap();
+
+        let test = DataBiasRuntime::new_from_pre_training(&pretraining).unwrap();
+        assert_eq!(test, base);
     }
 }

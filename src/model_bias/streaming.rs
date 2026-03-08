@@ -2,7 +2,9 @@ use super::{BucketGeneralizedEntropy, PostTraining};
 use crate::data_handler::BiasSegmentationCriteria;
 use crate::errors::{ModelPerfResult, ModelPerformanceError};
 use crate::metrics::ModelBiasMetric;
-use crate::reporting::{DriftReport, ModelBiasAnalysisReport};
+use crate::reporting::{
+    DriftReport, ModelBiasAnalysisReport, ModelBiasDriftSnapshot, DEFAULT_DRIFT_THRESHOLD,
+};
 use crate::runtime::ModelBiasRuntime;
 
 #[cfg(feature = "python")]
@@ -14,7 +16,6 @@ pub(crate) mod py_api {
     };
     use crate::errors::ModelPerformanceError;
     use pyo3::prelude::*;
-    use pyo3::types::IntoPyDict;
 
     #[pyclass]
     pub(crate) struct PyModelBiasStreaming {
@@ -72,7 +73,7 @@ pub(crate) mod py_api {
                 .inner
                 .drift_snapshot()
                 .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
-            Ok(report.into_py_dict(py)?)
+            Ok(report_to_py_dict(py, report))
         }
 
         fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
@@ -243,14 +244,52 @@ where
     /// Generateas a point in time drift report, this will consider the baseline set and all the
     /// data that has been accumulated since the last flush. Errors when there is no data
     /// accumulate in the runtime stream.
-    pub fn drift_snapshot(&self) -> ModelPerfResult<DriftReport<ModelBiasMetric>> {
+    pub fn drift_snapshot(&self) -> ModelPerfResult<ModelBiasDriftSnapshot> {
         if self.ge.len() == 0_u64 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
         let rt_ge = self.ge.ge_snapshot();
         let rt_snapshot = ModelBiasRuntime::new_from_post_training(&self.rt, rt_ge)?;
         let report = rt_snapshot.runtime_drift_report(&self.bl);
-        Ok(DriftReport::from_runtime(report))
+        Ok(report)
+    }
+    pub fn drift_report(
+        &self,
+        drift_threshold_opt: Option<f32>,
+    ) -> ModelPerfResult<DriftReport<ModelBiasMetric>> {
+        if self.ge.len() == 0_u64 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        let rt_ge = self.ge.ge_snapshot();
+        let rt_snapshot = ModelBiasRuntime::new_from_post_training(&self.rt, rt_ge)?;
+        let drift_threshold = drift_threshold_opt.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
+        let report = rt_snapshot.runtime_drift_report(&self.bl);
+        Ok(DriftReport::from_runtime(
+            report
+                .into_iter()
+                .filter(|(_, v)| *v >= drift_threshold)
+                .collect(),
+        ))
+    }
+
+    pub fn drift_report_partial_metric(
+        &self,
+        metrics: &[ModelBiasMetric],
+        drift_threshold_opt: Option<f32>,
+    ) -> ModelPerfResult<DriftReport<ModelBiasMetric>> {
+        if self.ge.len() == 0_u64 {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        let rt_ge = self.ge.ge_snapshot();
+        let rt_snapshot = ModelBiasRuntime::new_from_post_training(&self.rt, rt_ge)?;
+        let drift_threshold = drift_threshold_opt.unwrap_or(DEFAULT_DRIFT_THRESHOLD);
+        let report = rt_snapshot.runtime_drift_report(&self.bl);
+        Ok(DriftReport::from_runtime(
+            report
+                .into_iter()
+                .filter(|(m, v)| *v >= drift_threshold && metrics.contains(&m))
+                .collect(),
+        ))
     }
 
     /// Generateas a point in time performance report irrespective of the baseline state.

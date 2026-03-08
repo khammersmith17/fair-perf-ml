@@ -18,7 +18,7 @@ pub(crate) mod py_types_handler {
         report: HashMap<T, f32>,
     ) -> Bound<'py, PyDict>
     where
-        T: ToString,
+        T: crate::metrics::MachineLearningMetric,
     {
         let dict = PyDict::new(py);
         for (key, val) in report.into_iter() {
