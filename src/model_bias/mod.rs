@@ -23,7 +23,6 @@ pub(crate) mod py_api {
     use crate::runtime::ModelBiasRuntime;
     use numpy::PyUntypedArray;
     use pyo3::{
-        exceptions::PyTypeError,
         prelude::*,
         types::{IntoPyDict, PyDict},
         Bound, PyResult, Python,
@@ -68,9 +67,7 @@ pub(crate) mod py_api {
             current.runtime_check(baseline, threshold, &FULL_MODEL_BIAS_METRICS);
 
         let drift_report: DriftReport<ModelBiasMetric> = DriftReport::from_runtime(failure_report);
-
         let py_dict = drift_report.into_py_dict(py)?;
-
         Ok(py_dict)
     }
 
@@ -86,12 +83,9 @@ pub(crate) mod py_api {
         ground_truth_label_or_threshold: Bound<'py, PyAny>,
         prediction_label_or_threshold: Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let preds: Vec<i16> = apply_label(py, prediction_array, prediction_label_or_threshold)
-            .map_err(|err| PyTypeError::new_err(err.to_string()))?;
-        let gt: Vec<i16> = apply_label(py, ground_truth_array, ground_truth_label_or_threshold)
-            .map_err(|err| PyTypeError::new_err(err.to_string()))?;
-        let feats: Vec<i16> = apply_label(py, feature_array, feature_label_or_threshold)
-            .map_err(|err| PyTypeError::new_err(err.to_string()))?;
+        let preds: Vec<i16> = apply_label(py, prediction_array, prediction_label_or_threshold)?;
+        let gt: Vec<i16> = apply_label(py, ground_truth_array, ground_truth_label_or_threshold)?;
+        let feats: Vec<i16> = apply_label(py, feature_array, feature_label_or_threshold)?;
 
         let post_training_data = DiscretePostTraining::new(&feats, &preds, &gt)?;
         let analysis_res = post_training_bias(&post_training_data);

@@ -15,7 +15,9 @@ pub(crate) mod py_api {
         BiasSegmentationCriteria, BiasSegmentationType,
     };
     use crate::errors::ModelPerformanceError;
+    use crate::metrics::ModelBiasMetricVec;
     use pyo3::prelude::*;
+    use pyo3::types::IntoPyDict;
 
     #[pyclass]
     pub(crate) struct PyModelBiasStreaming {
@@ -39,8 +41,7 @@ pub(crate) mod py_api {
                 BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
                 &ground_truth,
                 BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
-            )
-            .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            )?;
 
             Ok(PyModelBiasStreaming { inner })
         }
@@ -51,9 +52,7 @@ pub(crate) mod py_api {
         }
 
         fn push_batch(&mut self, feature: Vec<i8>, pred: Vec<i8>, gt: Vec<i8>) -> PyResult<()> {
-            self.inner
-                .push_batch(&feature, &pred, &gt)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            self.inner.push_batch(&feature, &pred, &gt)?;
             Ok(())
         }
 
@@ -62,25 +61,34 @@ pub(crate) mod py_api {
         }
 
         fn reset_baseline(&mut self, feature: Vec<i8>, pred: Vec<i8>, gt: Vec<i8>) -> PyResult<()> {
-            self.inner
-                .reset_baseline(&feature, &pred, &gt)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            self.inner.reset_baseline(&feature, &pred, &gt)?;
             Ok(())
         }
-
         fn drift_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
-            let report = self
-                .inner
-                .drift_snapshot()
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            let report = self.inner.drift_snapshot()?;
             Ok(report_to_py_dict(py, report))
         }
 
-        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
+        fn drift_report<'py>(&self, py: Python<'py>, drift_threshold: f32) -> PyDictResult<'py> {
+            let report = self.inner.drift_report(Some(drift_threshold))?;
+            Ok(report.into_py_dict(py)?)
+        }
+
+        fn drift_report_partial_metrics<'py>(
+            &self,
+            py: Python<'py>,
+            metrics: Vec<String>,
+            drift_threshold: f32,
+        ) -> PyDictResult<'py> {
+            let m_vec = ModelBiasMetricVec::try_from(metrics.as_ref())?;
             let report = self
                 .inner
-                .performance_snapshot()
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .drift_report_partial_metrics(m_vec.as_ref(), Some(drift_threshold))?;
+            Ok(report.into_py_dict(py)?)
+        }
+
+        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
+            let report = self.inner.performance_snapshot()?;
 
             Ok(report_to_py_dict(py, report))
         }
@@ -128,9 +136,7 @@ where
     ) -> ModelPerfResult<StreamingModelBias<F, P, G>> {
         let bl_pt = PostTraining::new_from_segmentation_criteria(
             features, &feat_seg, preds, &pred_seg, gt, &gt_seg,
-        )
-        .map_err(|e| ModelPerformanceError::BiasError(e))?;
-        dbg!(&bl_pt);
+        )?;
 
         let mut bl_ge_bucket = BucketGeneralizedEntropy::default();
         bl_ge_bucket.accumulate(gt, &gt_seg, preds, &pred_seg);
@@ -160,16 +166,14 @@ where
     /// method will use the segmentation logic passed at type construction. This method returns
     /// nothing, use the drift_snapshot method to generate the report.
     pub fn push_batch(&mut self, features: &[F], preds: &[P], gt: &[G]) -> ModelPerfResult<()> {
-        self.rt
-            .accumulate_batch(
-                features,
-                &self.feat_seg,
-                preds,
-                &self.pred_seg,
-                gt,
-                &self.gt_seg,
-            )
-            .map_err(|e| ModelPerformanceError::BiasError(e))?;
+        self.rt.accumulate_batch(
+            features,
+            &self.feat_seg,
+            preds,
+            &self.pred_seg,
+            gt,
+            &self.gt_seg,
+        )?;
         self.ge.accumulate(gt, &self.gt_seg, preds, &self.pred_seg);
         Ok(())
     }
@@ -204,8 +208,7 @@ where
             &self.pred_seg,
             ground_truth,
             &self.gt_seg,
-        )
-        .map_err(|e| ModelPerformanceError::BiasError(e))?;
+        )?;
 
         let mut bl_ge_bucket = BucketGeneralizedEntropy::default();
         bl_ge_bucket.accumulate(ground_truth, &self.gt_seg, prediction, &self.pred_seg);
@@ -231,8 +234,7 @@ where
             &self.pred_seg,
             ground_truth,
             &self.gt_seg,
-        )
-        .map_err(|e| ModelPerformanceError::BiasError(e))?;
+        )?;
 
         let mut bl_ge_bucket = BucketGeneralizedEntropy::default();
         bl_ge_bucket.accumulate(ground_truth, &self.gt_seg, prediction, &self.pred_seg);
@@ -253,6 +255,7 @@ where
         let report = rt_snapshot.runtime_drift_report(&self.bl);
         Ok(report)
     }
+
     pub fn drift_report(
         &self,
         drift_threshold_opt: Option<f32>,
@@ -272,7 +275,7 @@ where
         ))
     }
 
-    pub fn drift_report_partial_metric(
+    pub fn drift_report_partial_metrics(
         &self,
         metrics: &[ModelBiasMetric],
         drift_threshold_opt: Option<f32>,
@@ -325,7 +328,7 @@ mod model_bias_strming_tests {
         fn eq(&self, other: &Self) -> bool {
             use ModelBiasMetric as MBM;
             /*
-                        DifferenceInPositivePredictedLabels,
+                DifferenceInPositivePredictedLabels,
                 DisparateImpact,
                 AccuracyDifference,
                 RecallDifference,

@@ -22,7 +22,11 @@ pub(crate) mod py_api {
         report_to_py_dict as perf_report_to_py_dict, PyDictResult,
     };
     use crate::errors::ModelPerformanceError;
+    use crate::metrics::{
+        ClassificationMetricVec, LinearRegressionMetricVec, LogisticRegressionMetricVec,
+    };
     use pyo3::prelude::*;
+    use pyo3::types::IntoPyDict;
 
     // All types here are simply logical wrappers around core types, simply to expose the apis to
     // python through FFI.
@@ -38,8 +42,7 @@ pub(crate) mod py_api {
     impl PyBinaryClassificationStreaming {
         #[new]
         fn new(y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<PyBinaryClassificationStreaming> {
-            let inner = BinaryClassificationStreaming::new(1_i32, &y_true, &y_pred)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            let inner = BinaryClassificationStreaming::new(1_i32, &y_true, &y_pred)?;
             Ok(PyBinaryClassificationStreaming { inner })
         }
 
@@ -48,9 +51,7 @@ pub(crate) mod py_api {
         }
 
         fn push_batch(&mut self, y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<()> {
-            self.inner
-                .push_batch(&y_true, &y_pred)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            self.inner.push_batch(&y_true, &y_pred)?;
             Ok(())
         }
 
@@ -59,26 +60,36 @@ pub(crate) mod py_api {
         }
 
         fn reset_baseline(&mut self, y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<()> {
-            self.inner
-                .reset_baseline(&y_true, &y_pred)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            self.inner.reset_baseline(&y_true, &y_pred)?;
             Ok(())
         }
 
         fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
-            let report = self
-                .inner
-                .performance_snapshot()
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            let report = self.inner.performance_snapshot()?;
             Ok(perf_report_to_py_dict(py, report))
         }
 
-        fn drift_report<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
+        fn drift_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
+            let report = self.inner.drift_snapshot()?;
+            Ok(perf_report_to_py_dict(py, report))
+        }
+
+        fn drift_report<'py>(&self, py: Python<'py>, drift_threshold: f32) -> PyDictResult<'py> {
+            let report = self.inner.drift_report(Some(drift_threshold))?;
+            Ok(report.into_py_dict(py)?)
+        }
+
+        fn drift_report_partial_metrics<'py>(
+            &self,
+            py: Python<'py>,
+            metrics: Vec<String>,
+            drift_threshold: f32,
+        ) -> PyDictResult<'py> {
+            let m_vec = ClassificationMetricVec::try_from(metrics.as_ref())?;
             let report = self
                 .inner
-                .drift_snapshot()
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
-            Ok(perf_report_to_py_dict(py, report))
+                .drift_report_partial_metrics(m_vec.as_ref(), Some(drift_threshold))?;
+            Ok(report.into_py_dict(py)?)
         }
     }
 
@@ -91,8 +102,7 @@ pub(crate) mod py_api {
     impl PyLinearRegressionStreaming {
         #[new]
         fn new(y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<PyLinearRegressionStreaming> {
-            let inner = LinearRegressionStreaming::new(&y_true, &y_pred)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            let inner = LinearRegressionStreaming::new(&y_true, &y_pred)?;
 
             Ok(PyLinearRegressionStreaming { inner })
         }
@@ -106,34 +116,41 @@ pub(crate) mod py_api {
         }
 
         fn push_batch(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
-            self.inner
-                .push_batch(&y_true, &y_pred)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            self.inner.push_batch(&y_true, &y_pred)?;
             Ok(())
         }
 
         fn reset_baseline(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
-            self.inner
-                .reset_baseline(&y_true, &y_pred)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            self.inner.reset_baseline(&y_true, &y_pred)?;
             Ok(())
         }
 
         fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
-            let report = self
-                .inner
-                .performance_snapshot()
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
-
+            let report = self.inner.performance_snapshot()?;
             Ok(perf_report_to_py_dict(py, report))
         }
 
         fn drift_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
+            let report = self.inner.drift_snapshot()?;
+            Ok(perf_report_to_py_dict(py, report))
+        }
+
+        fn drift_report<'py>(&self, py: Python<'py>, drift_threshold: f32) -> PyDictResult<'py> {
+            let report = self.inner.drift_report(Some(drift_threshold))?;
+            Ok(report.into_py_dict(py)?)
+        }
+
+        fn drift_report_partial_metrics<'py>(
+            &self,
+            py: Python<'py>,
+            metrics: Vec<String>,
+            drift_threshold: f32,
+        ) -> PyDictResult<'py> {
+            let m_vec = LinearRegressionMetricVec::try_from(metrics.as_ref())?;
             let report = self
                 .inner
-                .drift_snapshot()
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
-            Ok(perf_report_to_py_dict(py, report))
+                .drift_report_partial_metrics(m_vec.as_ref(), Some(drift_threshold))?;
+            Ok(report.into_py_dict(py)?)
         }
     }
 
@@ -150,8 +167,7 @@ pub(crate) mod py_api {
             y_pred: Vec<f32>,
             threshold: f32,
         ) -> PyResult<PyLogisticRegressionStreaming> {
-            let inner = LogisticRegressionStreaming::new(&y_true, &y_pred, Some(threshold))
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            let inner = LogisticRegressionStreaming::new(&y_true, &y_pred, Some(threshold))?;
 
             Ok(PyLogisticRegressionStreaming { inner })
         }
@@ -161,27 +177,36 @@ pub(crate) mod py_api {
         }
 
         fn push_batch(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
-            self.inner
-                .push_batch(&y_true, &y_pred)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            self.inner.push_batch(&y_true, &y_pred)?;
             Ok(())
         }
 
         fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
-            let report = self
-                .inner
-                .performance_snapshot()
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            let report = self.inner.performance_snapshot()?;
             Ok(perf_report_to_py_dict(py, report))
         }
 
-        fn drift_snapshot<'py>(&mut self, py: Python<'py>) -> PyDictResult<'py> {
+        fn drift_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
+            let report = self.inner.drift_snapshot()?;
+            Ok(perf_report_to_py_dict(py, report))
+        }
+
+        fn drift_report<'py>(&self, py: Python<'py>, drift_threshold: f32) -> PyDictResult<'py> {
+            let report = self.inner.drift_report(Some(drift_threshold))?;
+            Ok(report.into_py_dict(py)?)
+        }
+
+        fn drift_report_partial_metrics<'py>(
+            &self,
+            py: Python<'py>,
+            metrics: Vec<String>,
+            drift_threshold: f32,
+        ) -> PyDictResult<'py> {
+            let m_vec = LogisticRegressionMetricVec::try_from(metrics.as_ref())?;
             let report = self
                 .inner
-                .drift_snapshot()
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
-
-            Ok(perf_report_to_py_dict(py, report))
+                .drift_report_partial_metrics(m_vec.as_ref(), Some(drift_threshold))?;
+            Ok(report.into_py_dict(py)?)
         }
 
         fn flush(&mut self) {
@@ -189,9 +214,7 @@ pub(crate) mod py_api {
         }
 
         fn reset_baseline(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
-            self.inner
-                .reset_baseline(&y_true, &y_pred)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            self.inner.reset_baseline(&y_true, &y_pred)?;
             Ok(())
         }
 
@@ -202,8 +225,7 @@ pub(crate) mod py_api {
             threshold: f32,
         ) -> PyResult<()> {
             self.inner
-                .reset_baseline_and_decision_threshold(&y_true, &y_pred, threshold)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .reset_baseline_and_decision_threshold(&y_true, &y_pred, threshold)?;
             Ok(())
         }
     }
@@ -386,7 +408,7 @@ impl LinearRegressionStreaming {
         ))
     }
 
-    pub fn drift_report_partial_metric(
+    pub fn drift_report_partial_metrics(
         &self,
         metrics: &[LinearRegressionEvaluationMetric],
         drift_threshold_opt: Option<f32>,

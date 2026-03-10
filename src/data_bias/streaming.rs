@@ -13,7 +13,9 @@ pub(crate) mod py_api {
         BiasSegmentationCriteria, BiasSegmentationType,
     };
     use crate::errors::ModelPerformanceError;
+    use crate::metrics::DataBiasMetricVec;
     use pyo3::prelude::*;
+    use pyo3::types::IntoPyDict;
 
     // for the bias streaming, the python api here will accept already labeled data to limit the
     // type complexity here. So the labeling will happen in the python api
@@ -34,8 +36,7 @@ pub(crate) mod py_api {
                 BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
                 &gt_data,
                 BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
-            )
-            .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            )?;
             Ok(PyDataBiasStreaming { inner })
         }
 
@@ -48,33 +49,40 @@ pub(crate) mod py_api {
         }
 
         fn push_batch(&mut self, f: Vec<i8>, g: Vec<i8>) -> PyResult<()> {
-            self.inner
-                .push_batch(&f, &g)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            self.inner.push_batch(&f, &g)?;
             Ok(())
         }
 
         fn reset_baseline(&mut self, f: Vec<i8>, g: Vec<i8>) -> PyResult<()> {
-            self.inner
-                .reset_baseline(&f, &g)
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+            self.inner.reset_baseline(&f, &g)?;
             Ok(())
         }
 
         fn drift_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
-            let report = self
-                .inner
-                .drift_snapshot()
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
-
+            let report = self.inner.drift_snapshot()?;
             Ok(report_to_py_dict(py, report))
         }
 
-        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
+        fn drift_report<'py>(&self, py: Python<'py>, drift_threshold: f32) -> PyDictResult<'py> {
+            let report = self.inner.drift_report(Some(drift_threshold))?;
+            Ok(report.into_py_dict(py)?)
+        }
+
+        fn drift_report_partial_metrics<'py>(
+            &self,
+            py: Python<'py>,
+            metrics: Vec<String>,
+            drift_threshold: f32,
+        ) -> PyDictResult<'py> {
+            let m_vec = DataBiasMetricVec::try_from(metrics.as_ref())?;
             let report = self
                 .inner
-                .performance_snapshot()
-                .map_err(|e| <ModelPerformanceError as Into<PyErr>>::into(e))?;
+                .drift_report_partial_metrics(m_vec.as_ref(), Some(drift_threshold))?;
+            Ok(report.into_py_dict(py)?)
+        }
+
+        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
+            let report = self.inner.performance_snapshot()?;
             Ok(report_to_py_dict(py, report))
         }
     }
@@ -226,7 +234,7 @@ where
     }
 
     /// Same as ['StreamingDataBias::drift_report'] but only on the provided subset of metrics.
-    pub fn drift_report_partial_metric(
+    pub fn drift_report_partial_metrics(
         &self,
         metrics: &[DataBiasMetric],
         drift_threshold_opt: Option<f32>,

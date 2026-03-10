@@ -19,7 +19,7 @@ pub(crate) mod py_api {
     use crate::reporting::DriftReport;
     use crate::runtime::DataBiasRuntime;
     use numpy::PyUntypedArray;
-    use pyo3::{exceptions::PyTypeError, prelude::*, types::IntoPyDict, Bound, Python};
+    use pyo3::{prelude::*, types::IntoPyDict, Bound, Python};
     use std::collections::HashMap;
 
     /// Method to perform data bias analysis
@@ -32,12 +32,8 @@ pub(crate) mod py_api {
         feature_label_or_threshold: Bound<'py, PyAny>, //fix
         ground_truth_label_or_threshold: Bound<'py, PyAny>, //fix
     ) -> PyDictResult<'py> {
-        let gt = apply_label(py, ground_truth_array, ground_truth_label_or_threshold)
-            .map_err(|err| PyTypeError::new_err(err.to_string()))?;
-
-        let feats = apply_label(py, feature_array, feature_label_or_threshold)
-            .map_err(|err| PyTypeError::new_err(err.to_string()))?;
-
+        let gt = apply_label(py, ground_truth_array, ground_truth_label_or_threshold)?;
+        let feats = apply_label(py, feature_array, feature_label_or_threshold)?;
         let res = data_bias_analysis_core(gt, feats)?;
 
         let py_dict = report_to_py_dict(py, res);

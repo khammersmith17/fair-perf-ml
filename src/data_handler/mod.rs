@@ -5,10 +5,10 @@ pub(crate) mod py_types_handler {
     use numpy::dtype;
     use numpy::PyUntypedArrayMethods;
     use numpy::{PyArrayDescrMethods, PyUntypedArray};
+    use pyo3::exceptions::PyTypeError;
     use pyo3::prelude::*;
     use pyo3::types::{PyDict, PyDictMethods, PyFloat, PyInt, PyString};
     use std::collections::HashMap;
-    use std::error::Error;
 
     pub type PyDictResult<'py> = PyResult<Bound<'py, PyDict>>;
 
@@ -112,13 +112,17 @@ pub(crate) mod py_types_handler {
         arr_set.len()
     }
 
+    fn generate_type_err() -> PyErr {
+        return PyTypeError::new_err("Data passed in is of hetergeneous types");
+    }
+
     // Handles untyped nature of python data. Determines type and labels accordingly. This function
     // will error if the underlying type identification is incorrect.
     pub(crate) fn apply_label<'py>(
         py: Python<'_>,
         array: &Bound<'_, PyUntypedArray>,
         label: Bound<'py, PyAny>,
-    ) -> Result<Vec<i16>, Box<dyn Error>> {
+    ) -> PyResult<Vec<i16>> {
         let pred_type = determine_type(py, &array);
 
         // Based on the observed type of the data in the PyUntypedArray, copy the data into an
@@ -128,7 +132,7 @@ pub(crate) mod py_types_handler {
             PassedType::String => {
                 let data_vec: Vec<String> = copy_into_rust_type(array)?;
                 if !label.is_instance_of::<PyString>() {
-                    return Err("string".into());
+                    return Err(generate_type_err());
                 }
 
                 let data_label: String = label.extract::<String>()?;
@@ -143,7 +147,7 @@ pub(crate) mod py_types_handler {
                 } else if label.is_instance_of::<PyInt>() {
                     label.extract::<i64>()? as f64
                 } else {
-                    return Err("float".into());
+                    return Err(generate_type_err());
                 };
 
                 let f = Box::new(|v: &f64| OrderedFloat(*v));
@@ -164,7 +168,7 @@ pub(crate) mod py_types_handler {
                 } else if label.is_instance_of::<PyInt>() {
                     label.extract::<i64>()?
                 } else {
-                    return Err("float".into());
+                    return Err(generate_type_err());
                 };
 
                 let f = Box::new(|v: &i64| OrderedFloat(*v as f64));
