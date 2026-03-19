@@ -4,7 +4,6 @@ pub mod classification_metrics {
     /// Each method aside from log loss has two variants, one for binary labeled data and one for
     /// logisitc regression style labeling via a threshold. The only exception is the log loss
     /// score, which only provides a single variant.
-
     /// Generic types can used that implement the associated [std::cmp::Ordering] trait. The label
     /// methods require [PartialEq], and the threshold methods take [ParitalOrd].
     use crate::data_handler::ConfusionMatrix;
@@ -163,7 +162,6 @@ pub mod linear_regression_metric {
 
     /// Mean Squared Error. This will error when the y_true and y_pred slices are not the same
     /// length.
-
     pub fn mean_squared_error<T>(y_true: &[T], y_pred: &[T]) -> Result<f64, ModelPerformanceError>
     where
         T: Into<f64> + Copy,
@@ -183,7 +181,6 @@ pub mod linear_regression_metric {
 
     /// Mean Absolute Error. This will error when the y_true and y_pred slices are not the same
     /// length.
-
     pub fn mean_absolute_error<T>(y_true: &[T], y_pred: &[T]) -> Result<f64, ModelPerformanceError>
     where
         T: Into<f64> + Copy,
@@ -232,7 +229,6 @@ pub mod linear_regression_metric {
 
     /// Mean Absolute Error. This will error when the y_true and y_pred slices are not the same
     /// length.
-
     pub fn max_error<T>(y_true: &[T], y_pred: &[T]) -> Result<f64, ModelPerformanceError>
     where
         T: Into<f64> + Copy,
@@ -251,7 +247,6 @@ pub mod linear_regression_metric {
 
     /// Mean sqaured Log Error. This will error when the y_true and y_pred slices are not the same
     /// length.
-
     pub fn mean_squared_log_error<T>(
         y_true: &[T],
         y_pred: &[T],
@@ -277,7 +272,6 @@ pub mod linear_regression_metric {
 
     /// Root Mean Sqaured Log Error. This will error when the y_true and y_pred slices are not the same
     /// length.
-
     pub fn root_mean_squared_log_error<T>(
         y_true: &[T],
         y_pred: &[T],
@@ -387,7 +381,7 @@ pub(crate) mod classification_metrics_from_parts {
             p = p.clamp(eps, 1_f32 - eps);
             penalties += t * p.ln() + (1_f32 - t) * (1_f32 - p).ln();
         }
-        let res = (-1_f32 * penalties) / n;
+        let res = -penalties / n;
 
         if res.is_nan() {
             return Err(ModelPerformanceError::InvalidData);

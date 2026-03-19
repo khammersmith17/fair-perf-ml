@@ -27,7 +27,7 @@ pub(crate) mod py_api {
     };
     use numpy::PyUntypedArray;
     use pyo3::{
-        exceptions::{PyTypeError, PyValueError},
+        exceptions::PyValueError,
         prelude::*,
         types::{IntoPyDict, PyDict},
         Bound,
@@ -49,7 +49,7 @@ pub(crate) mod py_api {
             Some(threshold),
         )
         .unwrap();
-        Ok(drift_report.into_py_dict(py)?)
+        drift_report.into_py_dict(py)
     }
 
     #[pyfunction]
@@ -73,7 +73,7 @@ pub(crate) mod py_api {
             Some(threshold),
         )
         .unwrap();
-        Ok(drift_report.into_py_dict(py)?)
+        drift_report.into_py_dict(py)
     }
 
     #[pyfunction]
@@ -97,7 +97,7 @@ pub(crate) mod py_api {
             Some(threshold),
         )
         .unwrap();
-        Ok(drift_report.into_py_dict(py)?)
+        drift_report.into_py_dict(py)
     }
 
     #[pyfunction]
@@ -115,7 +115,7 @@ pub(crate) mod py_api {
             Some(threshold),
         )
         .unwrap();
-        Ok(drift_report.into_py_dict(py)?)
+        drift_report.into_py_dict(py)
     }
 
     #[pyfunction]
@@ -139,7 +139,7 @@ pub(crate) mod py_api {
             Some(threshold),
         )
         .unwrap();
-        Ok(drift_report.into_py_dict(py)?)
+        drift_report.into_py_dict(py)
     }
 
     #[pyfunction]
@@ -157,7 +157,7 @@ pub(crate) mod py_api {
             Some(threshold),
         )
         .unwrap();
-        Ok(drift_report.into_py_dict(py)?)
+        drift_report.into_py_dict(py)
     }
 
     pub fn validate_and_cast_regression(
@@ -188,7 +188,7 @@ pub(crate) mod py_api {
             }
             PassedType::Integer => {
                 for item in arr.try_iter()? {
-                    let data = item?.extract::<f32>()? as f32;
+                    let data = item?.extract::<f32>()?;
                     data_container.push(data)
                 }
             }
@@ -223,18 +223,12 @@ pub(crate) mod py_api {
     ) -> PyResult<Bound<'py, PyDict>> {
         // coerce py types
         let true_type: PassedType = determine_type(py, y_true_src);
-        let Ok(y_true) = convert_f32(py, y_true_src, true_type) else {
-            return Err(PyValueError::new_err("Invalid types passed"));
-        };
-        let pred_type = determine_type(py, y_pred_src);
-        let Ok(y_pred) = convert_f32(py, y_pred_src, pred_type) else {
-            return Err(PyValueError::new_err("Invalid types passed"));
-        };
+        let y_true = convert_f32(py, y_true_src, true_type)?;
 
-        let report = match model_perf_binary_classification_analysis(&y_true, &y_pred, 1_f32) {
-            Ok(r) => r,
-            Err(e) => return Err(e.into()),
-        };
+        let pred_type = determine_type(py, y_pred_src);
+        let y_pred = convert_f32(py, y_pred_src, pred_type)?;
+
+        let report = model_perf_binary_classification_analysis(&y_true, &y_pred, 1_f32)?;
 
         Ok(report_to_py_dict(py, report))
     }
@@ -249,18 +243,10 @@ pub(crate) mod py_api {
     ) -> PyResult<Bound<'py, PyDict>> {
         // coerce py types
         let true_type: PassedType = determine_type(py, y_true_src);
-        let Ok(y_true) = convert_f32(py, y_true_src, true_type) else {
-            return Err(PyTypeError::new_err("Invalid types passed"));
-        };
+        let y_true = convert_f32(py, y_true_src, true_type)?;
         let pred_type = determine_type(py, y_pred_src);
-        let Ok(y_proba) = convert_f32(py, y_pred_src, pred_type) else {
-            return Err(PyTypeError::new_err("Invalid type passed"));
-        };
-
-        let report = match model_perf_logistic_regression_analysis(&y_true, &y_proba, threshold) {
-            Ok(r) => r,
-            Err(e) => return Err(e.into()),
-        };
+        let y_proba = convert_f32(py, y_pred_src, pred_type)?;
+        let report = model_perf_logistic_regression_analysis(&y_true, &y_proba, threshold)?;
         Ok(report_to_py_dict(py, report))
     }
 }
@@ -274,18 +260,11 @@ pub fn classification_performance_runtime(
     latest: HashMap<String, f32>,
     metrics: &[ClassificationEvaluationMetric],
     threshold_perc_opt: Option<f32>,
-) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
+) -> Result<DriftReport<ClassificationEvaluationMetric>, ModelPerformanceError> {
     let threshold = threshold_perc_opt.unwrap_or(0.10_f32);
-    let baseline = match BinaryClassificationRuntime::try_from(baseline) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
-    };
-    let latest = match BinaryClassificationRuntime::try_from(latest) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
-    };
+    let baseline = BinaryClassificationRuntime::try_from(baseline)?;
+    let latest = BinaryClassificationRuntime::try_from(latest)?;
     let res = latest.compare_to_baseline(metrics, &baseline, threshold);
-
     Ok(DriftReport::<ClassificationEvaluationMetric>::from_runtime(
         res,
     ))
@@ -300,16 +279,10 @@ pub fn logistic_performance_runtime(
     latest: HashMap<String, f32>,
     metrics: &[ClassificationEvaluationMetric],
     threshold_perc_opt: Option<f32>,
-) -> Result<DriftReport<ClassificationEvaluationMetric>, String> {
+) -> Result<DriftReport<ClassificationEvaluationMetric>, ModelPerformanceError> {
     let threshold = threshold_perc_opt.unwrap_or(0.10_f32);
-    let baseline = match LogisticRegressionRuntime::try_from(baseline) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
-    };
-    let latest = match LogisticRegressionRuntime::try_from(latest) {
-        Ok(v) => v,
-        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
-    };
+    let baseline = LogisticRegressionRuntime::try_from(baseline)?;
+    let latest = LogisticRegressionRuntime::try_from(latest)?;
     let res = latest.compare_to_baseline(metrics, &baseline, threshold);
     Ok(DriftReport::from_runtime(res))
 }
@@ -323,18 +296,11 @@ pub fn regression_performance_runtime(
     latest: HashMap<String, f32>,
     evaluation_metrics: &[LinearRegressionEvaluationMetric],
     threshold_perc_opt: Option<f32>,
-) -> Result<DriftReport<LinearRegressionEvaluationMetric>, String> {
+) -> Result<DriftReport<LinearRegressionEvaluationMetric>, ModelPerformanceError> {
     let threshold = threshold_perc_opt.unwrap_or(0.10_f32);
-    let baseline: LinearRegressionRuntime = match LinearRegressionRuntime::try_from(baseline) {
-        Ok(val) => val,
-        Err(e) => return Err(format!("Invalid baseline report: {}", e)),
-    };
-    let latest: LinearRegressionRuntime = match LinearRegressionRuntime::try_from(latest) {
-        Ok(val) => val,
-        Err(e) => return Err(format!("Invalid latest report: {}", e)),
-    };
-
-    let results = latest.compare_to_baseline(&evaluation_metrics, &baseline, threshold);
+    let baseline: LinearRegressionRuntime = LinearRegressionRuntime::try_from(baseline)?;
+    let latest: LinearRegressionRuntime = LinearRegressionRuntime::try_from(latest)?;
+    let results = latest.compare_to_baseline(evaluation_metrics, &baseline, threshold);
     Ok(DriftReport::from_runtime(results))
 }
 

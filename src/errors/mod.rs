@@ -37,6 +37,12 @@ pub enum DriftError {
     EmptyBaselineData,
     #[error("NaN values are not supported")]
     NaNValueError,
+    #[error("Unsupported drift type")]
+    UnsupportedDriftType,
+    #[error("Operation not supported in current drift mode")]
+    UnsupportedOperation,
+    #[error("Configuration not supported in current drift mode")]
+    UnsupportedConfig,
 }
 
 #[derive(Debug, Error)]
@@ -149,7 +155,12 @@ pub(crate) mod py_errors {
             match err {
                 DriftError::EmptyRuntimeData
                 | DriftError::EmptyBaselineData
-                | DriftError::NaNValueError => exceptions::PyValueError::new_err(err_message),
+                | DriftError::NaNValueError
+                | DriftError::UnsupportedDriftType
+                | DriftError::UnsupportedConfig
+                | DriftError::UnsupportedOperation => {
+                    exceptions::PyValueError::new_err(err_message)
+                }
                 DriftError::DateTimeError | DriftError::MalformedRuntimeData => {
                     exceptions::PySystemError::new_err(err_message)
                 }

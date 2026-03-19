@@ -37,6 +37,8 @@ pub(crate) mod py_types_handler {
     #[derive(PartialEq)]
     struct OrderedFloat(f64);
 
+    // Acknowledging that this is not canonical.
+    #[allow(clippy::non_canonical_partial_ord_impl)]
     impl PartialOrd for OrderedFloat {
         /// None will ever be returned here. The only time the interanl floating point values are
         /// comapred here is when it is validated that neither are NaN.
@@ -113,7 +115,7 @@ pub(crate) mod py_types_handler {
     }
 
     fn generate_type_err() -> PyErr {
-        return PyTypeError::new_err("Data passed in is of hetergeneous types");
+        PyTypeError::new_err("Data passed in is of hetergeneous types")
     }
 
     // Handles untyped nature of python data. Determines type and labels accordingly. This function
@@ -123,7 +125,7 @@ pub(crate) mod py_types_handler {
         array: &Bound<'_, PyUntypedArray>,
         label: Bound<'py, PyAny>,
     ) -> PyResult<Vec<i16>> {
-        let pred_type = determine_type(py, &array);
+        let pred_type = determine_type(py, array);
 
         // Based on the observed type of the data in the PyUntypedArray, copy the data into an
         // owned rust container. Given that these come from numpy arrays, the type in the array
@@ -364,11 +366,11 @@ where
         use SegmentationThresholdType as STT;
         match &self.stype {
             BST::Label => self.seg_value.eq(eval_value),
-            BST::Threshold(ref ttype) => match ttype {
-                &STT::LessThan => eval_value.lt(&self.seg_value),
-                &STT::LessThanEqualTo => eval_value.le(&self.seg_value),
-                &STT::GreaterThan => eval_value.gt(&self.seg_value),
-                &STT::GreaterThanEqualTo => eval_value.ge(&self.seg_value),
+            BST::Threshold(ref ttype) => match *ttype {
+                STT::LessThan => eval_value.lt(&self.seg_value),
+                STT::LessThanEqualTo => eval_value.le(&self.seg_value),
+                STT::GreaterThan => eval_value.gt(&self.seg_value),
+                STT::GreaterThanEqualTo => eval_value.ge(&self.seg_value),
             },
         }
     }

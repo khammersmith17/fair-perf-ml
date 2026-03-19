@@ -6,30 +6,11 @@ pub mod baseline;
 /// approximated. When the distribution of inference scores drifts significantly, that is probably
 /// a decent sign for a deeper investigation.
 pub mod data_drift;
+pub mod distribution;
 pub mod drift_metrics;
-use std::hash::Hash;
-use std::sync::OnceLock;
+#[cfg(feature = "python")]
+pub(crate) mod python_impl;
+pub mod windowed_drift;
 
-/// A trait to define what can be treated as string like in this context, what we need here is that
-/// is can be represented as &str, can be hashed, can be compared for eqaulity and can be
-/// transformed into an owned String.
-pub trait StringLike: AsRef<str> + Eq + Hash + ToString {}
-impl<T> StringLike for T where T: AsRef<str> + Eq + Hash + ToString {}
-
-const DEFAULT_STREAM_FLUSH: i64 = 3600 * 24;
-static MAX_STREAM_SIZE: OnceLock<usize> = OnceLock::new();
-
-pub(crate) fn get_max_stream_size() -> usize {
-    let max_stream_size = *(MAX_STREAM_SIZE.get_or_init(|| {
-        let default = 1_000_000_usize;
-        let Ok(str_val) = std::env::var("FAIR_PERF_MAX_STREAM_SIZE") else {
-            return default;
-        };
-
-        str_val.parse().unwrap_or(default)
-    }));
-
-    max_stream_size
-}
-// read in from user defined env var or set to default epsilon
-// optional user config
+const DEFAULT_STREAM_FLUSH_CADENCE: u64 = 3600 * 24;
+const DEFAULT_MAX_STREAM_SIZE: u64 = 1_000_000_u64;

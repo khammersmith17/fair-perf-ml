@@ -21,7 +21,6 @@ pub(crate) mod py_api {
     use crate::data_handler::py_types_handler::{
         report_to_py_dict as perf_report_to_py_dict, PyDictResult,
     };
-    use crate::errors::ModelPerformanceError;
     use crate::metrics::{
         ClassificationMetricVec, LinearRegressionMetricVec, LogisticRegressionMetricVec,
     };
@@ -76,7 +75,7 @@ pub(crate) mod py_api {
 
         fn drift_report<'py>(&self, py: Python<'py>, drift_threshold: f32) -> PyDictResult<'py> {
             let report = self.inner.drift_report(Some(drift_threshold))?;
-            Ok(report.into_py_dict(py)?)
+            report.into_py_dict(py)
         }
 
         fn drift_report_partial_metrics<'py>(
@@ -89,7 +88,7 @@ pub(crate) mod py_api {
             let report = self
                 .inner
                 .drift_report_partial_metrics(m_vec.as_ref(), Some(drift_threshold))?;
-            Ok(report.into_py_dict(py)?)
+            report.into_py_dict(py)
         }
     }
 
@@ -137,7 +136,7 @@ pub(crate) mod py_api {
 
         fn drift_report<'py>(&self, py: Python<'py>, drift_threshold: f32) -> PyDictResult<'py> {
             let report = self.inner.drift_report(Some(drift_threshold))?;
-            Ok(report.into_py_dict(py)?)
+            report.into_py_dict(py)
         }
 
         fn drift_report_partial_metrics<'py>(
@@ -150,7 +149,7 @@ pub(crate) mod py_api {
             let report = self
                 .inner
                 .drift_report_partial_metrics(m_vec.as_ref(), Some(drift_threshold))?;
-            Ok(report.into_py_dict(py)?)
+            report.into_py_dict(py)
         }
     }
 
@@ -193,7 +192,7 @@ pub(crate) mod py_api {
 
         fn drift_report<'py>(&self, py: Python<'py>, drift_threshold: f32) -> PyDictResult<'py> {
             let report = self.inner.drift_report(Some(drift_threshold))?;
-            Ok(report.into_py_dict(py)?)
+            report.into_py_dict(py)
         }
 
         fn drift_report_partial_metrics<'py>(
@@ -206,7 +205,7 @@ pub(crate) mod py_api {
             let report = self
                 .inner
                 .drift_report_partial_metrics(m_vec.as_ref(), Some(drift_threshold))?;
-            Ok(report.into_py_dict(py)?)
+            report.into_py_dict(py)
         }
 
         fn flush(&mut self) {
@@ -249,7 +248,7 @@ impl RSquaredSupplement {
             return if sse == 0_f64 { 1_f64 } else { 0_f64 };
         }
 
-        return 1_f64 - (sse / sst);
+        1_f64 - (sse / sst)
     }
 
     /// Push a single example. Takes in the true value and the predicted value.
@@ -278,7 +277,7 @@ pub(crate) struct LinearRegressionErrorBuckets {
 impl LinearRegressionErrorBuckets {
     /// Accumulate the error buckets with a single example.
     #[inline]
-    fn update(&mut self, y_true: f64, y_pred: f64) {
+    pub(crate) fn update(&mut self, y_true: f64, y_pred: f64) {
         self.len += 1_f64;
         let error = y_true - y_pred;
         let abs_error = error.abs();
@@ -342,7 +341,7 @@ impl LinearRegressionStreaming {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
         for (y_true, y_pred) in zip_iters!(y_true, y_pred) {
-            self.push((*y_true).into(), (*y_pred).into())
+            self.push(*y_true, *y_pred)
         }
         Ok(())
     }
@@ -419,7 +418,7 @@ impl LinearRegressionStreaming {
         Ok(DriftReport::from_runtime(
             drift_report
                 .into_iter()
-                .filter(|(m, v)| *v >= drift_threshold && metrics.contains(&m))
+                .filter(|(m, v)| *v >= drift_threshold && metrics.contains(m))
                 .collect(),
         ))
     }
@@ -560,7 +559,7 @@ where
         Ok(DriftReport::from_runtime(
             report
                 .into_iter()
-                .filter(|(m, v)| *v >= drift_threshold && metrics.contains(&m))
+                .filter(|(m, v)| *v >= drift_threshold && metrics.contains(m))
                 .collect(),
         ))
     }
@@ -568,7 +567,6 @@ where
     /// Performance snapshot of all runtime examples accumulated in the stream irrelevant of the
     /// baseline state. This will error when no data has been pushed into
     /// the stream.
-
     pub fn performance_snapshot(&self) -> ModelPerfResult<BinaryClassificationAnalysisReport> {
         if self.len() == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
@@ -607,7 +605,7 @@ impl LogPenalty {
 
     #[inline]
     fn compute(&self, n: f32) -> f32 {
-        return (-1_f32 * self.p) / n;
+        -self.p / n
     }
 }
 
@@ -685,7 +683,7 @@ impl LogisticRegressionStreaming {
     /// stream. This method returns the absoulte drift from the baseline state.
     pub fn drift_snapshot(&self) -> ModelPerfResult<LogisticRegressionDriftSnapshot> {
         // compute log loss
-        let n = self.len() as f32;
+        let n = self.len();
         if n == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
@@ -699,7 +697,7 @@ impl LogisticRegressionStreaming {
         drift_threshold_opt: Option<f32>,
     ) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
         // compute log loss
-        let n = self.len() as f32;
+        let n = self.len();
         if n == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
@@ -720,7 +718,7 @@ impl LogisticRegressionStreaming {
         drift_threshold_opt: Option<f32>,
     ) -> ModelPerfResult<DriftReport<ClassificationEvaluationMetric>> {
         // compute log loss
-        let n = self.len() as f32;
+        let n = self.len();
         if n == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
@@ -731,14 +729,14 @@ impl LogisticRegressionStreaming {
         Ok(DriftReport::from_runtime(
             report
                 .into_iter()
-                .filter(|(m, v)| *v >= drift_threshold && metrics.contains(&m))
+                .filter(|(m, v)| *v >= drift_threshold && metrics.contains(m))
                 .collect(),
         ))
     }
     /// Compute a snapshot of runtime model performance accumulated in the stream, irrelevant of
     /// the baseline state. This will error when no data has been pushed into the stream.
     pub fn performance_snapshot(&self) -> ModelPerfResult<LogisticRegressionAnalysisReport> {
-        let n = self.len() as f32;
+        let n = self.len();
         if n == 0_f32 {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
@@ -751,7 +749,7 @@ impl LogisticRegressionStreaming {
     /// Reset the baseline state in the stream with new baseline examples. This will leverage the same
     /// decision threshold. To also update the decision threshold, use `reset_baseline_and_decision_threshold`.
     pub fn reset_baseline(&mut self, y_true: &[f32], y_pred: &[f32]) -> ModelPerfResult<()> {
-        self.bl = LogisticRegressionRuntime::new(&y_true, &y_pred, self.decision_threshold)?;
+        self.bl = LogisticRegressionRuntime::new(y_true, y_pred, self.decision_threshold)?;
         Ok(())
     }
 
@@ -766,7 +764,7 @@ impl LogisticRegressionStreaming {
         threshold: f32,
     ) -> ModelPerfResult<()> {
         self.decision_threshold = threshold;
-        self.bl = LogisticRegressionRuntime::new(&y_true, &y_pred, self.decision_threshold)?;
+        self.bl = LogisticRegressionRuntime::new(y_true, y_pred, self.decision_threshold)?;
         Ok(())
     }
 }

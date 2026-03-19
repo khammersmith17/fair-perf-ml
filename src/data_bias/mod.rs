@@ -36,8 +36,7 @@ pub(crate) mod py_api {
         let feats = apply_label(py, feature_array, feature_label_or_threshold)?;
         let res = data_bias_analysis_core(gt, feats)?;
 
-        let py_dict = report_to_py_dict(py, res);
-        Ok(py_dict)
+        Ok(report_to_py_dict(py, res))
     }
 
     #[pyfunction]
@@ -53,7 +52,7 @@ pub(crate) mod py_api {
 
         let drift_report = data_bias_runtime_check(bl, rt, Some(threshold))?;
 
-        Ok(drift_report.into_py_dict(py)?)
+        drift_report.into_py_dict(py)
     }
 
     #[pyfunction]
@@ -73,7 +72,7 @@ pub(crate) mod py_api {
             current.runtime_check(baseline, threshold, metrics.as_ref());
 
         let drift_report: DriftReport<DataBiasMetric> = DriftReport::from_runtime(failure_report);
-        Ok(drift_report.into_py_dict(py)?)
+        drift_report.into_py_dict(py)
     }
 
     // Internal method to take analysis report from python, limited to a string for the metric

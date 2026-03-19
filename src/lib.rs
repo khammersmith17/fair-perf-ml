@@ -34,7 +34,7 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         py_data_bias_analyzer, py_data_bias_partial_check, py_data_bias_runtime_check,
     };
 
-    use drift::data_drift::py_api::{
+    use drift::python_impl::py_api::{
         PyCategoricalDataDrift, PyContinuousDataDrift, PyStreamingCategoricalDataDrift,
         PyStreamingContinuousDataDrift,
     };

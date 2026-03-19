@@ -12,7 +12,6 @@ pub(crate) mod py_api {
         py_types_handler::{report_to_py_dict, PyDictResult},
         BiasSegmentationCriteria, BiasSegmentationType,
     };
-    use crate::errors::ModelPerformanceError;
     use crate::metrics::DataBiasMetricVec;
     use pyo3::prelude::*;
     use pyo3::types::IntoPyDict;
@@ -65,7 +64,7 @@ pub(crate) mod py_api {
 
         fn drift_report<'py>(&self, py: Python<'py>, drift_threshold: f32) -> PyDictResult<'py> {
             let report = self.inner.drift_report(Some(drift_threshold))?;
-            Ok(report.into_py_dict(py)?)
+            report.into_py_dict(py)
         }
 
         fn drift_report_partial_metrics<'py>(
@@ -78,7 +77,7 @@ pub(crate) mod py_api {
             let report = self
                 .inner
                 .drift_report_partial_metrics(m_vec.as_ref(), Some(drift_threshold))?;
-            Ok(report.into_py_dict(py)?)
+            report.into_py_dict(py)
         }
 
         fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {

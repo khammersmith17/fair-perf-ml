@@ -25,7 +25,6 @@ chrono = { version = "0.4.42", features = ["serde"] }
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.134"
 thiserror = "2.0.17"
-uuid = {version = "1.18.1", features = ["v4"]}
 pyo3 = {version = "0.24.0", optional = true, features = ["auto-initialize", "chrono"]}
 rust-numpy = {version = "0.1.0", optional = true }
 numpy = {version = "0.24.0", optional = true }

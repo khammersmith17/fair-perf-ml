@@ -1,4 +1,3 @@
-use crate::drift::StringLike;
 use crate::errors::InvalidMetricError;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
@@ -8,7 +7,7 @@ static STABILITIY_EPS: OnceLock<f64> = OnceLock::new();
 pub(crate) fn get_stability_eps() -> f64 {
     let eps = STABILITIY_EPS.get_or_init(|| {
         let default = 1e-12;
-        let Ok(var) = std::env::var("FAIR_PERF_STABILITY_EPS") else {
+        let Ok(var) = std::env::var("FAIR_PERF_ML_STABILITY_EPS") else {
             return default;
         };
 
@@ -43,12 +42,9 @@ impl From<Vec<DataBiasMetric>> for DataBiasMetricVec {
     }
 }
 
-impl<S> TryFrom<&[S]> for DataBiasMetricVec
-where
-    S: StringLike,
-{
+impl TryFrom<&[String]> for DataBiasMetricVec {
     type Error = InvalidMetricError;
-    fn try_from(metrics: &[S]) -> Result<DataBiasMetricVec, Self::Error> {
+    fn try_from(metrics: &[String]) -> Result<DataBiasMetricVec, Self::Error> {
         let mut map: Vec<DataBiasMetric> = Vec::with_capacity(metrics.len());
         let mut error_metrics: Vec<String> = Vec::with_capacity(metrics.len());
         for m_str in metrics.iter() {
@@ -79,12 +75,9 @@ impl From<Vec<ClassificationEvaluationMetric>> for LogisticRegressionMetricVec {
     }
 }
 
-impl<S> TryFrom<&[S]> for LogisticRegressionMetricVec
-where
-    S: StringLike,
-{
+impl TryFrom<&[String]> for LogisticRegressionMetricVec {
     type Error = InvalidMetricError;
-    fn try_from(metrics: &[S]) -> Result<LogisticRegressionMetricVec, Self::Error> {
+    fn try_from(metrics: &[String]) -> Result<LogisticRegressionMetricVec, Self::Error> {
         let mut map: Vec<ClassificationEvaluationMetric> = Vec::with_capacity(metrics.len());
         let mut error_metrics: Vec<String> = Vec::with_capacity(metrics.len());
         for m_str in metrics.iter() {
@@ -114,12 +107,9 @@ impl From<Vec<LinearRegressionEvaluationMetric>> for LinearRegressionMetricVec {
     }
 }
 
-impl<S> TryFrom<&[S]> for LinearRegressionMetricVec
-where
-    S: StringLike,
-{
+impl TryFrom<&[String]> for LinearRegressionMetricVec {
     type Error = InvalidMetricError;
-    fn try_from(metrics: &[S]) -> Result<LinearRegressionMetricVec, Self::Error> {
+    fn try_from(metrics: &[String]) -> Result<LinearRegressionMetricVec, Self::Error> {
         let mut map: Vec<LinearRegressionEvaluationMetric> = Vec::with_capacity(metrics.len());
         let mut error_metrics: Vec<String> = Vec::with_capacity(metrics.len());
         for m_str in metrics.iter() {
@@ -149,12 +139,9 @@ impl From<Vec<ClassificationEvaluationMetric>> for ClassificationMetricVec {
     }
 }
 
-impl<S> TryFrom<&[S]> for ClassificationMetricVec
-where
-    S: StringLike,
-{
+impl TryFrom<&[String]> for ClassificationMetricVec {
     type Error = InvalidMetricError;
-    fn try_from(metrics: &[S]) -> Result<ClassificationMetricVec, Self::Error> {
+    fn try_from(metrics: &[String]) -> Result<ClassificationMetricVec, Self::Error> {
         let mut map: Vec<ClassificationEvaluationMetric> = Vec::with_capacity(metrics.len());
         let mut error_metrics: Vec<String> = Vec::with_capacity(metrics.len());
         for m_str in metrics.iter() {
@@ -191,12 +178,9 @@ impl From<Vec<ModelBiasMetric>> for ModelBiasMetricVec {
     }
 }
 
-impl<S> TryFrom<&[S]> for ModelBiasMetricVec
-where
-    S: StringLike,
-{
+impl TryFrom<&[String]> for ModelBiasMetricVec {
     type Error = InvalidMetricError;
-    fn try_from(metrics: &[S]) -> Result<ModelBiasMetricVec, Self::Error> {
+    fn try_from(metrics: &[String]) -> Result<ModelBiasMetricVec, Self::Error> {
         let mut map: Vec<ModelBiasMetric> = Vec::with_capacity(metrics.len());
         let mut error_metrics: Vec<String> = Vec::with_capacity(metrics.len());
         for m_str in metrics.iter() {

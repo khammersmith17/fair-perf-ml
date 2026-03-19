@@ -1,6 +1,87 @@
-use super::StringLike;
-use crate::errors::DriftError;
 use crate::metrics::get_stability_eps;
+
+// Enum to be used in DriftContainer trait when drift metric computation args differ between the
+// Continuous and Categorical DriftContainers.
+#[derive(Debug, PartialEq)]
+pub(crate) enum DriftContainerType {
+    Continuous,
+    Categorical,
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+#[non_exhaustive]
+pub enum DataDriftType {
+    JensenShannon,
+    PopulationStabilityIndex,
+    WassersteinDistance,
+    KullbackLeibler,
+}
+
+impl TryFrom<&str> for DataDriftType {
+    type Error = crate::errors::DriftError;
+    fn try_from(val: &str) -> Result<Self, Self::Error> {
+        match val {
+            "JensenShannon" => Ok(Self::JensenShannon),
+            "PopulationStabilityIndex" => Ok(Self::PopulationStabilityIndex),
+            "WassersteinDistance" => Ok(Self::WassersteinDistance),
+            "KullbackLeibler" => Ok(Self::KullbackLeibler),
+            _ => Err(Self::Error::UnsupportedDriftType),
+        }
+    }
+}
+
+/// Trait that defines common behavior required to compute drift metrics.
+/// When additional drift criteria is added, this may be built upon. Behavior should not be removed
+/// for backward compatibility later.
+pub(crate) trait DriftContainer {
+    fn get_baseline_hist(&self) -> &[f64];
+
+    fn get_runtime_bins(&self) -> &[f64];
+
+    fn num_examples(&self) -> f64;
+
+    fn get_bin_edges(&self) -> Option<&[f64]>;
+
+    fn container_type(&self) -> DriftContainerType;
+}
+
+/// Global drift computation that allows a shared interface between all drift types.
+/// Additional drift criteria added later should all dispatch drift through this method.
+pub(crate) fn global_compute_drift<T: DriftContainer>(
+    drift_container: &T,
+    drift_type: DataDriftType,
+) -> f64 {
+    match drift_type {
+        DataDriftType::PopulationStabilityIndex => compute_psi(
+            drift_container.get_baseline_hist(),
+            drift_container.get_runtime_bins(),
+            drift_container.num_examples(),
+        ),
+        DataDriftType::KullbackLeibler => compute_kl_divergence_drift(
+            drift_container.get_baseline_hist(),
+            drift_container.get_runtime_bins(),
+            drift_container.num_examples(),
+        ),
+        DataDriftType::JensenShannon => compute_jensen_shannon_divergence_drift(
+            drift_container.get_baseline_hist(),
+            drift_container.get_runtime_bins(),
+            drift_container.num_examples(),
+        ),
+        DataDriftType::WassersteinDistance => match drift_container.container_type() {
+            DriftContainerType::Continuous => continuous_wasserstein_distance(
+                drift_container.get_baseline_hist(),
+                drift_container.get_runtime_bins(),
+                drift_container.get_bin_edges().unwrap(),
+                drift_container.num_examples(),
+            ),
+            DriftContainerType::Categorical => categorical_wasserstein_distance(
+                drift_container.get_baseline_hist(),
+                drift_container.get_runtime_bins(),
+                drift_container.num_examples(),
+            ),
+        },
+    }
+}
 
 //define traits to use the continuous and discrete drift bins, where getting the implementation of
 //a particular metric is declared via trait methods. This will only implement the logic on the
@@ -116,77 +197,4 @@ pub(crate) fn categorical_wasserstein_distance(
     }
 
     w_dist * 0.5_f64
-}
-
-#[allow(unused)]
-use super::data_drift::CategoricalDataDrift;
-#[allow(unused)]
-use super::data_drift::ContinuousDataDrift;
-
-/// KL Divergence implementation for streaming types. Bringing this trait into scope will provided
-/// the implementation for the associated streaming type.
-pub trait StreamingKlDivergenceDrift {
-    fn kl_divergence_drift(&self) -> Result<f64, DriftError>;
-}
-
-/// Provides KL Divergence implementation for [`ContinuousDataDrift`].
-pub trait ContinuousKlDivergenceDrift {
-    fn kl_divergence_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError>;
-}
-
-/// Provides KL Divergence implementation for [`CategoricalDataDrift`].
-pub trait CategoricalKlDivergenceDrift {
-    fn kl_divergence_drift<S: StringLike>(
-        &mut self,
-        runtime_slice: &[S],
-    ) -> Result<f64, DriftError>;
-}
-
-/// Population Stability Index implementation for streaming types. Bringing this trait into scope will provided
-/// the implementation for the associated streaming type.
-pub trait StreamingPopulationStabilityIndexDrift {
-    fn psi_drift(&self) -> Result<f64, DriftError>;
-}
-
-/// Provides Population Stability Index implementation for [`ContinuousDataDrift`].
-pub trait ContinuousPSIDrift {
-    fn psi_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError>;
-}
-
-/// Provides Population Stability Index implementation for [`CategoricalDataDrift`].
-pub trait CategoricalPSIDrift {
-    fn psi_drift<S: StringLike>(&mut self, runtime_slice: &[S]) -> Result<f64, DriftError>;
-}
-
-/// Provides the implementation of Jensen-Divergence drift for streaming drift types.
-pub trait StreamingJensenShannonDivergenceDrift {
-    fn js_drift(&self) -> Result<f64, DriftError>;
-}
-
-/// Provides the implementation of Jensen-Divergence drift for [`ContinuousDataDrift`].
-pub trait ContinuousJensenShannonDivergenceDrift {
-    fn js_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError>;
-}
-
-/// Provides the implementation of Jensen-Divergence drift for [`CategoricalDataDrift`].
-pub trait CategoricalJensenShannonDivergenceDrift {
-    fn js_drift<S: StringLike>(&mut self, runtime_slice: &[S]) -> Result<f64, DriftError>;
-}
-
-/// Provides the implementation of Wasserstein distance drift for streaming drift types.
-pub trait StreamingWassersteinDistance {
-    fn wasserstein_distance(&self) -> Result<f64, DriftError>;
-}
-
-/// Provides the implementation of Wasserstein distance drift for [`ContinuousDataDrift`].
-pub trait ContinuousWassersteinDistance {
-    fn wasserstein_distance(&mut self, runtime_data: &[f64]) -> Result<f64, DriftError>;
-}
-
-/// Provides the implementation of Wasserstein distance drift for [`CategoricalDataDrift`].
-pub trait CategoricalWassersteinDistance {
-    fn wasserstein_distance<S: StringLike>(
-        &mut self,
-        runtime_data: &[S],
-    ) -> Result<f64, DriftError>;
 }

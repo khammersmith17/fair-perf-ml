@@ -1,373 +1,114 @@
 use super::{
     baseline::{BaselineCategoricalBins, BaselineContinuousBins},
-    drift_metrics::{
-        categorical_wasserstein_distance, compute_jensen_shannon_divergence_drift,
-        compute_kl_divergence_drift, compute_psi, continuous_wasserstein_distance,
-        CategoricalJensenShannonDivergenceDrift, CategoricalKlDivergenceDrift, CategoricalPSIDrift,
-        CategoricalWassersteinDistance, ContinuousJensenShannonDivergenceDrift,
-        ContinuousKlDivergenceDrift, ContinuousPSIDrift, ContinuousWassersteinDistance,
-        StreamingJensenShannonDivergenceDrift, StreamingKlDivergenceDrift,
-        StreamingPopulationStabilityIndexDrift, StreamingWassersteinDistance,
-    },
-    get_max_stream_size, StringLike, DEFAULT_STREAM_FLUSH,
+    distribution::QuantileType,
+    drift_metrics::{global_compute_drift, DataDriftType, DriftContainer, DriftContainerType},
+    DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
 };
 use crate::errors::DriftError;
 use ahash::{HashMap, HashMapExt};
-use chrono::{DateTime, Utc};
+use std::hash::Hash;
+use std::marker::PhantomData;
+use std::num::NonZeroU64;
+use std::time::{Duration, Instant};
 
-#[cfg(feature = "python")]
-pub(crate) mod py_api {
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum StreamingDriftMode {
+    Flush { size: u64, cadence: u64 },
+    ExponentialDecay(NonZeroU64),
+}
 
-    use ahash::HashMap;
-    use chrono::{DateTime, Utc};
-    use numpy::PyReadonlyArray1;
-    use pyo3::{prelude::*, pyclass, pymethods};
-
-    use super::{
-        CategoricalDataDrift, CategoricalJensenShannonDivergenceDrift,
-        CategoricalKlDivergenceDrift, CategoricalPSIDrift, CategoricalWassersteinDistance,
-        ContinuousDataDrift, ContinuousJensenShannonDivergenceDrift, ContinuousKlDivergenceDrift,
-        ContinuousPSIDrift, ContinuousWassersteinDistance, DriftError,
-        StreamingCategoricalDataDrift, StreamingContinuousDataDrift,
-        StreamingJensenShannonDivergenceDrift, StreamingKlDivergenceDrift,
-        StreamingPopulationStabilityIndexDrift, StreamingWassersteinDistance,
-    };
-
-    #[pyclass]
-    pub(crate) struct PyContinuousDataDrift {
-        inner: ContinuousDataDrift,
-    }
-
-    #[pymethods]
-    impl PyContinuousDataDrift {
-        #[new]
-        pub fn new<'py>(
-            n_bins: usize,
-            baseline_data: PyReadonlyArray1<'py, f64>,
-        ) -> PyResult<PyContinuousDataDrift> {
-            let bl_slice = baseline_data.as_slice()?;
-            let inner = match ContinuousDataDrift::new_from_baseline(n_bins, bl_slice) {
-                Ok(psi) => psi,
-                Err(e) => return Err(e.into()),
-            };
-
-            Ok(Self { inner })
-        }
-
-        fn reset_baseline<'py>(
-            &mut self,
-            baseline_data: PyReadonlyArray1<'py, f64>,
-        ) -> PyResult<()> {
-            let bl_slice = baseline_data.as_slice()?;
-            if let Err(e) = self.inner.reset_baseline(bl_slice) {
-                return Err(e.into());
-            }
-            Ok(())
-        }
-
-        #[pyo3(signature = (runtime_data))]
-        fn compute_psi_drift<'py>(
-            &mut self,
-            runtime_data: PyReadonlyArray1<'py, f64>,
-        ) -> PyResult<f64> {
-            let runtime_data_slice = runtime_data.as_slice()?;
-            let psi_drift = self.inner.psi_drift(runtime_data_slice)?;
-            Ok(psi_drift)
-        }
-
-        #[pyo3(signature = (runtime_data))]
-        fn compute_kl_divergence_drift<'py>(
-            &mut self,
-            runtime_data: PyReadonlyArray1<'py, f64>,
-        ) -> PyResult<f64> {
-            let runtime_data_slice = runtime_data.as_slice()?;
-            let kl_drift = self.inner.kl_divergence_drift(runtime_data_slice)?;
-            Ok(kl_drift)
-        }
-
-        #[pyo3(signature = (runtime_data))]
-        fn compute_js_divergence_drift<'py>(
-            &mut self,
-            runtime_data: PyReadonlyArray1<'py, f64>,
-        ) -> PyResult<f64> {
-            let runtime_data_slice = runtime_data.as_slice()?;
-            let js_drift = self.inner.js_drift(runtime_data_slice)?;
-            Ok(js_drift)
-        }
-
-        #[pyo3(signature = (runtime_data))]
-        fn compute_wasserstein_distance_drift<'py>(
-            &mut self,
-            runtime_data: PyReadonlyArray1<'py, f64>,
-        ) -> PyResult<f64> {
-            let runtime_data_slice = runtime_data.as_slice()?;
-            let ws_dist = self.inner.wasserstein_distance(runtime_data_slice)?;
-            Ok(ws_dist)
-        }
-
-        fn export_baseline(&self) -> Vec<f64> {
-            self.inner.export_baseline()
-        }
-
-        #[getter]
-        fn num_bins(&self) -> usize {
-            self.inner.n_bins()
-        }
-    }
-
-    /// Exposed Python APIs for streaming continuous PSI
-    #[pyclass]
-    pub(crate) struct PyStreamingContinuousDataDrift {
-        inner: StreamingContinuousDataDrift,
-    }
-
-    #[pymethods]
-    impl PyStreamingContinuousDataDrift {
-        #[new]
-        #[pyo3(signature = (n_bins, baseline_data, flush_cadence))]
-        fn new<'py>(
-            n_bins: usize,
-            baseline_data: PyReadonlyArray1<'py, f64>,
-            flush_cadence: Option<i64>,
-        ) -> PyResult<PyStreamingContinuousDataDrift> {
-            let baseline_slice = baseline_data.as_slice()?;
-            let inner =
-                match StreamingContinuousDataDrift::new(n_bins, baseline_slice, flush_cadence) {
-                    Ok(psi) => psi,
-                    Err(e) => return Err(e.into()),
-                };
-
-            Ok(Self { inner })
-        }
-
-        #[pyo3(signature = (baseline_data))]
-        fn reset_baseline<'py>(
-            &mut self,
-            baseline_data: PyReadonlyArray1<'py, f64>,
-        ) -> PyResult<()> {
-            let baseline_slice = baseline_data.as_slice()?;
-            if let Err(e) = self.inner.reset_baseline(baseline_slice) {
-                return Err(e.into());
-            };
-
-            Ok(())
-        }
-
-        #[pyo3(signature = (runtime_data))]
-        fn update_stream_batch<'py>(
-            &mut self,
-            runtime_data: PyReadonlyArray1<'py, f64>,
-        ) -> PyResult<()> {
-            let runtime_data_slice = runtime_data.as_slice()?;
-            self.inner.update_stream_batch(runtime_data_slice)?;
-            Ok(())
-        }
-
-        #[pyo3(signature = (runtime_example))]
-        fn update_stream(&mut self, runtime_example: f64) {
-            self.inner.update_stream(runtime_example);
-        }
-
-        fn compute_psi_drift(&self) -> PyResult<f64> {
-            let psi_drift = self.inner.psi_drift()?;
-            Ok(psi_drift)
-        }
-
-        fn compute_kl_divergence_drift(&self) -> PyResult<f64> {
-            let kl_drift = self.inner.kl_divergence_drift()?;
-            Ok(kl_drift)
-        }
-
-        fn compute_js_divergence_drift(&self) -> PyResult<f64> {
-            let js_drift = self.inner.js_drift()?;
-            Ok(js_drift)
-        }
-
-        fn compute_wasserstein_distance_drift(&self) -> PyResult<f64> {
-            let ws_dist = self.inner.wasserstein_distance()?;
-            Ok(ws_dist)
-        }
-
-        fn flush(&mut self) {
-            self.inner.flush();
-        }
-
-        #[getter]
-        fn total_samples(&self) -> usize {
-            self.inner.total_samples()
-        }
-
-        #[getter]
-        fn last_flush(&self) -> PyResult<DateTime<Utc>> {
-            let Ok(ts) = self.inner.last_flush() else {
-                return Err(DriftError::DateTimeError.into());
-            };
-            Ok(ts)
-        }
-
-        #[getter]
-        fn n_bins(&self) -> usize {
-            self.inner.n_bins()
-        }
-
-        fn export_snapshot(&self) -> HashMap<String, Vec<f64>> {
-            // determine snapshot shape
-            self.inner.export_snapshot()
-        }
-
-        fn export_baseline(&self) -> Vec<f64> {
-            self.inner.export_baseline()
-        }
-    }
-
-    /// Python exposed api for discrete categorical PSI
-    #[pyclass]
-    pub(crate) struct PyCategoricalDataDrift {
-        inner: CategoricalDataDrift,
-    }
-
-    #[pymethods]
-    impl PyCategoricalDataDrift {
-        #[new]
-        #[pyo3(signature = (baseline_data))]
-        fn new(baseline_data: Vec<String>) -> PyResult<PyCategoricalDataDrift> {
-            let inner = match CategoricalDataDrift::new(&baseline_data) {
-                Ok(psi) => psi,
-                Err(e) => return Err(e.into()),
-            };
-            Ok(Self { inner })
-        }
-
-        #[pyo3(signature = (new_baseline))]
-        fn reset_baseline(&mut self, new_baseline: Vec<String>) {
-            self.inner.reset_baseline(&new_baseline);
-        }
-
-        #[pyo3(signature = (runtime_data))]
-        fn compute_psi_drift<'py>(&mut self, runtime_data: Vec<String>) -> PyResult<f64> {
-            let psi_drift = self.inner.psi_drift(&runtime_data)?;
-            Ok(psi_drift)
-        }
-
-        #[pyo3(signature = (runtime_data))]
-        fn compute_kl_divergence_drift<'py>(&mut self, runtime_data: Vec<String>) -> PyResult<f64> {
-            let kl_drift = self.inner.kl_divergence_drift(&runtime_data)?;
-            Ok(kl_drift)
-        }
-
-        #[pyo3(signature = (runtime_data))]
-        fn compute_js_divergence_drift(&mut self, runtime_data: Vec<String>) -> PyResult<f64> {
-            let js_drift = self.inner.js_drift(&runtime_data)?;
-            Ok(js_drift)
-        }
-
-        #[pyo3(signature = (runtime_data))]
-        fn compute_wasserstein_distance_drift(
-            &mut self,
-            runtime_data: Vec<String>,
-        ) -> PyResult<f64> {
-            let ws_dist = self.inner.wasserstein_distance(&runtime_data)?;
-            Ok(ws_dist)
-        }
-
-        #[getter]
-        fn other_bucket_label(&self) -> String {
-            self.inner.other_bucket_label().clone()
-        }
-
-        fn export_baseline(&self) -> HashMap<String, f64> {
-            self.inner.baseline.export_baseline()
-        }
-    }
-
-    /// Exposed Python APIs for streaming categorical PSI
-    #[pyclass]
-    pub(crate) struct PyStreamingCategoricalDataDrift {
-        inner: StreamingCategoricalDataDrift,
-    }
-
-    #[pymethods]
-    impl PyStreamingCategoricalDataDrift {
-        #[new]
-        fn new(
-            baseline_data: Vec<String>,
-            flush_rate: Option<i64>,
-        ) -> PyResult<PyStreamingCategoricalDataDrift> {
-            let inner = match StreamingCategoricalDataDrift::new(&baseline_data, flush_rate) {
-                Ok(psi) => psi,
-                Err(e) => return Err(e.into()),
-            };
-
-            Ok(Self { inner })
-        }
-
-        #[pyo3(signature = (new_baseline))]
-        fn reset_baseline(&mut self, new_baseline: Vec<String>) {
-            self.inner.reset_baseline(&new_baseline);
-        }
-
-        #[pyo3(signature = (runtime_data))]
-        fn update_stream_batch(&mut self, runtime_data: Vec<String>) -> PyResult<()> {
-            self.inner.update_stream_batch(&runtime_data)?;
-            Ok(())
-        }
-
-        #[pyo3(signature = (runtime_example))]
-        fn update_stream(&mut self, runtime_example: String) {
-            self.inner.update_stream(&runtime_example);
-        }
-
-        fn compute_psi_drift(&self) -> PyResult<f64> {
-            let psi_drift = self.inner.psi_drift()?;
-            Ok(psi_drift)
-        }
-
-        fn compute_kl_divergence_drift(&self) -> PyResult<f64> {
-            let kl_drift = self.inner.kl_divergence_drift()?;
-            Ok(kl_drift)
-        }
-
-        fn compute_js_divergence_drift(&self) -> PyResult<f64> {
-            let js_drift = self.inner.js_drift()?;
-            Ok(js_drift)
-        }
-
-        fn compute_wasserstein_distance_drift(&self) -> PyResult<f64> {
-            let ws_dist = self.inner.wasserstein_distance()?;
-            Ok(ws_dist)
-        }
-
-        fn flush(&mut self) {
-            self.inner.flush()
-        }
-
-        #[getter]
-        fn total_samples(&self) -> usize {
-            self.inner.total_samples()
-        }
-
-        #[getter]
-        fn last_flush(&self) -> PyResult<DateTime<Utc>> {
-            let Ok(ts) = self.inner.last_flush() else {
-                return Err(DriftError::DateTimeError.into());
-            };
-            Ok(ts)
-        }
-
-        #[getter]
-        fn other_bucket_label(&self) -> String {
-            self.inner.other_bucket_label().clone()
-        }
-
-        fn export_snapshot(&self) -> HashMap<String, f64> {
-            self.inner.export_snapshot()
-        }
-
-        fn export_baseline(&self) -> HashMap<String, f64> {
-            self.inner.export_baseline()
+impl Default for StreamingDriftMode {
+    fn default() -> StreamingDriftMode {
+        StreamingDriftMode::Flush {
+            size: DEFAULT_MAX_STREAM_SIZE,
+            cadence: DEFAULT_STREAM_FLUSH_CADENCE,
         }
     }
 }
+
+#[derive(Default, Debug)]
+pub struct ContinuousStreamingDriftConfig {
+    mode: StreamingDriftMode,
+    quantile_type: QuantileType,
+}
+
+#[derive(Debug)]
+enum StreamModeInner {
+    Flush {
+        size: f64,
+        cadence: Duration,
+        last_flush_ts: Instant,
+    },
+    ExponentialDecay(f64),
+}
+
+impl From<StreamingDriftMode> for StreamModeInner {
+    fn from(mode: StreamingDriftMode) -> StreamModeInner {
+        match mode {
+            StreamingDriftMode::Flush { size, cadence } => StreamModeInner::Flush {
+                size: size as f64,
+                cadence: Duration::new(cadence, 0),
+                last_flush_ts: Instant::now(),
+            },
+            StreamingDriftMode::ExponentialDecay(half_life) => {
+                let hl = half_life.get();
+                StreamModeInner::ExponentialDecay(0.5_f64.powf(1_f64 / hl as f64))
+            }
+        }
+    }
+}
+
+impl StreamModeInner {
+    /// Resets state on flush.
+    fn perform_flush(&mut self) {
+        match self {
+            StreamModeInner::Flush { last_flush_ts, .. } => {
+                *last_flush_ts = Instant::now();
+            }
+            _ => {}
+        }
+    }
+
+    /// Determine if a flush is needed. When mode is using ExponentialDecay, this should be
+    /// compiled out in release mode.
+    fn needs_flush(&self, total_stream_size: f64) -> bool {
+        match self {
+            StreamModeInner::Flush {
+                size,
+                cadence,
+                last_flush_ts,
+            } => {
+                // First check size.
+                // If size is valid, mask the Instant check to only check every 255
+                // This introduces small error and amortizes the Instant check. Instant check is
+                // non trivial expensive.
+                total_stream_size >= *size
+                    || (total_stream_size as usize & 255 == 0
+                        && Instant::now().duration_since(*last_flush_ts) >= *cadence)
+            }
+            StreamModeInner::ExponentialDecay(_) => false,
+        }
+    }
+
+    /// Fetch the number of seconds since last flush.
+    fn last_flush(&self) -> u64 {
+        match self {
+            StreamModeInner::Flush { last_flush_ts, .. } => {
+                Instant::now().duration_since(*last_flush_ts).as_secs()
+            }
+            StreamModeInner::ExponentialDecay(_) => u64::default(),
+        }
+    }
+}
+
+// TODO: apply these markers to statically limit API behavior.
+pub struct FlushModeMark;
+pub struct DecayModeMark;
+
+trait StreamingDataDriftMark {}
+impl StreamingDataDriftMark for FlushModeMark {}
+impl StreamingDataDriftMark for DecayModeMark {}
 
 /// Data drift type for continuous data. This type keeps a baseline state, and will compute the
 /// drift on a discrete dataset.
@@ -376,74 +117,37 @@ pub struct ContinuousDataDrift {
     rt_bins: Vec<f64>,
 }
 
-// Implementation of different drift methods
-impl ContinuousPSIDrift for ContinuousDataDrift {
-    fn psi_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError> {
-        self.build_rt_hist(runtime_slice)?;
-
-        let psi = compute_psi(
-            &self.baseline.baseline_hist,
-            &self.rt_bins,
-            runtime_slice.len() as f64,
-        );
-        // reset runtime state after every discrete computation
-        self.clear_rt();
-        Ok(psi)
+impl DriftContainer for ContinuousDataDrift {
+    fn get_baseline_hist(&self) -> &[f64] {
+        &self.baseline.baseline_hist
     }
-}
 
-impl ContinuousKlDivergenceDrift for ContinuousDataDrift {
-    fn kl_divergence_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError> {
-        self.build_rt_hist(runtime_slice)?;
-
-        let kl_drift = compute_kl_divergence_drift(
-            &self.baseline.baseline_hist,
-            &self.rt_bins,
-            runtime_slice.len() as f64,
-        );
-        self.clear_rt();
-        Ok(kl_drift)
+    fn get_runtime_bins(&self) -> &[f64] {
+        &self.rt_bins
     }
-}
 
-impl ContinuousJensenShannonDivergenceDrift for ContinuousDataDrift {
-    fn js_drift(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError> {
-        self.build_rt_hist(runtime_slice)?;
-
-        let js_drift = compute_jensen_shannon_divergence_drift(
-            &self.baseline.baseline_hist,
-            &self.rt_bins,
-            runtime_slice.len() as f64,
-        );
-        self.clear_rt();
-        Ok(js_drift)
+    fn get_bin_edges(&self) -> Option<&[f64]> {
+        Some(&self.baseline.bin_edges)
     }
-}
 
-impl ContinuousWassersteinDistance for ContinuousDataDrift {
-    fn wasserstein_distance(&mut self, runtime_slice: &[f64]) -> Result<f64, DriftError> {
-        self.build_rt_hist(runtime_slice)?;
+    fn num_examples(&self) -> f64 {
+        self.rt_bins.iter().sum()
+    }
 
-        let ws_dist = continuous_wasserstein_distance(
-            &self.baseline.baseline_hist,
-            &self.rt_bins,
-            &self.baseline.bin_edges,
-            runtime_slice.len() as f64,
-        );
-        self.clear_rt();
-        Ok(ws_dist)
+    fn container_type(&self) -> DriftContainerType {
+        DriftContainerType::Continuous
     }
 }
 
 impl ContinuousDataDrift {
-    /// Construct a new instance with the provided baseline set. There will be best effort attempt
-    /// to use the provided number of bins, but in the case where a bin may be empty, then the
-    /// number of bins might be altered internally. Errors when the provided dataset is empty.
+    /// Construct a new instance with the provided baseline set. The number of bins will be
+    /// determined using the [`QuantileType`] method provided. If none is provided it will use the
+    /// default method.
     pub fn new_from_baseline(
-        n_bins: usize,
+        quantile_type: Option<QuantileType>,
         bl_slice: &[f64],
     ) -> Result<ContinuousDataDrift, DriftError> {
-        let baseline = BaselineContinuousBins::new(n_bins, &bl_slice)?;
+        let baseline = BaselineContinuousBins::new(bl_slice, quantile_type.unwrap_or_default())?;
         let mut obj = ContinuousDataDrift {
             baseline,
             rt_bins: Vec::new(),
@@ -454,6 +158,17 @@ impl ContinuousDataDrift {
 
     fn clear_rt(&mut self) {
         self.rt_bins.fill(0.);
+    }
+
+    pub fn compute_drift(
+        &mut self,
+        runtime_data: &[f64],
+        drift_type: DataDriftType,
+    ) -> Result<f64, DriftError> {
+        self.build_rt_hist(runtime_data)?;
+        let drift = global_compute_drift(self, drift_type);
+        self.clear_rt();
+        Ok(drift)
     }
 
     #[inline]
@@ -477,9 +192,7 @@ impl ContinuousDataDrift {
     /// construction, but in this instance, a best effort attempt will be made to use the current
     /// number of bins. Errors when the dataset passed in empty.
     pub fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), DriftError> {
-        if let Err(e) = self.baseline.reset(baseline_slice) {
-            return Err(e.into());
-        };
+        self.baseline.reset(baseline_slice)?;
         self.init_runtime_containers();
         Ok(())
     }
@@ -497,120 +210,98 @@ impl ContinuousDataDrift {
 /// running drift monitoring. Every new example pushed into the stream will update state, and a
 /// drift snapshot can be computed at any point in time, granted that there is data present in the
 /// stream.
-pub struct StreamingContinuousDataDrift {
+pub struct StreamingContinuousDataDrift<M> {
     baseline: BaselineContinuousBins,
     stream_bins: Vec<f64>,
-    total_stream_size: usize,
-    last_flush_ts: i64,
-    flush_rate: i64,
+    total_stream_size: f64,
+    mode: StreamModeInner,
+    _mark: PhantomData<M>,
 }
 
-// Implementation of different drift methods
-impl StreamingPopulationStabilityIndexDrift for StreamingContinuousDataDrift {
-    fn psi_drift(&self) -> Result<f64, DriftError> {
-        if self.total_stream_size == 0 {
-            return Err(DriftError::EmptyRuntimeData);
-        }
+impl<M> DriftContainer for StreamingContinuousDataDrift<M> {
+    fn get_baseline_hist(&self) -> &[f64] {
+        &self.baseline.baseline_hist
+    }
 
-        Ok(compute_psi(
-            &self.baseline.baseline_hist,
-            &self.stream_bins,
-            self.total_stream_size as f64,
-        ))
+    fn get_runtime_bins(&self) -> &[f64] {
+        &self.stream_bins
+    }
+
+    fn get_bin_edges(&self) -> Option<&[f64]> {
+        Some(&self.baseline.bin_edges)
+    }
+
+    fn num_examples(&self) -> f64 {
+        self.total_stream_size
+    }
+
+    fn container_type(&self) -> DriftContainerType {
+        DriftContainerType::Continuous
     }
 }
 
-impl StreamingKlDivergenceDrift for StreamingContinuousDataDrift {
-    fn kl_divergence_drift(&self) -> Result<f64, DriftError> {
-        if self.total_stream_size == 0 {
-            return Err(DriftError::EmptyRuntimeData);
-        }
-        Ok(compute_kl_divergence_drift(
-            &self.baseline.baseline_hist,
-            &self.stream_bins,
-            self.total_stream_size as f64,
-        ))
-    }
-}
-
-impl StreamingJensenShannonDivergenceDrift for StreamingContinuousDataDrift {
-    fn js_drift(&self) -> Result<f64, DriftError> {
-        if self.total_stream_size == 0 {
-            return Err(DriftError::EmptyRuntimeData);
-        }
-        Ok(compute_jensen_shannon_divergence_drift(
-            &self.baseline.baseline_hist,
-            &self.stream_bins,
-            self.total_stream_size as f64,
-        ))
-    }
-}
-
-impl StreamingWassersteinDistance for StreamingContinuousDataDrift {
-    fn wasserstein_distance(&self) -> Result<f64, DriftError> {
-        if self.total_stream_size == 0 {
-            return Err(DriftError::EmptyRuntimeData);
-        }
-
-        Ok(continuous_wasserstein_distance(
-            &self.baseline.baseline_hist,
-            &self.stream_bins,
-            &self.baseline.bin_edges,
-            self.total_stream_size as f64,
-        ))
-    }
-}
-
-impl StreamingContinuousDataDrift {
-    /// Construct a new stream. As with the more discrete type, a best effort attempt will be made
-    /// to use the desired number of bins. Additionally, a flush cadence can optionally be
-    /// provided. In the case is not, the 'DEFAULT_STREAM_FLUSH` constant will be used, which is
-    /// once per day. The flush cadence is to prevent overflow in the bin counts, if a large number
-    /// of examples are accumulated on a high traffic service.
-    pub fn new(
-        n_bins: usize,
-        baseline_slice: &[f64],
-        flush_cadence: Option<i64>,
-    ) -> Result<StreamingContinuousDataDrift, DriftError> {
-        let flush_rate = flush_cadence.unwrap_or_else(|| DEFAULT_STREAM_FLUSH);
-        let baseline = match BaselineContinuousBins::new(n_bins, baseline_slice) {
-            Ok(bl) => bl,
-            Err(e) => return Err(e.into()),
-        };
-        let total_stream_size = 0_usize;
-        let last_flush_ts: i64 = Utc::now().timestamp().into();
-
+impl StreamingContinuousDataDrift<DecayModeMark> {
+    pub fn new_decay(
+        baseline_data: &[f64],
+        quantile_type: QuantileType,
+        half_life: NonZeroU64,
+    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftError> {
+        let baseline = BaselineContinuousBins::new(baseline_data, quantile_type)?;
         let bl_hist_len = baseline.baseline_hist.len();
         let stream_bins: Vec<f64> = vec![0_f64; bl_hist_len];
+        let mode = StreamModeInner::ExponentialDecay(0.5_f64.powf(1_f64 / half_life.get() as f64));
 
         Ok(StreamingContinuousDataDrift {
             stream_bins,
             baseline,
-            total_stream_size,
-            last_flush_ts,
-            flush_rate,
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
         })
     }
+    /// Computes the drift using the specified drift type.
+    pub fn compute_drift(&mut self, drift_type: DataDriftType) -> Result<f64, DriftError> {
+        if self.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+        // decay only gets applied in decay mode.
+        // This should be compiled out in release mode.
+        self.apply_decay();
+        Ok(global_compute_drift(self, drift_type))
+    }
 
-    /// Reset the baseline with a new baseline dataset. A best effort is made to maintain the same
-    /// number of bins, but is subject to the same bin size restrictions as the initial baseline
-    /// construction.
-    pub fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), DriftError> {
-        if let Err(e) = self.baseline.reset(baseline_slice) {
-            return Err(e.into());
+    pub fn compute_drift_multiple_criteria(
+        &mut self,
+        drift_types: &[DataDriftType],
+    ) -> Result<Vec<f64>, DriftError> {
+        if self.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+        self.apply_decay();
+        Ok(drift_types
+            .iter()
+            .map(|drift_t| global_compute_drift(self, *drift_t))
+            .collect())
+    }
+
+    /// Apply the decay factor to lower priority on older records.
+    fn apply_decay(&mut self) {
+        let StreamModeInner::ExponentialDecay(decay_factor) = self.mode else {
+            unreachable!()
         };
-        self.stream_bins = vec![0_f64; self.baseline.baseline_hist.len()];
-        self.total_stream_size = 0;
-        self.last_flush_ts = Utc::now().timestamp();
-        Ok(())
+        for bin in self.stream_bins.iter_mut() {
+            *bin = (*bin * decay_factor).floor();
+        }
+        self.total_stream_size = (self.total_stream_size * decay_factor).floor();
     }
 
     /// Push a single example into the stream.
     #[inline]
     pub fn update_stream(&mut self, runtime_example: f64) {
         let idx = self.baseline.resolve_bin(runtime_example);
+
         self.stream_bins[idx] += 1_f64;
-        self.total_stream_size += 1;
+        self.total_stream_size += 1_f64;
     }
 
     /// Push a batch dataset to the stream.
@@ -619,14 +310,85 @@ impl StreamingContinuousDataDrift {
             return Err(DriftError::EmptyRuntimeData);
         }
 
-        let curr_ts: i64 = Utc::now().timestamp();
+        for item in runtime_slice {
+            self.update_stream(*item)
+        }
 
-        if curr_ts > (self.last_flush_ts + self.flush_rate)
-            || (self.total_stream_size + runtime_slice.len()) > get_max_stream_size()
-        {
-            // reset and flush
-            self.flush_runtime_stream();
-            self.last_flush_ts = curr_ts;
+        Ok(())
+    }
+}
+
+impl StreamingContinuousDataDrift<FlushModeMark> {
+    pub fn default_flush(
+        baseline_data: &[f64],
+    ) -> Result<StreamingContinuousDataDrift<FlushModeMark>, DriftError> {
+        Self::new_flush(
+            baseline_data,
+            QuantileType::default(),
+            DEFAULT_MAX_STREAM_SIZE,
+            Duration::from_secs(DEFAULT_STREAM_FLUSH_CADENCE / 1000),
+        )
+    }
+    pub fn new_flush(
+        baseline_data: &[f64],
+        quantile_type: QuantileType,
+        flush_size: u64,
+        flush_cadence: Duration,
+    ) -> Result<StreamingContinuousDataDrift<FlushModeMark>, DriftError> {
+        let baseline = BaselineContinuousBins::new(baseline_data, quantile_type)?;
+        let bl_hist_len = baseline.baseline_hist.len();
+        let stream_bins: Vec<f64> = vec![0_f64; bl_hist_len];
+        let mode = StreamModeInner::Flush {
+            size: flush_size as f64,
+            cadence: flush_cadence,
+            last_flush_ts: Instant::now(),
+        };
+
+        Ok(StreamingContinuousDataDrift {
+            stream_bins,
+            baseline,
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
+        })
+    }
+    /// Computes the drift using the specified drift type.
+    pub fn compute_drift(&mut self, drift_type: DataDriftType) -> Result<f64, DriftError> {
+        if self.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+        Ok(global_compute_drift(self, drift_type))
+    }
+
+    pub fn compute_drift_multiple_criteria(
+        &mut self,
+        drift_types: &[DataDriftType],
+    ) -> Result<Vec<f64>, DriftError> {
+        if self.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+
+        Ok(drift_types
+            .iter()
+            .map(|drift_t| global_compute_drift(self, *drift_t))
+            .collect())
+    }
+
+    /// Push a single example into the stream.
+    #[inline]
+    pub fn update_stream(&mut self, runtime_example: f64) {
+        let idx = self.baseline.resolve_bin(runtime_example);
+        if self.mode.needs_flush(self.total_stream_size) {
+            self.flush()
+        }
+        self.stream_bins[idx] += 1_f64;
+        self.total_stream_size += 1_f64;
+    }
+
+    /// Push a batch dataset to the stream.
+    pub fn update_stream_batch(&mut self, runtime_slice: &[f64]) -> Result<(), DriftError> {
+        if runtime_slice.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
         }
 
         for item in runtime_slice {
@@ -640,20 +402,33 @@ impl StreamingContinuousDataDrift {
     /// old state and get a more recent view of drift. Baseline state is not altered.
     pub fn flush(&mut self) {
         self.flush_runtime_stream();
-        self.last_flush_ts = Utc::now().timestamp();
+        self.mode.perform_flush();
+    }
+
+    pub fn last_flush(&self) -> u64 {
+        self.mode.last_flush()
+    }
+}
+
+impl<M: StreamingDataDriftMark> StreamingContinuousDataDrift<M> {
+    pub fn is_empty(&self) -> bool {
+        self.stream_bins.iter().sum::<f64>() == 0_f64
+    }
+
+    /// Reset the baseline with a new baseline dataset. A best effort is made to maintain the same
+    /// number of bins, but is subject to the same bin size restrictions as the initial baseline
+    /// construction.
+    pub fn reset_baseline(&mut self, baseline_slice: &[f64]) -> Result<(), DriftError> {
+        self.baseline.reset(baseline_slice)?;
+        self.stream_bins = vec![0_f64; self.baseline.baseline_hist.len()];
+        self.total_stream_size = 0_f64;
+        self.mode.perform_flush();
+        Ok(())
     }
 
     /// The number of total samples accumulated in the stream.
     pub fn total_samples(&self) -> usize {
-        self.total_stream_size
-    }
-
-    /// 'chrono::DataTime<Utc>` timestamp of when the last stream flush occured.
-    pub fn last_flush(&self) -> Result<DateTime<Utc>, DriftError> {
-        let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
-            return Err(DriftError::DateTimeError);
-        };
-        Ok(ts)
+        self.total_stream_size as usize
     }
 
     /// The number of histogram bins.
@@ -663,13 +438,21 @@ impl StreamingContinuousDataDrift {
 
     /// Export a snapshot of the stream state. This includes, the baseline bins, the current bin
     /// distribution of the runtime data, and the bin edges that determine the internal histogram binning.
-    pub fn export_snapshot(&self) -> HashMap<String, Vec<f64>> {
+    pub fn export_snapshot(&self) -> Result<HashMap<String, Vec<f64>>, DriftError> {
+        if self.total_stream_size == 0_f64 {
+            return Err(DriftError::EmptyRuntimeData);
+        }
         // determine snapshot shape
         let mut table: HashMap<String, Vec<f64>> = HashMap::with_capacity(3);
         table.insert("binEdges".into(), self.baseline.bin_edges.clone());
         table.insert("baselineBins".into(), self.export_baseline());
-        table.insert("streamBins".into(), self.stream_bins.clone());
-        table
+        let bin_ratio_snapshot = self
+            .stream_bins
+            .iter()
+            .map(|v| *v / self.total_stream_size)
+            .collect();
+        table.insert("streamBins".into(), bin_ratio_snapshot);
+        Ok(table)
     }
 
     /// Export a the baseline bin proportions. Returns an owned `Vec<f64>`, which contains the
@@ -682,114 +465,75 @@ impl StreamingContinuousDataDrift {
     // zero out all bins
     fn flush_runtime_stream(&mut self) {
         self.stream_bins.fill(0_f64);
-        self.total_stream_size = 0;
+        self.total_stream_size = 0_f64;
     }
 }
 
 // store bins as vec for better performance on psi computation and bin accumulation
 // store cat label to index in map
-pub struct CategoricalDataDrift {
-    baseline: BaselineCategoricalBins,
+pub struct CategoricalDataDrift<T: Hash + Ord + Clone> {
+    pub(crate) baseline: BaselineCategoricalBins<T>,
     rt_bins: Vec<f64>,
 }
 
-// Implementation of different drift methods from the assoicated traits
-impl CategoricalPSIDrift for CategoricalDataDrift {
-    fn psi_drift<S>(&mut self, runtime_slice: &[S]) -> Result<f64, DriftError>
-    where
-        S: StringLike,
-    {
-        self.build_rt_hist(runtime_slice)?;
-        let psi = compute_psi(
-            &self.baseline.baseline_bins,
-            &self.rt_bins,
-            runtime_slice.len() as f64,
-        );
+impl<T: Hash + Ord + Clone> DriftContainer for CategoricalDataDrift<T> {
+    fn get_baseline_hist(&self) -> &[f64] {
+        &self.baseline.baseline_bins
+    }
 
-        self.clear_rt();
-        Ok(psi)
+    fn get_runtime_bins(&self) -> &[f64] {
+        &self.rt_bins
+    }
+
+    fn get_bin_edges(&self) -> Option<&[f64]> {
+        None
+    }
+
+    fn num_examples(&self) -> f64 {
+        self.rt_bins.iter().sum()
+    }
+
+    fn container_type(&self) -> DriftContainerType {
+        DriftContainerType::Categorical
     }
 }
 
-impl CategoricalKlDivergenceDrift for CategoricalDataDrift {
-    fn kl_divergence_drift<S>(&mut self, runtime_slice: &[S]) -> Result<f64, DriftError>
-    where
-        S: StringLike,
-    {
-        self.build_rt_hist(runtime_slice)?;
-        let kl_drift = compute_kl_divergence_drift(
-            &self.baseline.baseline_bins,
-            &self.rt_bins,
-            runtime_slice.len() as f64,
-        );
-
-        self.clear_rt();
-        Ok(kl_drift)
-    }
-}
-
-impl CategoricalJensenShannonDivergenceDrift for CategoricalDataDrift {
-    fn js_drift<S: StringLike>(&mut self, runtime_slice: &[S]) -> Result<f64, DriftError> {
-        self.build_rt_hist(runtime_slice)?;
-        let js_drift = compute_jensen_shannon_divergence_drift(
-            &self.baseline.baseline_bins,
-            &self.rt_bins,
-            runtime_slice.len() as f64,
-        );
-
-        self.clear_rt();
-        Ok(js_drift)
-    }
-}
-
-impl CategoricalWassersteinDistance for CategoricalDataDrift {
-    fn wasserstein_distance<S: StringLike>(
-        &mut self,
-        runtime_slice: &[S],
-    ) -> Result<f64, DriftError> {
-        self.build_rt_hist(runtime_slice)?;
-        let ws_dist = categorical_wasserstein_distance(
-            &self.baseline.baseline_bins,
-            &self.rt_bins,
-            runtime_slice.len() as f64,
-        );
-        self.clear_rt();
-        Ok(ws_dist)
-    }
-}
-
-impl CategoricalDataDrift {
-    /// Construct a new instance with the provided baseline dataset. [`StringLike`] indicates
+impl<T: Hash + Ord + Clone> CategoricalDataDrift<T> {
+    /// Construct a new instance with the provided baseline dataset. [`Hash`] indicates
     /// something that can be used as a reference to key into a `HashMap<String, f64>`, these
     /// bounds are to allow some other type of label value, such as an enum. The number of bins
     /// will be equal to the number of unique values present in the baseline data set, with an
     /// additional bin for values that occur in the runtime dataset that do not occur in the
-    /// baseline dataset. The value associated with this other bucket can be overwritten using the
-    /// FAIR_PERF_OTHER_BUCKET environment variable, otherwise is defaults to a constant prefix,
-    /// with a uuid suffix for uniqueness.
-    pub fn new<S: StringLike>(baseline_data: &[S]) -> Result<CategoricalDataDrift, DriftError> {
+    /// baseline dataset.
+    pub fn new(baseline_data: &[T]) -> Result<CategoricalDataDrift<T>, DriftError> {
         if baseline_data.is_empty() {
             return Err(DriftError::EmptyBaselineData);
         }
 
-        let baseline = BaselineCategoricalBins::new(baseline_data);
+        let baseline = BaselineCategoricalBins::new(baseline_data)?;
         let num_bins = baseline.baseline_bins.len();
         let rt_bins: Vec<f64> = vec![0_f64; num_bins];
 
         Ok(CategoricalDataDrift { baseline, rt_bins })
     }
 
-    fn build_rt_hist<S: StringLike>(&mut self, runtime_data: &[S]) -> Result<(), DriftError> {
+    pub fn compute_drift(
+        &mut self,
+        runtime_data: &[T],
+        drift_type: DataDriftType,
+    ) -> Result<f64, DriftError> {
+        self.build_rt_hist(runtime_data)?;
+        let drift = global_compute_drift(self, drift_type);
+        self.clear_rt();
+        Ok(drift)
+    }
+
+    fn build_rt_hist(&mut self, runtime_data: &[T]) -> Result<(), DriftError> {
         if runtime_data.is_empty() {
-            return Err(DriftError::EmptyRuntimeData.into());
+            return Err(DriftError::EmptyRuntimeData);
         }
-        let other_idx = self.baseline.idx_map[self.baseline.other_label.as_str()];
         for cat in runtime_data.iter() {
-            let i = *self
-                .baseline
-                .idx_map
-                .get(cat.as_ref())
-                .unwrap_or_else(|| &other_idx);
+            let i = self.baseline.get_bin(cat);
 
             self.rt_bins[i] += 1_f64;
         }
@@ -802,20 +546,17 @@ impl CategoricalDataDrift {
 
     // Reset the baseline state with a new baseline dataset. This will adjust the number of bins to
     // n + 1 where n is the number of observed unique examples.
-    pub fn reset_baseline<S: StringLike>(&mut self, new_baseline: &[S]) {
-        self.baseline.reset(new_baseline);
+    pub fn reset_baseline(&mut self, new_baseline: &[T]) -> Result<(), DriftError> {
+        self.baseline.reset(new_baseline)?;
         let num_bins = self.baseline.baseline_bins.len();
 
         // pay the cost to reallocate bins in order to have correct size
         // not common path
         self.rt_bins = vec![0_f64; num_bins];
+        Ok(())
     }
 
-    pub fn other_bucket_label(&self) -> String {
-        self.baseline.other_label.clone()
-    }
-
-    pub fn export_baseline(&self) -> HashMap<String, f64> {
+    pub fn export_baseline(&self) -> HashMap<T, f64> {
         self.baseline.export_baseline()
     }
 }
@@ -823,135 +564,106 @@ impl CategoricalDataDrift {
 /// Streaming implementation of '[CategoricalDataDrift]' type. This is intended for long running
 /// services to give an indication of the data drift over a longer contiguous window. A stateful
 /// stream, where point in time snapshots can be generated.
-pub struct StreamingCategoricalDataDrift {
-    baseline: BaselineCategoricalBins,
+pub struct StreamingCategoricalDataDrift<T: Hash + Ord + Clone, M> {
+    baseline: BaselineCategoricalBins<T>,
     stream_bins: Vec<f64>,
-    total_stream_size: usize,
-    last_flush_ts: i64,
-    flush_rate: i64,
+    total_stream_size: f64,
+    mode: StreamModeInner,
+    _mark: PhantomData<M>,
 }
 
-// Implementation of different drift methods
-impl StreamingPopulationStabilityIndexDrift for StreamingCategoricalDataDrift {
-    fn psi_drift(&self) -> Result<f64, DriftError> {
-        if self.total_stream_size == 0 {
-            return Err(DriftError::EmptyRuntimeData);
-        }
+impl<T: Hash + Ord + Clone, M> DriftContainer for StreamingCategoricalDataDrift<T, M> {
+    fn get_baseline_hist(&self) -> &[f64] {
+        &self.baseline.baseline_bins
+    }
 
-        Ok(compute_psi(
-            &self.baseline.baseline_bins,
-            &self.stream_bins,
-            self.total_stream_size as f64,
-        ))
+    fn get_runtime_bins(&self) -> &[f64] {
+        &self.stream_bins
+    }
+
+    fn get_bin_edges(&self) -> Option<&[f64]> {
+        None
+    }
+
+    fn num_examples(&self) -> f64 {
+        self.total_stream_size
+    }
+
+    fn container_type(&self) -> DriftContainerType {
+        DriftContainerType::Categorical
     }
 }
 
-impl StreamingKlDivergenceDrift for StreamingCategoricalDataDrift {
-    fn kl_divergence_drift(&self) -> Result<f64, DriftError> {
-        if self.total_stream_size == 0 {
-            return Err(DriftError::EmptyRuntimeData);
-        }
-
-        Ok(compute_kl_divergence_drift(
-            &self.baseline.baseline_bins,
-            &self.stream_bins,
-            self.total_stream_size as f64,
-        ))
+impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, FlushModeMark> {
+    pub fn default_flush(
+        baseline_data: &[T],
+    ) -> Result<StreamingCategoricalDataDrift<T, FlushModeMark>, DriftError> {
+        Self::new_flush(
+            baseline_data,
+            DEFAULT_MAX_STREAM_SIZE,
+            Duration::from_secs(DEFAULT_STREAM_FLUSH_CADENCE / 1000),
+        )
     }
-}
-
-impl StreamingJensenShannonDivergenceDrift for StreamingCategoricalDataDrift {
-    fn js_drift(&self) -> Result<f64, DriftError> {
-        if self.total_stream_size == 0 {
-            return Err(DriftError::EmptyRuntimeData);
-        }
-        Ok(compute_jensen_shannon_divergence_drift(
-            &self.baseline.baseline_bins,
-            &self.stream_bins,
-            self.total_stream_size as f64,
-        ))
-    }
-}
-
-impl StreamingWassersteinDistance for StreamingCategoricalDataDrift {
-    fn wasserstein_distance(&self) -> Result<f64, DriftError> {
-        if self.total_stream_size == 0 {
-            return Err(DriftError::EmptyRuntimeData);
-        }
-
-        Ok(categorical_wasserstein_distance(
-            &self.baseline.baseline_bins,
-            &self.stream_bins,
-            self.total_stream_size as f64,
-        ))
-    }
-}
-
-impl StreamingCategoricalDataDrift {
-    pub fn new<S: StringLike>(
-        baseline_data: &[S],
-        user_flush_rate: Option<i64>,
-    ) -> Result<StreamingCategoricalDataDrift, DriftError> {
-        let baseline = BaselineCategoricalBins::new(baseline_data);
-        let flush_rate = user_flush_rate.unwrap_or_else(|| DEFAULT_STREAM_FLUSH);
-        let n_bins = baseline.baseline_bins.len();
-        let stream_bins: Vec<f64> = vec![0_f64; n_bins];
-
-        let last_flush_ts = Utc::now().timestamp();
-        let mut obj = StreamingCategoricalDataDrift {
-            baseline,
-            stream_bins,
-            last_flush_ts,
-            flush_rate,
-            total_stream_size: 0_usize,
+    pub fn new_flush(
+        baseline_data: &[T],
+        flush_size: u64,
+        flush_cadence: Duration,
+    ) -> Result<StreamingCategoricalDataDrift<T, FlushModeMark>, DriftError> {
+        let baseline = BaselineCategoricalBins::new(baseline_data)?;
+        let bl_hist_len = baseline.baseline_bins.len();
+        let stream_bins: Vec<f64> = vec![0_f64; bl_hist_len];
+        let mode = StreamModeInner::Flush {
+            size: flush_size as f64,
+            cadence: flush_cadence,
+            last_flush_ts: Instant::now(),
         };
-        obj.init_stream_bins();
-        Ok(obj)
+
+        Ok(StreamingCategoricalDataDrift {
+            stream_bins,
+            baseline,
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
+        })
     }
 
-    pub fn reset_baseline<S: StringLike>(&mut self, new_baseline: &[S]) {
-        self.baseline.reset(new_baseline);
-        self.init_stream_bins();
+    pub fn compute_drift(&mut self, drift_type: DataDriftType) -> Result<f64, DriftError> {
+        if self.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+        Ok(global_compute_drift(self, drift_type))
+    }
+
+    pub fn compute_drift_multiple_criteria(
+        &mut self,
+        drift_types: &[DataDriftType],
+    ) -> Result<Vec<f64>, DriftError> {
+        if self.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+        Ok(drift_types
+            .iter()
+            .map(|drift_t| global_compute_drift(self, *drift_t))
+            .collect())
     }
 
     #[inline]
-    fn push_item<S: StringLike>(&mut self, runtime_example: &S, other_idx: usize) {
-        let idx = *self
-            .baseline
-            .idx_map
-            .get(runtime_example.as_ref())
-            .unwrap_or_else(|| &other_idx);
+    pub fn update_stream(&mut self, item: &T) {
+        let idx = self.baseline.get_bin(item);
+        if self.mode.needs_flush(self.total_stream_size) {
+            self.flush();
+        }
         self.stream_bins[idx] += 1_f64;
-        self.total_stream_size += 1;
+        self.total_stream_size += 1_f64;
     }
 
-    pub fn update_stream<S: StringLike>(&mut self, item: &S) {
-        self.push_item(
-            item,
-            self.baseline.idx_map[self.baseline.other_label.as_str()],
-        )
-    }
-
-    pub fn update_stream_batch<S: StringLike>(
-        &mut self,
-        runtime_data: &[S],
-    ) -> Result<(), DriftError> {
+    pub fn update_stream_batch(&mut self, runtime_data: &[T]) -> Result<(), DriftError> {
         if runtime_data.is_empty() {
             return Err(DriftError::EmptyRuntimeData);
         }
-        let curr_ts: i64 = Utc::now().timestamp();
 
-        if curr_ts > (self.last_flush_ts + self.flush_rate)
-            || (self.total_stream_size + runtime_data.len()) > get_max_stream_size()
-        {
-            // reset and flush
-            self.flush_runtime_stream();
-            self.last_flush_ts = curr_ts;
-        }
-
-        let other_idx = self.baseline.idx_map[self.baseline.other_label.as_str()];
         for cat in runtime_data.iter() {
-            self.push_item(cat, other_idx)
+            self.update_stream(cat)
         }
 
         Ok(())
@@ -959,25 +671,101 @@ impl StreamingCategoricalDataDrift {
 
     pub fn flush(&mut self) {
         self.flush_runtime_stream();
-        self.last_flush_ts = Utc::now().timestamp();
+        self.mode.perform_flush();
+    }
+}
+impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, DecayModeMark> {
+    pub fn new_decay(
+        baseline_data: &[T],
+        half_life: NonZeroU64,
+    ) -> Result<StreamingCategoricalDataDrift<T, DecayModeMark>, DriftError> {
+        let baseline = BaselineCategoricalBins::new(baseline_data)?;
+        let bl_hist_len = baseline.baseline_bins.len();
+        let stream_bins: Vec<f64> = vec![0_f64; bl_hist_len];
+        let mode = StreamModeInner::ExponentialDecay(0.5_f64.powf(1_f64 / half_life.get() as f64));
+
+        Ok(StreamingCategoricalDataDrift {
+            stream_bins,
+            baseline,
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
+        })
+    }
+
+    pub fn compute_drift(&mut self, drift_type: DataDriftType) -> Result<f64, DriftError> {
+        if self.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+        self.apply_decay();
+        Ok(global_compute_drift(self, drift_type))
+    }
+
+    pub fn compute_drift_multiple_criteria(
+        &mut self,
+        drift_types: &[DataDriftType],
+    ) -> Result<Vec<f64>, DriftError> {
+        if self.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+        self.apply_decay();
+        Ok(drift_types
+            .iter()
+            .map(|drift_t| global_compute_drift(self, *drift_t))
+            .collect())
+    }
+
+    fn apply_decay(&mut self) {
+        let StreamModeInner::ExponentialDecay(decay_factor) = self.mode else {
+            unreachable!()
+        };
+        for bin in self.stream_bins.iter_mut() {
+            *bin = (*bin * decay_factor).floor();
+        }
+        self.total_stream_size = (self.total_stream_size * decay_factor).floor();
+    }
+
+    #[inline]
+    pub fn update_stream(&mut self, item: &T) {
+        let idx = self.baseline.get_bin(item);
+        self.stream_bins[idx] += 1_f64;
+        self.total_stream_size += 1_f64;
+    }
+
+    pub fn update_stream_batch(&mut self, runtime_data: &[T]) -> Result<(), DriftError> {
+        if runtime_data.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+
+        for cat in runtime_data.iter() {
+            self.update_stream(cat)
+        }
+
+        Ok(())
+    }
+}
+
+impl<T: Hash + Ord + Clone, M: StreamingDataDriftMark> StreamingCategoricalDataDrift<T, M> {
+    pub fn is_empty(&self) -> bool {
+        self.stream_bins.iter().sum::<f64>() == 0_f64
+    }
+
+    pub fn reset_baseline(&mut self, new_baseline: &[T]) -> Result<(), DriftError> {
+        self.baseline.reset(new_baseline)?;
+        self.mode.perform_flush();
+        self.init_stream_bins();
+        Ok(())
     }
 
     pub fn total_samples(&self) -> usize {
-        self.total_stream_size
+        self.total_stream_size.floor() as usize
     }
 
-    pub fn last_flush(&self) -> Result<DateTime<Utc>, DriftError> {
-        let Some(ts) = DateTime::from_timestamp(self.last_flush_ts, 0_u32) else {
-            return Err(DriftError::DateTimeError);
-        };
-        Ok(ts)
+    pub fn last_flush(&self) -> u64 {
+        self.mode.last_flush()
     }
 
-    pub fn other_bucket_label(&self) -> String {
-        self.baseline.other_label.clone()
-    }
-
-    pub fn export_snapshot(&self) -> HashMap<String, f64> {
+    pub fn export_snapshot(&self) -> HashMap<T, f64> {
         self.baseline
             .idx_map
             .iter()
@@ -985,7 +773,7 @@ impl StreamingCategoricalDataDrift {
             .collect()
     }
 
-    pub fn export_baseline(&self) -> HashMap<String, f64> {
+    pub fn export_baseline(&self) -> HashMap<T, f64> {
         self.baseline.export_baseline()
     }
 
@@ -993,9 +781,9 @@ impl StreamingCategoricalDataDrift {
         self.stream_bins = vec![0_f64; self.baseline.baseline_bins.len()]
     }
 
-    pub fn flush_runtime_stream(&mut self) {
+    fn flush_runtime_stream(&mut self) {
         self.stream_bins.fill(0_f64);
-        self.total_stream_size = 0;
+        self.total_stream_size = 0_f64;
     }
 }
 
@@ -1006,7 +794,7 @@ mod continuous_tests {
     #[test]
     fn test_continuous_baseline_builds_expected_bins() {
         let baseline = [1.0, 2.0, 3.0, 4.0];
-        let psi = ContinuousDataDrift::new_from_baseline(3, &baseline).unwrap();
+        let psi = ContinuousDataDrift::new_from_baseline(None, &baseline).unwrap();
 
         // 3 bins → 4 edges
         assert_eq!(psi.baseline.bin_edges.len(), 4);
@@ -1016,38 +804,45 @@ mod continuous_tests {
     #[test]
     fn test_continuous_psi_zero_when_no_drift() {
         let baseline = [1.0, 2.0, 3.0, 4.0];
-        let mut psi = ContinuousDataDrift::new_from_baseline(3, &baseline).unwrap();
+        let mut psi = ContinuousDataDrift::new_from_baseline(None, &baseline).unwrap();
         let runtime = [1.0, 2.0, 3.0, 4.0];
 
-        let drift = psi.psi_drift(&runtime).unwrap();
+        let drift = psi
+            .compute_drift(&runtime, DataDriftType::PopulationStabilityIndex)
+            .unwrap();
         assert!(drift.abs() < 1e-9);
     }
 
     #[test]
     fn test_continuous_psi_detects_shift() {
         let baseline = [1.0, 2.0, 3.0, 4.0];
-        let mut psi = ContinuousDataDrift::new_from_baseline(3, &baseline).unwrap();
+        let mut psi = ContinuousDataDrift::new_from_baseline(None, &baseline).unwrap();
         let runtime = [10.0, 11.0, 12.0, 13.0];
-
-        let drift = psi.psi_drift(&runtime).unwrap();
+        let drift = psi
+            .compute_drift(&runtime, DataDriftType::PopulationStabilityIndex)
+            .unwrap();
         assert!(drift > 0.5);
     }
 
     #[test]
     fn test_streaming_continuous_accumulation() {
         let baseline = [1_f64, 2_f64, 3_f64, 3_f64, 4_f64];
-        let mut streaming = StreamingContinuousDataDrift::new(3, &baseline, None).unwrap();
+        let mut streaming = StreamingContinuousDataDrift::default_flush(&baseline).unwrap();
 
         streaming
             .update_stream_batch(&[1.0, 2.0, 2.0, 3.0, 4.0])
             .unwrap();
 
-        let d1 = streaming.psi_drift().unwrap();
+        let d1 = streaming
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .unwrap();
         streaming
             .update_stream_batch(&[3.0, 4.0, 2.0, 2.0, 1.0, 3.0])
             .unwrap();
 
-        let d2 = streaming.psi_drift().unwrap();
+        let d2 = streaming
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .unwrap();
 
         assert!(d1.abs() < 1e-9);
         assert!(d2.abs() < 1e-2);
@@ -1057,7 +852,7 @@ mod continuous_tests {
     #[test]
     fn test_streaming_flush() {
         let baseline = [1.0, 2.0, 3.0, 4.0];
-        let mut streaming = StreamingContinuousDataDrift::new(3, &baseline, None).unwrap();
+        let mut streaming = StreamingContinuousDataDrift::default_flush(&baseline).unwrap();
 
         streaming.update_stream_batch(&[1.0, 2.0, 3.0]).unwrap();
         streaming.flush();
@@ -1084,8 +879,9 @@ mod categorical_tests {
         let baseline = ["a", "b", "a", "c"];
         let mut psi = CategoricalDataDrift::new(&baseline).unwrap();
         let runtime = ["a", "b", "a", "c"];
-
-        let drift = psi.psi_drift(&runtime).unwrap();
+        let drift = psi
+            .compute_drift(&runtime, DataDriftType::PopulationStabilityIndex)
+            .unwrap();
         assert!(drift.abs() < 1e-9);
     }
 
@@ -1094,27 +890,21 @@ mod categorical_tests {
         let baseline = ["a", "b", "a", "c"];
         let mut psi = CategoricalDataDrift::new(&baseline).unwrap();
         let runtime = ["x", "x", "x", "x"]; // go to other bucket
-
-        let drift = psi.psi_drift(&runtime).unwrap();
+        let drift = psi
+            .compute_drift(&runtime, DataDriftType::PopulationStabilityIndex)
+            .unwrap();
         assert!(drift > 0.5);
-    }
-
-    #[test]
-    fn test_other_bucket_label_exposed() {
-        let baseline = ["a", "b"];
-        let psi = CategoricalDataDrift::new(&baseline).unwrap();
-        let other = psi.other_bucket_label();
-
-        assert!(other.starts_with("__fairperf_othercat__"));
     }
 
     #[test]
     fn test_streaming_categorical_accumulation() {
         let baseline = ["a", "b"];
-        let mut streaming = StreamingCategoricalDataDrift::new(&baseline, None).unwrap();
+        let mut streaming = StreamingCategoricalDataDrift::default_flush(&baseline).unwrap();
 
         streaming.update_stream_batch(&["a", "b"]).unwrap();
-        let d1 = streaming.psi_drift().unwrap();
+        let d1 = streaming
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .unwrap();
         let mut stream = Vec::new();
 
         for _ in 0..500 {
@@ -1125,7 +915,9 @@ mod categorical_tests {
             stream.push("b")
         }
         streaming.update_stream_batch(&stream).unwrap();
-        let d2 = streaming.psi_drift().unwrap();
+        let d2 = streaming
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .unwrap();
 
         assert_eq!(streaming.total_samples(), 992);
         assert!(d1 < 1e-9);

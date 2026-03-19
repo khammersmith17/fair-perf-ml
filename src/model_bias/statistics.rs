@@ -33,10 +33,10 @@ impl AdHocSegmentation {
         }
 
         // Using the feature data length as a preallocation heuristic.
-        let mut facet_a_pred: Vec<i16> = Vec::with_capacity(n_feature / 2 as usize);
-        let mut facet_a_true: Vec<i16> = Vec::with_capacity(n_feature / 2 as usize);
-        let mut facet_d_pred: Vec<i16> = Vec::with_capacity(n_feature / 2 as usize);
-        let mut facet_d_true: Vec<i16> = Vec::with_capacity(n_feature / 2 as usize);
+        let mut facet_a_pred: Vec<i16> = Vec::with_capacity(n_feature / 2_usize);
+        let mut facet_a_true: Vec<i16> = Vec::with_capacity(n_feature / 2_usize);
+        let mut facet_d_pred: Vec<i16> = Vec::with_capacity(n_feature / 2_usize);
+        let mut facet_d_true: Vec<i16> = Vec::with_capacity(n_feature / 2_usize);
         for (f, (p, g)) in zip_iters!(feature, pred, gt) {
             let pred_label = pred_seg.label(p);
             let gt_label = gt_seg.label(g);

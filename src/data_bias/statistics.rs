@@ -10,7 +10,6 @@ use crate::zip_iters;
 /// values, thus, need to be coerce to class labels. It is up to the user to determine the
 /// threshold of a "positive" outcome in this case. These methods are used in the discrete
 /// monitoring approach taken in this crate, and are exposed as discrete methods
-
 pub(super) struct AdHocSegmentation {
     pub(super) facet_a: PreTrainingDistribution,
     pub(super) facet_d: PreTrainingDistribution,
@@ -181,8 +180,8 @@ pub(crate) mod inner {
     use super::super::PreTraining;
     use crate::errors::ModelPerfResult;
     pub fn class_imbalance(data: &PreTraining) -> f32 {
-        return (data.facet_a.len as i64 - data.facet_d.len as i64).abs() as f32
-            / (data.facet_a.len + data.facet_d.len) as f32;
+        (data.facet_a.len as i64 - data.facet_d.len as i64).abs() as f32
+            / (data.facet_a.len + data.facet_d.len) as f32
     }
 
     pub fn diff_in_proportion_of_labels(data: &PreTraining) -> ModelPerfResult<f32> {
@@ -199,8 +198,7 @@ pub(crate) mod inner {
     // Utility to compute KL divergence for 2 bins, given there are 2 facet distributions in scope
     // within this module.
     pub(super) fn ks_kl_div_bin(p_facet: f32, p: f32) -> f32 {
-        return p_facet * (p_facet / p).ln()
-            + (1_f32 - p_facet) * ((1_f32 - p_facet) / (1_f32 - p)).ln();
+        p_facet * (p_facet / p).ln() + (1_f32 - p_facet) * ((1_f32 - p_facet) / (1_f32 - p)).ln()
     }
 
     pub fn jensen_shannon(data: &PreTraining) -> ModelPerfResult<f32> {

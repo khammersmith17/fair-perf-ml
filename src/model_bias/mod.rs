@@ -142,9 +142,7 @@ where
 
     let post_training_base =
         DiscretePostTraining::new(&labeled_features, &labeled_preds, &labeled_gt)?;
-
-    let analysis_res = post_training_bias(&post_training_base);
-    Ok(analysis_res?)
+    post_training_bias(&post_training_base)
 }
 
 #[derive(Default)]

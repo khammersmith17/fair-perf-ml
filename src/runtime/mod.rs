@@ -40,13 +40,13 @@ impl DataBiasRuntime {
     ) -> Result<DataBiasRuntime, BiasError> {
         use crate::data_bias::statistics::inner as metrics;
         Ok(DataBiasRuntime {
-            ci: metrics::class_imbalance(&pre_training),
-            dpl: metrics::diff_in_proportion_of_labels(&pre_training)?,
-            kl: metrics::kl_divergence(&pre_training)?,
-            js: metrics::jensen_shannon(&pre_training)?,
-            lpnorm: metrics::lp_norm(&pre_training)?,
-            tvd: metrics::total_variation_distance(&pre_training)?,
-            ks: metrics::kolmogorov_smirnov(&pre_training)?,
+            ci: metrics::class_imbalance(pre_training),
+            dpl: metrics::diff_in_proportion_of_labels(pre_training)?,
+            kl: metrics::kl_divergence(pre_training)?,
+            js: metrics::jensen_shannon(pre_training)?,
+            lpnorm: metrics::lp_norm(pre_training)?,
+            tvd: metrics::total_variation_distance(pre_training)?,
+            ks: metrics::kolmogorov_smirnov(pre_training)?,
         })
     }
 }
@@ -827,13 +827,13 @@ impl TryFrom<&BinaryClassificationAnalysisReport> for BinaryClassificationRuntim
             Ok(*v)
         };
         Ok(BinaryClassificationRuntime {
-            balanced_accuracy: value_fetcher(&payload, C::BalancedAccuracy)?,
-            precision_positive: value_fetcher(&payload, C::PrecisionPositive)?,
-            precision_negative: value_fetcher(&payload, C::PrecisionNegative)?,
-            recall_positive: value_fetcher(&payload, C::RecallPositive)?,
-            recall_negative: value_fetcher(&payload, C::RecallNegative)?,
-            accuracy: value_fetcher(&payload, C::Accuracy)?,
-            f1_score: value_fetcher(&payload, C::F1Score)?,
+            balanced_accuracy: value_fetcher(payload, C::BalancedAccuracy)?,
+            precision_positive: value_fetcher(payload, C::PrecisionPositive)?,
+            precision_negative: value_fetcher(payload, C::PrecisionNegative)?,
+            recall_positive: value_fetcher(payload, C::RecallPositive)?,
+            recall_negative: value_fetcher(payload, C::RecallNegative)?,
+            accuracy: value_fetcher(payload, C::Accuracy)?,
+            f1_score: value_fetcher(payload, C::F1Score)?,
         })
     }
 }
@@ -1040,14 +1040,14 @@ impl TryFrom<&LogisticRegressionAnalysisReport> for LogisticRegressionRuntime {
             Ok(*v)
         };
         Ok(LogisticRegressionRuntime {
-            balanced_accuracy: value_fetcher(&payload, L::BalancedAccuracy)?,
-            precision_positive: value_fetcher(&payload, L::PrecisionPositive)?,
-            precision_negative: value_fetcher(&payload, L::PrecisionNegative)?,
-            recall_positive: value_fetcher(&payload, L::RecallPositive)?,
-            recall_negative: value_fetcher(&payload, L::RecallNegative)?,
-            accuracy: value_fetcher(&payload, L::Accuracy)?,
-            f1_score: value_fetcher(&payload, L::F1Score)?,
-            log_loss: value_fetcher(&payload, L::LogLoss)?,
+            balanced_accuracy: value_fetcher(payload, L::BalancedAccuracy)?,
+            precision_positive: value_fetcher(payload, L::PrecisionPositive)?,
+            precision_negative: value_fetcher(payload, L::PrecisionNegative)?,
+            recall_positive: value_fetcher(payload, L::RecallPositive)?,
+            recall_negative: value_fetcher(payload, L::RecallNegative)?,
+            accuracy: value_fetcher(payload, L::Accuracy)?,
+            f1_score: value_fetcher(payload, L::F1Score)?,
+            log_loss: value_fetcher(payload, L::LogLoss)?,
         })
     }
 }
@@ -1203,33 +1203,32 @@ impl LinearRegressionRuntime {
         if y_true.len() != y_pred.len() {
             return Err(ModelPerformanceError::DataVectorLengthMismatch);
         }
-        if y_true.len() == 0 {
+        if y_true.is_empty() {
             return Err(ModelPerformanceError::EmptyDataVector);
         }
 
         let n = y_true.len() as f64;
 
+        let mut error_buckets = LinearRegressionErrorBuckets::default();
+
         // Computing the linear regression metrics inline here rather than pay for an O(n)
         // iteration for every error metric computation.
-
-        let mut squared_error_sum = 0_f64;
-        let mut abs_error_sum = 0_f64;
-        let mut max_error = 0_f64;
-        let mut sqaured_log_error_sum = 0_f64;
-        let mut abs_percent_error_sum = 0_f64;
-        let mut y_true_sum = 0_f64;
-
         for (t_ref, p_ref) in zip_iters!(y_true, y_pred) {
             let t: f64 = (*t_ref).into();
             let p: f64 = (*p_ref).into();
 
-            y_true_sum += t;
-            squared_error_sum += (t - p).powi(2);
-            abs_error_sum += (t - p).abs();
-            max_error = max_error.max((t - p).abs());
-            sqaured_log_error_sum += ((1_f64 + t).log10() - (1_f64 + p).log10()).powi(2);
-            abs_percent_error_sum += ((t - p) / t).abs();
+            error_buckets.update(t, p);
         }
+
+        let LinearRegressionErrorBuckets {
+            squared_error_sum,
+            abs_error_sum,
+            max_error,
+            squared_log_error_sum,
+            abs_percent_error_sum,
+            y_true_sum,
+            ..
+        } = error_buckets;
 
         let mut ss_total = 0_f64;
         let y_true_mean = y_true_sum / n;
@@ -1239,7 +1238,7 @@ impl LinearRegressionRuntime {
         }
 
         let mse = squared_error_sum / n;
-        let msle = sqaured_log_error_sum / n;
+        let msle = squared_log_error_sum / n;
 
         Ok(LinearRegressionRuntime {
             r_squared: (1_f64 - (squared_error_sum / ss_total)) as f32,
@@ -1377,14 +1376,14 @@ impl TryFrom<&LinearRegressionAnalysisReport> for LinearRegressionRuntime {
         };
 
         Ok(LinearRegressionRuntime {
-            rmse: value_fetcher(&payload, L::RootMeanSquaredError)?,
-            mse: value_fetcher(&payload, L::MeanSquaredError)?,
-            mae: value_fetcher(&payload, L::MeanAbsoluteError)?,
-            r_squared: value_fetcher(&payload, L::RSquared)?,
-            max_error: value_fetcher(&payload, L::MaxError)?,
-            msle: value_fetcher(&payload, L::MeanSquaredLogError)?,
-            rmsle: value_fetcher(&payload, L::RootMeanSquaredLogError)?,
-            mape: value_fetcher(&payload, L::MeanAbsolutePercentageError)?,
+            rmse: value_fetcher(payload, L::RootMeanSquaredError)?,
+            mse: value_fetcher(payload, L::MeanSquaredError)?,
+            mae: value_fetcher(payload, L::MeanAbsoluteError)?,
+            r_squared: value_fetcher(payload, L::RSquared)?,
+            max_error: value_fetcher(payload, L::MaxError)?,
+            msle: value_fetcher(payload, L::MeanSquaredLogError)?,
+            rmsle: value_fetcher(payload, L::RootMeanSquaredLogError)?,
+            mape: value_fetcher(payload, L::MeanAbsolutePercentageError)?,
         })
     }
 }
