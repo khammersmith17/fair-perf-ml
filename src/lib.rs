@@ -10,19 +10,6 @@ mod models;
 pub mod reporting;
 mod runtime;
 
-/*
-* TODO:
-* for runtime checks
-*   1. write python wrapper functions around all core logic
-*       the python wrapper will perform type serialization and coerce to correct types
-*   2. Refactor analysis logic to also have python wrappers
-*       type corecion is performed in the python wrapper
-*       core logic uses native rust types
-*   3. Determine cleaner python/ rust api
-*   4. The goal is to extend the idea of having the crate useable in Rust and Python contexts
-*   5. clean up lib.rs to only expose functions via ffi
-* */
-
 /// Exposed Python APIs for the fair perf ml rust crate
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
