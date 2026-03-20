@@ -10,7 +10,6 @@ pub mod distribution;
 pub mod drift_metrics;
 #[cfg(feature = "python")]
 pub(crate) mod python_impl;
-pub mod windowed_drift;
 
 const DEFAULT_STREAM_FLUSH_CADENCE: u64 = 3600 * 24;
 const DEFAULT_MAX_STREAM_SIZE: u64 = 1_000_000_u64;
