@@ -17,13 +17,12 @@ use crate::{
         LinearRegressionRuntimeReport, LogisticRegressionAnalysisReport,
         LogisticRegressionRuntimeReport, ModelBiasAnalysisReport, ModelBiasRuntimeReport,
     },
-    zip_iters,
 };
 use std::collections::HashMap;
 
 pub(crate) const EQUALITY_ERROR_ALLOWANCE: f32 = 1e-5;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct DataBiasRuntime {
     pub(crate) ci: f32,
     pub(crate) dpl: f32,
@@ -173,7 +172,7 @@ impl DataBiasRuntime {
                 }
                 DataBiasMetric::JsDivergence => {
                     if self.js > baseline.js * (1_f32 + threshold) {
-                        result.insert(DataBiasMetric::JsDivergence, self.kl - baseline.kl);
+                        result.insert(DataBiasMetric::JsDivergence, self.js - baseline.js);
                     }
                 }
                 DataBiasMetric::LpNorm => {
@@ -191,7 +190,7 @@ impl DataBiasRuntime {
                 }
                 DataBiasMetric::KolmorogvSmirnov => {
                     if self.ks > baseline.ks * (1_f32 + threshold) {
-                        result.insert(DataBiasMetric::KolmorogvSmirnov, self.tvd - baseline.tvd);
+                        result.insert(DataBiasMetric::KolmorogvSmirnov, self.ks - baseline.ks);
                     }
                 }
             }
@@ -200,38 +199,35 @@ impl DataBiasRuntime {
     }
 
     pub fn runtime_drift_report(&self, baseline: &DataBiasRuntime) -> DataBiasRuntimeReport {
+        let eps = crate::metrics::get_stability_eps() as f32;
         let mut result = DataBiasRuntimeReport::with_capacity(7);
         result.insert(
             DataBiasMetric::ClassImbalance,
-            ((self.ci - baseline.ci).abs())
-                / baseline
-                    .ci
-                    .abs()
-                    .max(crate::metrics::get_stability_eps() as f32),
+            ((self.ci - baseline.ci).abs()) / baseline.ci.abs().max(eps),
         );
         result.insert(
             DataBiasMetric::DifferenceInProportionOfLabels,
-            ((self.dpl - baseline.dpl).abs()) / baseline.dpl.abs(),
+            ((self.dpl - baseline.dpl).abs()) / baseline.dpl.abs().max(eps),
         );
         result.insert(
             DataBiasMetric::KlDivergence,
-            (self.kl - baseline.kl).abs() / baseline.kl.abs(),
+            (self.kl - baseline.kl).abs() / baseline.kl.abs().max(eps),
         );
         result.insert(
             DataBiasMetric::JsDivergence,
-            (self.js - baseline.js).abs() / baseline.js.abs(),
+            (self.js - baseline.js).abs() / baseline.js.abs().max(eps),
         );
         result.insert(
             DataBiasMetric::LpNorm,
-            (self.lpnorm - baseline.lpnorm).abs() / baseline.lpnorm.abs(),
+            (self.lpnorm - baseline.lpnorm).abs() / baseline.lpnorm.abs().max(eps),
         );
         result.insert(
             DataBiasMetric::TotalVariationDistance,
-            (self.tvd - baseline.tvd).abs() / baseline.tvd.abs(),
+            (self.tvd - baseline.tvd).abs() / baseline.tvd.abs().max(eps),
         );
         result.insert(
             DataBiasMetric::KolmorogvSmirnov,
-            (self.ks - baseline.ks).abs() / baseline.ks.abs(),
+            (self.ks - baseline.ks).abs() / baseline.ks.abs().max(eps),
         );
 
         result
@@ -250,6 +246,7 @@ impl DataBiasRuntime {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModelBiasRuntime {
     ddpl: f32,
     di: f32,
@@ -307,7 +304,7 @@ impl ModelBiasRuntime {
             (self.rd - bl.rd).abs() / bl.rd.abs(),
         );
         report.insert(
-            ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels,
+            ModelBiasMetric::DifferenceInConditionalAcceptance,
             (self.cdacc - bl.cdacc).abs() / bl.cdacc.abs(),
         );
         report.insert(
@@ -351,7 +348,7 @@ impl ModelBiasRuntime {
         report.insert(ModelBiasMetric::AccuracyDifference, self.ad);
         report.insert(ModelBiasMetric::RecallDifference, self.rd);
         report.insert(
-            ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels,
+            ModelBiasMetric::DifferenceInConditionalAcceptance,
             self.cdacc,
         );
         report.insert(ModelBiasMetric::DifferenceInAcceptanceRate, self.dar);
@@ -617,7 +614,7 @@ impl ModelBiasRuntime {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryClassificationRuntime {
     pub(crate) balanced_accuracy: f32,
     pub(crate) precision_positive: f32,
@@ -861,7 +858,7 @@ impl TryFrom<HashMap<String, f32>> for BinaryClassificationRuntime {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LogisticRegressionRuntime {
     pub(crate) balanced_accuracy: f32,
     pub(crate) precision_positive: f32,
@@ -1009,7 +1006,7 @@ impl LogisticRegressionRuntime {
             ClassificationEvaluationMetric::LogLoss,
             bl.log_loss - self.log_loss,
         );
-        todo!()
+        report
     }
 }
 
@@ -1139,8 +1136,8 @@ impl LogisticRegressionRuntime {
                     }
                 }
                 C::LogLoss => {
-                    if self.log_loss < baseline.log_loss * drift_factor {
-                        res.insert(C::F1Score, baseline.log_loss - self.log_loss);
+                    if self.log_loss > baseline.log_loss * (1_f32 + drift_threshold) {
+                        res.insert(C::LogLoss, self.log_loss - baseline.log_loss);
                     }
                 }
             }
@@ -1149,7 +1146,7 @@ impl LogisticRegressionRuntime {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LinearRegressionRuntime {
     pub(crate) rmse: f32,
     pub(crate) mse: f32,
@@ -1200,25 +1197,8 @@ impl LinearRegressionRuntime {
     where
         T: Into<f64> + Copy,
     {
-        if y_true.len() != y_pred.len() {
-            return Err(ModelPerformanceError::DataVectorLengthMismatch);
-        }
-        if y_true.is_empty() {
-            return Err(ModelPerformanceError::EmptyDataVector);
-        }
-
         let n = y_true.len() as f64;
-
-        let mut error_buckets = LinearRegressionErrorBuckets::default();
-
-        // Computing the linear regression metrics inline here rather than pay for an O(n)
-        // iteration for every error metric computation.
-        for (t_ref, p_ref) in zip_iters!(y_true, y_pred) {
-            let t: f64 = (*t_ref).into();
-            let p: f64 = (*p_ref).into();
-
-            error_buckets.update(t, p);
-        }
+        let error_buckets = LinearRegressionErrorBuckets::from_dataset(y_true, y_pred)?;
 
         let LinearRegressionErrorBuckets {
             squared_error_sum,
@@ -1226,22 +1206,15 @@ impl LinearRegressionRuntime {
             max_error,
             squared_log_error_sum,
             abs_percent_error_sum,
-            y_true_sum,
             ..
         } = error_buckets;
-
-        let mut ss_total = 0_f64;
-        let y_true_mean = y_true_sum / n;
-        for t_ref in y_true.iter() {
-            let t: f64 = (*t_ref).into();
-            ss_total += (t - y_true_mean).powi(2);
-        }
+        let r_squared = error_buckets.r2_snapshot() as f32;
 
         let mse = squared_error_sum / n;
         let msle = squared_log_error_sum / n;
 
         Ok(LinearRegressionRuntime {
-            r_squared: (1_f64 - (squared_error_sum / ss_total)) as f32,
+            r_squared,
             rmse: (mse).powf(0.5_f64) as f32,
             mse: mse as f32,
             mae: (abs_error_sum / n) as f32,
@@ -1306,8 +1279,8 @@ impl LinearRegressionRuntime {
                     }
                 }
                 L::RSquared => {
-                    if self.r_squared > baseline.r_squared * (1_f32 + drift_threshold) {
-                        res.insert(L::RSquared, self.r_squared - baseline.r_squared);
+                    if self.r_squared < baseline.r_squared * (1_f32 - drift_threshold) {
+                        res.insert(L::RSquared, baseline.r_squared - self.r_squared);
                     }
                 }
                 L::MaxError => {
@@ -1408,6 +1381,337 @@ impl TryFrom<HashMap<String, f32>> for LinearRegressionRuntime {
             rmsle: value_fetcher(&mut payload, "RootMeanSquaredLogError")?,
             mape: value_fetcher(&mut payload, "MeanAbsolutePercentageError")?,
         })
+    }
+}
+
+#[cfg(test)]
+mod runtime_container_tests {
+    use super::*;
+    use crate::metrics::{
+        ClassificationEvaluationMetric as C, DataBiasMetric,
+        LinearRegressionEvaluationMetric as L,
+    };
+
+    // --- DataBiasRuntime ---
+
+    #[test]
+    fn data_bias_runtime_from_hashmap_happy_path() {
+        let mut map = std::collections::HashMap::new();
+        map.insert("ClassImbalance".to_string(), 0.1_f32);
+        map.insert("DifferenceInProportionOfLabels".to_string(), 0.2_f32);
+        map.insert("KlDivergence".to_string(), 0.3_f32);
+        map.insert("JsDivergence".to_string(), 0.4_f32);
+        map.insert("LpNorm".to_string(), 0.5_f32);
+        // intentional typos matching the TryFrom impl
+        map.insert("TotalVarationDistance".to_string(), 0.6_f32);
+        map.insert("KolmorogvSmirnov".to_string(), 0.7_f32);
+
+        let rt = DataBiasRuntime::try_from(map).unwrap();
+        assert_eq!(rt.ci, 0.1_f32);
+        assert_eq!(rt.dpl, 0.2_f32);
+        assert_eq!(rt.kl, 0.3_f32);
+        assert_eq!(rt.js, 0.4_f32);
+        assert_eq!(rt.lpnorm, 0.5_f32);
+        assert_eq!(rt.tvd, 0.6_f32);
+        assert_eq!(rt.ks, 0.7_f32);
+    }
+
+    #[test]
+    fn data_bias_runtime_from_hashmap_missing_key() {
+        let mut map = std::collections::HashMap::new();
+        map.insert("ClassImbalance".to_string(), 0.1_f32);
+        // all other keys missing
+        let res = DataBiasRuntime::try_from(map);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn data_bias_runtime_generate_report_round_trip() {
+        let rt = DataBiasRuntime {
+            ci: 0.1_f32,
+            dpl: 0.2_f32,
+            kl: 0.3_f32,
+            js: 0.4_f32,
+            lpnorm: 0.5_f32,
+            tvd: 0.6_f32,
+            ks: 0.7_f32,
+        };
+        let report = rt.generate_report();
+        let rt2 = DataBiasRuntime::try_from(report).unwrap();
+        assert_eq!(rt, rt2);
+    }
+
+    #[test]
+    fn data_bias_runtime_check_detects_drift() {
+        let baseline = DataBiasRuntime {
+            ci: 0.2_f32,
+            dpl: 0.1_f32,
+            kl: 0.1_f32,
+            js: 0.1_f32,
+            lpnorm: 0.1_f32,
+            tvd: 0.1_f32,
+            ks: 0.1_f32,
+        };
+        // ci=0.5 > 0.2 * 1.1 = 0.22 → flagged
+        let runtime = DataBiasRuntime {
+            ci: 0.5_f32,
+            dpl: 0.1_f32,
+            kl: 0.1_f32,
+            js: 0.1_f32,
+            lpnorm: 0.1_f32,
+            tvd: 0.1_f32,
+            ks: 0.1_f32,
+        };
+        let result = runtime.runtime_check(baseline, 0.1_f32, &[DataBiasMetric::ClassImbalance]);
+        assert!(result.contains_key(&DataBiasMetric::ClassImbalance));
+    }
+
+    #[test]
+    fn data_bias_runtime_check_no_drift_within_threshold() {
+        let baseline = DataBiasRuntime {
+            ci: 0.2_f32,
+            dpl: 0.1_f32,
+            kl: 0.1_f32,
+            js: 0.1_f32,
+            lpnorm: 0.1_f32,
+            tvd: 0.1_f32,
+            ks: 0.1_f32,
+        };
+        // ci=0.21 < 0.2 * 1.1 = 0.22 → not flagged
+        let runtime = DataBiasRuntime {
+            ci: 0.21_f32,
+            ..baseline.clone()
+        };
+        let result = runtime.runtime_check(baseline, 0.1_f32, &[DataBiasMetric::ClassImbalance]);
+        assert!(result.is_empty());
+    }
+
+    // --- BinaryClassificationRuntime ---
+
+    #[test]
+    fn binary_classification_runtime_new_perfect_predictions() {
+        let y_true = vec![1_i32, 0, 1, 0, 1];
+        let y_pred = vec![1_i32, 0, 1, 0, 1];
+        let rt = BinaryClassificationRuntime::new(&y_true, &y_pred, &1_i32).unwrap();
+        assert!((rt.accuracy - 1.0_f32).abs() < 1e-5_f32);
+        assert!((rt.precision_positive - 1.0_f32).abs() < 1e-5_f32);
+        assert!((rt.recall_positive - 1.0_f32).abs() < 1e-5_f32);
+        assert!((rt.f1_score - 1.0_f32).abs() < 1e-5_f32);
+    }
+
+    #[test]
+    fn binary_classification_runtime_compare_detects_drop() {
+        let baseline = BinaryClassificationRuntime {
+            balanced_accuracy: 0.9_f32,
+            precision_positive: 0.9_f32,
+            precision_negative: 0.9_f32,
+            recall_positive: 0.9_f32,
+            recall_negative: 0.9_f32,
+            accuracy: 0.9_f32,
+            f1_score: 0.9_f32,
+        };
+        // accuracy=0.5, 0.5 * 1.1 = 0.55 < 0.9 → flagged
+        let runtime = BinaryClassificationRuntime {
+            balanced_accuracy: 0.5_f32,
+            precision_positive: 0.5_f32,
+            precision_negative: 0.5_f32,
+            recall_positive: 0.5_f32,
+            recall_negative: 0.5_f32,
+            accuracy: 0.5_f32,
+            f1_score: 0.5_f32,
+        };
+        let result = runtime.compare_to_baseline(&[C::Accuracy, C::F1Score], &baseline, 0.1_f32);
+        assert!(result.contains_key(&C::Accuracy));
+        assert!(result.contains_key(&C::F1Score));
+    }
+
+    #[test]
+    fn binary_classification_runtime_compare_no_drift_identical() {
+        let baseline = BinaryClassificationRuntime {
+            balanced_accuracy: 0.9_f32,
+            precision_positive: 0.9_f32,
+            precision_negative: 0.9_f32,
+            recall_positive: 0.9_f32,
+            recall_negative: 0.9_f32,
+            accuracy: 0.9_f32,
+            f1_score: 0.9_f32,
+        };
+        let runtime = BinaryClassificationRuntime {
+            balanced_accuracy: 0.9_f32,
+            precision_positive: 0.9_f32,
+            precision_negative: 0.9_f32,
+            recall_positive: 0.9_f32,
+            recall_negative: 0.9_f32,
+            accuracy: 0.9_f32,
+            f1_score: 0.9_f32,
+        };
+        let all_metrics = vec![
+            C::BalancedAccuracy,
+            C::PrecisionPositive,
+            C::PrecisionNegative,
+            C::RecallPositive,
+            C::RecallNegative,
+            C::Accuracy,
+            C::F1Score,
+        ];
+        let result = runtime.compare_to_baseline(&all_metrics, &baseline, 0.1_f32);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn binary_classification_runtime_report_round_trip() {
+        let rt = BinaryClassificationRuntime {
+            balanced_accuracy: 0.85_f32,
+            precision_positive: 0.80_f32,
+            precision_negative: 0.82_f32,
+            recall_positive: 0.78_f32,
+            recall_negative: 0.90_f32,
+            accuracy: 0.84_f32,
+            f1_score: 0.79_f32,
+        };
+        let report = rt.generate_report();
+        let rt2 = BinaryClassificationRuntime::try_from(&report).unwrap();
+        assert_eq!(rt, rt2);
+    }
+
+    // --- LogisticRegressionRuntime ---
+
+    #[test]
+    fn logistic_regression_log_loss_increase_flagged() {
+        let baseline = LogisticRegressionRuntime {
+            balanced_accuracy: 0.9_f32,
+            precision_positive: 0.9_f32,
+            precision_negative: 0.9_f32,
+            recall_positive: 0.9_f32,
+            recall_negative: 0.9_f32,
+            accuracy: 0.9_f32,
+            f1_score: 0.9_f32,
+            log_loss: 0.2_f32,
+        };
+        // log_loss=0.5 > 0.2 * 1.1 = 0.22 → flagged
+        let runtime = LogisticRegressionRuntime {
+            log_loss: 0.5_f32,
+            ..baseline.clone()
+        };
+        let result = runtime.compare_to_baseline(&[C::LogLoss], &baseline, 0.1_f32);
+        assert!(result.contains_key(&C::LogLoss));
+    }
+
+    #[test]
+    fn logistic_regression_log_loss_improvement_not_flagged() {
+        let baseline = LogisticRegressionRuntime {
+            balanced_accuracy: 0.9_f32,
+            precision_positive: 0.9_f32,
+            precision_negative: 0.9_f32,
+            recall_positive: 0.9_f32,
+            recall_negative: 0.9_f32,
+            accuracy: 0.9_f32,
+            f1_score: 0.9_f32,
+            log_loss: 0.5_f32,
+        };
+        // log_loss=0.1, 0.1 > 0.5 * 1.1 = 0.55 → false, not flagged
+        let runtime = LogisticRegressionRuntime {
+            log_loss: 0.1_f32,
+            ..baseline.clone()
+        };
+        let result = runtime.compare_to_baseline(&[C::LogLoss], &baseline, 0.1_f32);
+        assert!(result.is_empty());
+    }
+
+    // --- LinearRegressionRuntime ---
+
+    #[test]
+    fn linear_regression_runtime_new_constant_error() {
+        // y_pred = y_true + 1.0 for all → error=1.0 throughout
+        // y_true_mean=3.0, ss_total=10.0, mse=1.0, r2=0.5
+        let y_true = vec![1.0_f32, 2.0, 3.0, 4.0, 5.0];
+        let y_pred = vec![2.0_f32, 3.0, 4.0, 5.0, 6.0];
+        let rt = LinearRegressionRuntime::new(&y_true, &y_pred).unwrap();
+        assert!((rt.mse - 1.0_f32).abs() < 1e-4_f32);
+        assert!((rt.rmse - 1.0_f32).abs() < 1e-4_f32);
+        assert!((rt.mae - 1.0_f32).abs() < 1e-4_f32);
+        assert!((rt.r_squared - 0.5_f32).abs() < 1e-4_f32);
+    }
+
+    #[test]
+    fn linear_regression_r_squared_drop_detected() {
+        let baseline = LinearRegressionRuntime {
+            rmse: 0.1_f32,
+            mse: 0.01_f32,
+            mae: 0.1_f32,
+            r_squared: 0.95_f32,
+            max_error: 0.2_f32,
+            msle: 0.01_f32,
+            rmsle: 0.1_f32,
+            mape: 0.05_f32,
+        };
+        // r_squared=0.5 < 0.95 * (1 - 0.1) = 0.855 → flagged
+        let runtime = LinearRegressionRuntime {
+            r_squared: 0.5_f32,
+            ..baseline.clone()
+        };
+        let result = runtime.compare_to_baseline(&[L::RSquared], &baseline, 0.1_f32);
+        assert!(result.contains_key(&L::RSquared));
+    }
+
+    #[test]
+    fn linear_regression_r_squared_improvement_not_flagged() {
+        let baseline = LinearRegressionRuntime {
+            rmse: 0.1_f32,
+            mse: 0.01_f32,
+            mae: 0.1_f32,
+            r_squared: 0.8_f32,
+            max_error: 0.2_f32,
+            msle: 0.01_f32,
+            rmsle: 0.1_f32,
+            mape: 0.05_f32,
+        };
+        // r_squared=0.95, 0.95 < 0.8 * (1 - 0.1) = 0.72 → false, not flagged
+        let runtime = LinearRegressionRuntime {
+            r_squared: 0.95_f32,
+            ..baseline.clone()
+        };
+        let result = runtime.compare_to_baseline(&[L::RSquared], &baseline, 0.1_f32);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn linear_regression_runtime_report_round_trip() {
+        let rt = LinearRegressionRuntime {
+            rmse: 0.5_f32,
+            mse: 0.25_f32,
+            mae: 0.4_f32,
+            r_squared: 0.85_f32,
+            max_error: 1.2_f32,
+            msle: 0.03_f32,
+            rmsle: 0.17_f32,
+            mape: 0.06_f32,
+        };
+        let report = rt.generate_report();
+        let rt2 = LinearRegressionRuntime::try_from(&report).unwrap();
+        assert_eq!(rt, rt2);
+    }
+
+    #[test]
+    fn linear_regression_error_metrics_increase_flagged() {
+        let baseline = LinearRegressionRuntime {
+            rmse: 0.5_f32,
+            mse: 0.25_f32,
+            mae: 0.4_f32,
+            r_squared: 0.85_f32,
+            max_error: 1.0_f32,
+            msle: 0.03_f32,
+            rmsle: 0.17_f32,
+            mape: 0.06_f32,
+        };
+        // mse=0.5 > 0.25 * 1.1 = 0.275 → flagged
+        let runtime = LinearRegressionRuntime {
+            mse: 0.5_f32,
+            rmse: 0.5_f32.sqrt(),
+            ..baseline.clone()
+        };
+        let result = runtime.compare_to_baseline(&[L::MeanSquaredError], &baseline, 0.1_f32);
+        assert!(result.contains_key(&L::MeanSquaredError));
     }
 }
 

@@ -296,6 +296,26 @@ impl LinearRegressionErrorBuckets {
     pub(crate) fn r2_snapshot(&self) -> f64 {
         self.r2.snapshot(self.y_true_sum, self.len)
     }
+
+    pub(crate) fn from_dataset<T: Into<f64> + Copy>(
+        y_true: &[T],
+        y_pred: &[T],
+    ) -> Result<LinearRegressionErrorBuckets, ModelPerformanceError> {
+        if y_true.len() != y_pred.len() {
+            return Err(ModelPerformanceError::DataVectorLengthMismatch);
+        }
+        if y_true.is_empty() {
+            return Err(ModelPerformanceError::EmptyDataVector);
+        }
+        let mut error_buckets = Self::default();
+        for (t_ref, p_ref) in zip_iters!(y_true, y_pred) {
+            let t: f64 = (*t_ref).into();
+            let p: f64 = (*p_ref).into();
+
+            error_buckets.update(t, p);
+        }
+        Ok(error_buckets)
+    }
 }
 
 /// Streaming variant of the Linear Regression monitoring tools included in the crate. This follows

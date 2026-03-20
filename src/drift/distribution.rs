@@ -35,14 +35,19 @@ const SCOTT_CONSTANT: f64 = 3.49;
 fn scott(dataset: &[f64]) -> usize {
     let n = dataset.len() as f64;
     let mean = dataset.iter().sum::<f64>() / n;
-    let deviation_term: f64 = dataset.iter().map(|v| (*v - mean)).sum::<f64>().powi(2);
-    let std_dev = 1_f64 / n * deviation_term;
-    (SCOTT_CONSTANT * std_dev * n.powf(-1_f64 / 3_f64)).floor() as usize
+    let deviation_term: f64 = dataset
+        .iter()
+        .map(|v| (*v - mean).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    // use the sample standard deviation
+    let std_dev = 1_f64 / (n - 1.0) * deviation_term;
+    ((SCOTT_CONSTANT * std_dev * n.powf(-1_f64 / 3_f64)).floor() as usize).max(3_usize)
 }
 
 /// Compute the optimal number of bins using Sturges method.
 fn sturges(dataset: &[f64]) -> usize {
-    (dataset.len() as f64).ln().floor() as usize + 1_usize
+    ((dataset.len() as f64).ln().floor() as usize + 1_usize).max(3_usize)
 }
 
 /// Compute the optimal number of bins using Freedman Diaconis method.
@@ -55,6 +60,6 @@ fn freedman_diaconis(sorted_data: &[f64]) -> usize {
     let width = 2_f64 * iqr * n.powf(-0.33);
     let dmax = sorted_data[n as usize - 1];
     let dmin = sorted_data[0];
-    // clamp to [5, ...)
-    ((dmax - dmin) / width).ceil().max(5_f64) as usize
+    // clamp to [2, ...)
+    ((dmax - dmin) / width).ceil().max(3_f64) as usize
 }

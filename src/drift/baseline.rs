@@ -39,14 +39,15 @@ impl BaselineContinuousBins {
         baseline_data: &[f64],
         quantile_resolution: QuantileType,
     ) -> Result<BaselineContinuousBins, DriftError> {
-        let n_bins = quantile_resolution.compute_num_bins(baseline_data);
+        let sorted_baseline = Self::sort_baseline_data(baseline_data)?;
+        let n_bins = quantile_resolution.compute_num_bins(&sorted_baseline);
         let mut obj = BaselineContinuousBins {
             n_bins,
             bin_edges: Vec::new(),
             baseline_hist: Vec::new(),
         };
 
-        obj.init_baseline_hist(baseline_data)?;
+        obj.init_baseline_hist(&sorted_baseline)?;
         Ok(obj)
     }
 
@@ -69,8 +70,8 @@ impl BaselineContinuousBins {
     // when reseting the baseline
     fn init_baseline_hist(&mut self, baseline_data: &[f64]) -> Result<(), DriftError> {
         self.define_bins(baseline_data)?;
-        let (bl_count, bl_hist) = self.build_bl_hist(baseline_data);
-        match compute_new_hist_prob(bl_count, &bl_hist) {
+        let bl_hist = self.build_bl_dist(baseline_data);
+        match compute_new_hist_prob(baseline_data.len(), &bl_hist) {
             Ok(processed_bl_hist) => {
                 self.baseline_hist = processed_bl_hist;
                 Ok(())
@@ -80,54 +81,48 @@ impl BaselineContinuousBins {
     }
 
     // Build the baseline histogram.
-    fn build_bl_hist(&self, data_slice: &[f64]) -> (usize, Vec<f64>) {
-        let bl_count = data_slice.len();
-        let mut hist = vec![0_f64; self.bin_edges.len() - 1];
-        let n_bins = self.bin_edges.len() - 1;
+    fn build_bl_dist(&self, data_slice: &[f64]) -> Vec<f64> {
+        let mut hist = vec![0_f64; self.n_bins];
         for item in data_slice {
-            let i = self.bin_edges.partition_point(|edge| *item >= *edge);
-            let idx = i.saturating_sub(1).min(n_bins - 1);
+            let idx = self.resolve_bin(*item);
             hist[idx] += 1_f64;
         }
 
-        (bl_count, hist)
+        hist
     }
 
-    // Define the bin edges. Makes best effort to accomodate user requested number of bins, if the
-    // user define number of bins is less than the size of the dataset, or the number of bins
-    // cannot reasonably satisfy the distribtution. In a happy case, the number of bin edges will be
-    // equal to the number of requested bins + 1.
+    /*
+     * - Bin edges will be of size num_bins - 2.
+     * - The outer bins, or tail bins in the distribution will be reserved for values observed in the
+     *  distribution that fall outsde the bounds of the baseline distribution.
+     *  - Bin/quantile size will have its "step" size determined by evenly diving the difference
+     *  between the max and min of the distribution and dividing by the number of bins - 2.
+     *  - A value is assigned to a particular quantile if left <= value < right, otherwise it will
+     *  be assigned to one of the tail quantile bins.
+     * */
     fn define_bins(&mut self, sorted_baseline: &[f64]) -> Result<(), DriftError> {
         self.bin_edges.clear();
 
         // if all sorted items in the baseline sample are equal, one logical bin
         // safe unwrap because we know there are items in the array
         if sorted_baseline.first().unwrap() == sorted_baseline.last().unwrap() {
-            self.bin_edges
-                .extend(vec![sorted_baseline[0], sorted_baseline[0]]);
+            self.bin_edges = vec![sorted_baseline[0]];
             return Ok(());
         }
 
-        let bin_size = sorted_baseline.len() / (self.n_bins - 2);
-        let n_samples = sorted_baseline.len();
+        // Safely can unwrap here as we know the baseline data is non empty.
+        let max = sorted_baseline.last().unwrap();
+        let min = sorted_baseline.first().unwrap();
+        let quantile_step_size = (max - min) / (self.n_bins - 2) as f64;
+        self.bin_edges = vec![0_f64; self.n_bins - 2];
 
-        // set population left edge
-        self.bin_edges.push(sorted_baseline[0]);
-        // The number ef edges should actually be number of bins - 2
-        // the left and right edge bins are implicitly defined in this case
+        let mut edge = sorted_baseline[0];
 
-        // set bins using an O(number of bins) loop
-        // index in bin_size * 1
-        // creates bins of [sorted_baseline[(i - 1) * bin_size], sorted_baseline[i * bin_size]]
-        for i in 1..(self.n_bins - 2) {
-            let idx = i * bin_size;
-            if idx < n_samples {
-                self.bin_edges.push(sorted_baseline[idx - 1]);
-            }
+        for i in 0..self.n_bins - 2 {
+            self.bin_edges[i] = edge;
+            edge += quantile_step_size;
         }
 
-        // set population right edge
-        self.bin_edges.push(sorted_baseline[n_samples - 1]);
         Ok(())
     }
 
@@ -138,7 +133,9 @@ impl BaselineContinuousBins {
 
     #[inline]
     fn right_bin_edge(&self) -> f64 {
-        self.bin_edges[self.n_bins - 1]
+        // bin_edges.len == n_bins - 2
+        // bin_edges[-1] == bin_edges[n_bins - 3]
+        self.bin_edges[self.n_bins - 3]
     }
 
     // Resolve the bin a particular data example falls into.
@@ -165,7 +162,8 @@ impl BaselineContinuousBins {
 
     // call into init method
     pub(crate) fn reset(&mut self, baseline_data: &[f64]) -> Result<(), DriftError> {
-        self.init_baseline_hist(baseline_data)?;
+        let sorted_baseline = Self::sort_baseline_data(baseline_data)?;
+        self.init_baseline_hist(&sorted_baseline)?;
         Ok(())
     }
 }

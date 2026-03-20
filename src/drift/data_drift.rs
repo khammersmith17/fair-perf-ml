@@ -27,12 +27,6 @@ impl Default for StreamingDriftMode {
     }
 }
 
-#[derive(Default, Debug)]
-pub struct ContinuousStreamingDriftConfig {
-    mode: StreamingDriftMode,
-    quantile_type: QuantileType,
-}
-
 #[derive(Debug)]
 enum StreamModeInner {
     Flush {
@@ -124,7 +118,9 @@ pub struct FlushModeMark;
 /// [`last_flush`]: StreamingContinuousDataDrift::last_flush
 pub struct DecayModeMark;
 
-trait StreamingDataDriftMark {}
+// Marker trait to allow shared behavior across the 2 modes.
+// Requires #[allow(private_bounds)] at call sites.
+pub(crate) trait StreamingDataDriftMark {}
 impl StreamingDataDriftMark for FlushModeMark {}
 impl StreamingDataDriftMark for DecayModeMark {}
 
@@ -551,6 +547,7 @@ impl StreamingContinuousDataDrift<FlushModeMark> {
     }
 }
 
+#[allow(private_bounds)]
 impl<M: StreamingDataDriftMark> StreamingContinuousDataDrift<M> {
     /// Returns `true` if no data has been accumulated since construction or the last flush.
     pub fn is_empty(&self) -> bool {
@@ -1024,6 +1021,7 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, DecayModeMark> {
     }
 }
 
+#[allow(private_bounds)]
 impl<T: Hash + Ord + Clone, M: StreamingDataDriftMark> StreamingCategoricalDataDrift<T, M> {
     /// Returns `true` if no data has been accumulated since construction or the last flush.
     pub fn is_empty(&self) -> bool {
@@ -1093,9 +1091,11 @@ mod continuous_tests {
         let baseline = [1.0, 2.0, 3.0, 4.0];
         let psi = ContinuousDataDrift::new_from_baseline(None, &baseline).unwrap();
 
-        // 3 bins → 4 edges
-        assert_eq!(psi.baseline.bin_edges.len(), 4);
-        assert_eq!(psi.rt_bins.len(), 3);
+        let expected_bins =
+            super::super::distribution::QuantileType::FreedmanDiaconis.compute_num_bins(&baseline);
+
+        assert_eq!(psi.baseline.bin_edges.len(), expected_bins - 2);
+        assert_eq!(psi.rt_bins.len(), expected_bins);
     }
 
     #[test]

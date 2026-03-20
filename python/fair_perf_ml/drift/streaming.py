@@ -17,6 +17,7 @@ from .base import (
 class DataDriftStreamingBase[T, R](ABC):
     """
     Abtract class to define the streaming data drift api contract.
+    More for correctness constraint rather than utility here.
     """
 
     @abstractmethod
