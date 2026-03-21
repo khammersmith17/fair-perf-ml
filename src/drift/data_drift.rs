@@ -214,6 +214,8 @@ impl ContinuousDataDrift {
     /// binned against the baseline histogram edges, drift is computed, and the runtime bins are
     /// cleared. Each call is stateless with respect to prior runtime data.
     ///
+    /// To compute drift across multiple criteria, use [`ContinuousDataDrift::compute_drift_multiple_criteria`]
+    ///
     /// Returns [`DriftError::EmptyRuntimeData`] if `runtime_data` is empty.
     pub fn compute_drift(
         &mut self,
@@ -222,6 +224,28 @@ impl ContinuousDataDrift {
     ) -> Result<f64, DriftError> {
         self.build_rt_hist(runtime_data)?;
         let drift = global_compute_drift(self, drift_type);
+        self.clear_rt();
+        Ok(drift)
+    }
+
+    /// Compute drift between the baseline and the provided runtime dataset for multiple data drift
+    /// types. The runtime data is binned against the baseline histogram edges, drift is computed,
+    /// and the runtime bins are cleared. Each call is stateless with respect to prior runtime data.
+    ///
+    /// This method is much more efficient for computing drift across multiple criteria as it only
+    /// requires a single build of the runtime data distribution representation.
+    ///
+    /// Returns [`DriftError::EmptyRuntimeData`] if `runtime_data` is empty.
+    pub fn compute_drift_multiple_criteria(
+        &mut self,
+        runtime_data: &[f64],
+        drift_types: &[DataDriftType],
+    ) -> Result<Vec<f64>, DriftError> {
+        self.build_rt_hist(runtime_data)?;
+        let drift = drift_types
+            .iter()
+            .map(|drift_type| global_compute_drift(self, *drift_type))
+            .collect();
         self.clear_rt();
         Ok(drift)
     }
@@ -704,6 +728,8 @@ impl<T: Hash + Ord + Clone> CategoricalDataDrift<T> {
     /// binned against the baseline label map, drift is computed, and the runtime bins are
     /// cleared. Each call is stateless with respect to prior runtime data.
     ///
+    /// To compute drift across multiple criteria, use [`CategoricalDataDrift::compute_drift_multiple_criteria`]
+    ///
     /// Runtime labels not seen in the baseline are accumulated in the "other" bin.
     ///
     /// Returns [`DriftError::EmptyRuntimeData`] if `runtime_data` is empty.
@@ -714,6 +740,30 @@ impl<T: Hash + Ord + Clone> CategoricalDataDrift<T> {
     ) -> Result<f64, DriftError> {
         self.build_rt_hist(runtime_data)?;
         let drift = global_compute_drift(self, drift_type);
+        self.clear_rt();
+        Ok(drift)
+    }
+
+    /// Compute drift between the baseline and the provided runtime dataset for multiple drift
+    /// metric types. The runtime data is binned against the baseline label map, drift is computed,
+    /// and the runtime bins are cleared. Each call is stateless with respect to prior runtime data.
+    ///
+    /// This method is much more efficient for computing drift across multiple criteria as it only
+    /// requires a single build of the runtime data distribution representation.
+    ///
+    /// Runtime labels not seen in the baseline are accumulated in the "other" bin.
+    ///
+    /// Returns [`DriftError::EmptyRuntimeData`] if `runtime_data` is empty.
+    pub fn compute_drift_multiple_criteria(
+        &mut self,
+        runtime_data: &[T],
+        drift_types: &[DataDriftType],
+    ) -> Result<Vec<f64>, DriftError> {
+        self.build_rt_hist(runtime_data)?;
+        let drift = drift_types
+            .iter()
+            .map(|drift_type| global_compute_drift(self, *drift_type))
+            .collect();
         self.clear_rt();
         Ok(drift)
     }
@@ -753,6 +803,10 @@ impl<T: Hash + Ord + Clone> CategoricalDataDrift<T> {
     /// represents the fraction of baseline samples with that label.
     pub fn export_baseline(&self) -> HashMap<T, f64> {
         self.baseline.export_baseline()
+    }
+
+    pub fn num_bins(&self) -> usize {
+        self.rt_bins.len()
     }
 }
 

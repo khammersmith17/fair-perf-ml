@@ -70,6 +70,21 @@ pub(crate) mod py_api {
             Ok(self.inner.compute_drift(rt_slice, drift_t)?)
         }
 
+        fn compute_drift_mutliple_criteria<'py>(
+            &mut self,
+            runtime_data: PyReadonlyArray1<'py, f64>,
+            drift_types: Vec<String>,
+        ) -> PyResult<Vec<f64>> {
+            let rt_slice = runtime_data.as_slice()?;
+            let mut drift_t = Vec::with_capacity(drift_types.len());
+            for dt in drift_types {
+                drift_t.push(DataDriftType::try_from(dt.as_str())?);
+            }
+            Ok(self
+                .inner
+                .compute_drift_multiple_criteria(rt_slice, &drift_t)?)
+        }
+
         /// Replace the baseline with a new data slice, recomputing the histogram.
         fn reset_baseline<'py>(
             &mut self,
@@ -383,6 +398,20 @@ pub(crate) mod py_api {
             Ok(self.inner.compute_drift(&runtime_data, drift_t)?)
         }
 
+        fn compute_drift_mutliple_criteria<'py>(
+            &mut self,
+            runtime_data: Vec<String>,
+            drift_types: Vec<String>,
+        ) -> PyResult<Vec<f64>> {
+            let mut drift_t = Vec::with_capacity(drift_types.len());
+            for dt in drift_types {
+                drift_t.push(DataDriftType::try_from(dt.as_str())?);
+            }
+            Ok(self
+                .inner
+                .compute_drift_multiple_criteria(&runtime_data, &drift_t)?)
+        }
+
         /// Replace the baseline with a new set of labels, recomputing the distribution.
         #[pyo3(signature = (new_baseline))]
         fn reset_baseline(&mut self, new_baseline: Vec<String>) -> PyResult<()> {
@@ -393,6 +422,11 @@ pub(crate) mod py_api {
         /// Return the baseline label frequencies as a normalized distribution.
         fn export_baseline(&self) -> HashMap<String, f64> {
             self.inner.export_baseline()
+        }
+
+        #[getter]
+        fn num_bins(&self) -> usize {
+            self.inner.num_bins()
         }
     }
 
