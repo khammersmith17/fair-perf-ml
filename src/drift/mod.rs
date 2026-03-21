@@ -13,3 +13,4 @@ pub(crate) mod python_impl;
 
 const DEFAULT_STREAM_FLUSH_CADENCE: u64 = 3600 * 24;
 const DEFAULT_MAX_STREAM_SIZE: u64 = 1_000_000_u64;
+const DEFAULT_DECAY_HALF_LIFE: u64 = 86400; // Defaul half life 1 day

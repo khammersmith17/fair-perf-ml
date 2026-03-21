@@ -11,89 +11,9 @@ pub(crate) mod core;
 pub mod statistics;
 use crate::reporting::{DriftReport, ModelBiasAnalysisReport};
 use core::post_training_bias;
-pub mod streaming;
-
 #[cfg(feature = "python")]
-pub(crate) mod py_api {
-    use super::core::post_training_bias;
-    use super::DiscretePostTraining;
-    use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict};
-    use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
-    use crate::reporting::DriftReport;
-    use crate::runtime::ModelBiasRuntime;
-    use numpy::PyUntypedArray;
-    use pyo3::{
-        prelude::*,
-        types::{IntoPyDict, PyDict},
-        Bound, PyResult, Python,
-    };
-    use std::collections::HashMap;
-
-    #[pyfunction]
-    #[pyo3(signature = (baseline, latest, metrics, threshold=0.10))]
-    pub fn py_model_bias_partial_check<'py>(
-        py: Python<'py>,
-        baseline: HashMap<String, f32>,
-        latest: HashMap<String, f32>,
-        metrics: Vec<String>,
-        threshold: f32,
-    ) -> PyResult<Bound<'py, PyDict>> {
-        let metrics = ModelBiasMetricVec::try_from(metrics.as_slice())?;
-        let current = ModelBiasRuntime::try_from(latest)?;
-        let baseline = ModelBiasRuntime::try_from(baseline)?;
-
-        let failure_report: HashMap<ModelBiasMetric, f32> =
-            current.runtime_check(baseline, threshold, metrics.as_ref());
-
-        let drift_report: DriftReport<ModelBiasMetric> = DriftReport::from_runtime(failure_report);
-
-        let py_dict = drift_report.into_py_dict(py)?;
-
-        Ok(py_dict)
-    }
-
-    #[pyfunction]
-    #[pyo3(signature = (baseline, latest, threshold=0.10))]
-    pub fn py_model_bias_runtime_check<'py>(
-        py: Python<'py>,
-        baseline: HashMap<String, f32>,
-        latest: HashMap<String, f32>,
-        threshold: f32,
-    ) -> PyResult<Bound<'py, PyDict>> {
-        let current = ModelBiasRuntime::try_from(latest)?;
-        let baseline = ModelBiasRuntime::try_from(baseline)?;
-
-        let failure_report: HashMap<ModelBiasMetric, f32> =
-            current.runtime_check(baseline, threshold, &FULL_MODEL_BIAS_METRICS);
-
-        let drift_report: DriftReport<ModelBiasMetric> = DriftReport::from_runtime(failure_report);
-        let py_dict = drift_report.into_py_dict(py)?;
-        Ok(py_dict)
-    }
-
-    #[pyfunction]
-    #[pyo3(signature = (feature_array, ground_truth_array, prediction_array, feature_label_or_threshold,
-        ground_truth_label_or_threshold, prediction_label_or_threshold))]
-    pub fn py_model_bias_analyzer<'py>(
-        py: Python<'py>,
-        feature_array: &Bound<'py, PyUntypedArray>,
-        ground_truth_array: &Bound<'py, PyUntypedArray>,
-        prediction_array: &Bound<'py, PyUntypedArray>,
-        feature_label_or_threshold: Bound<'py, PyAny>,
-        ground_truth_label_or_threshold: Bound<'py, PyAny>,
-        prediction_label_or_threshold: Bound<'py, PyAny>,
-    ) -> PyResult<Bound<'py, PyDict>> {
-        let preds: Vec<i16> = apply_label(py, prediction_array, prediction_label_or_threshold)?;
-        let gt: Vec<i16> = apply_label(py, ground_truth_array, ground_truth_label_or_threshold)?;
-        let feats: Vec<i16> = apply_label(py, feature_array, feature_label_or_threshold)?;
-
-        let post_training_data = DiscretePostTraining::new(&feats, &preds, &gt)?;
-        let analysis_res = post_training_bias(&post_training_data);
-
-        let py_dict = report_to_py_dict(py, analysis_res?);
-        Ok(py_dict)
-    }
-}
+pub(crate) mod python_impl;
+pub mod streaming;
 
 pub fn model_bias_runtime_check(
     baseline: ModelBiasAnalysisReport,
@@ -404,6 +324,245 @@ pub struct PostTrainingComputations {
 #[cfg(test)]
 mod model_bias_components {
     use super::*;
+    use crate::data_handler::{BiasSegmentationCriteria, BiasSegmentationType};
+    use crate::metrics::ModelBiasMetric as M;
+
+    // --- shared test data ---
+
+    // 8 samples: 4 advantaged (feat=1), 4 disadvantaged (feat=0).
+    // All predictions match ground truth → all difference metrics should be zero.
+    fn symmetric_data() -> (Vec<i32>, Vec<i32>, Vec<i32>) {
+        let feat = vec![1, 1, 1, 1, 0, 0, 0, 0];
+        let pred = vec![1, 1, 0, 0, 1, 1, 0, 0];
+        let gt   = vec![1, 0, 1, 0, 1, 0, 1, 0];
+        (feat, pred, gt)
+    }
+
+    fn seg() -> BiasSegmentationCriteria<i32> {
+        BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label)
+    }
+
+    fn full_model_bias_report(v: f32) -> crate::reporting::ModelBiasAnalysisReport {
+        use std::collections::HashMap;
+        let mut m: HashMap<M, f32> = HashMap::with_capacity(12);
+        m.insert(M::DifferenceInPositivePredictedLabels, v);
+        m.insert(M::DisparateImpact, v);
+        m.insert(M::AccuracyDifference, v);
+        m.insert(M::RecallDifference, v);
+        m.insert(M::DifferenceInConditionalAcceptance, v);
+        m.insert(M::DifferenceInAcceptanceRate, v);
+        m.insert(M::SpecialityDifference, v);
+        m.insert(M::DifferenceInConditionalRejection, v);
+        m.insert(M::DifferenceInRejectionRate, v);
+        m.insert(M::TreatmentEquity, v);
+        m.insert(M::ConditionalDemographicDesparityPredictedLabels, v);
+        m.insert(M::GeneralizedEntropy, v);
+        m
+    }
+
+    // --- PostTrainingDistribution ---
+
+    #[test]
+    fn post_training_distribution_cond_acceptance_errors_when_no_gt_positives() {
+        let d = PostTrainingDistribution { len: 5, positive_gt: 0, positive_pred: 3 };
+        assert!(d.cond_acceptance().is_err());
+    }
+
+    #[test]
+    fn post_training_distribution_positive_prediction_rate_errors_when_empty() {
+        let d = PostTrainingDistribution::default();
+        assert!(d.positive_prediction_rate().is_err());
+    }
+
+    #[test]
+    fn post_training_distribution_conditional_rejection_errors_when_all_predicted_positive() {
+        // d = len - pos_pred = 0 when all predicted positive
+        let d = PostTrainingDistribution { len: 4, positive_gt: 2, positive_pred: 4 };
+        assert!(d.conditional_rejection().is_err());
+    }
+
+    #[test]
+    fn post_training_distribution_clear_resets() {
+        let mut d = PostTrainingDistribution { len: 5, positive_gt: 3, positive_pred: 2 };
+        d.clear();
+        assert_eq!(d, PostTrainingDistribution::default());
+    }
+
+    // --- PostTraining::accumulate_batch ---
+
+    #[test]
+    fn post_training_accumulate_batch_increments_correctly() {
+        let (feat, pred, gt) = symmetric_data();
+        let feat_seg = seg();
+        let pred_seg = seg();
+        let gt_seg = seg();
+        let mut pt = PostTraining::default();
+        pt.accumulate_batch(&feat, &feat_seg, &pred, &pred_seg, &gt, &gt_seg).unwrap();
+
+        // Each facet has 4 samples, 2 positive predictions, 2 positive ground truths.
+        assert_eq!(pt.dist_a, PostTrainingDistribution { len: 4, positive_pred: 2, positive_gt: 2 });
+        assert_eq!(pt.dist_d, PostTrainingDistribution { len: 4, positive_pred: 2, positive_gt: 2 });
+    }
+
+    #[test]
+    fn post_training_accumulate_batch_mismatched_lengths_errors() {
+        let feat_seg = seg();
+        let pred_seg = seg();
+        let gt_seg = seg();
+        let mut pt = PostTraining::default();
+        assert!(pt.accumulate_batch(&[1_i32, 0], &feat_seg, &[1_i32], &pred_seg, &[1_i32], &gt_seg).is_err());
+    }
+
+    #[test]
+    fn post_training_accumulate_batch_empty_errors() {
+        let feat_seg = seg();
+        let pred_seg = seg();
+        let gt_seg = seg();
+        let mut pt = PostTraining::default();
+        assert!(pt.accumulate_batch(&[], &feat_seg, &[], &pred_seg, &[], &gt_seg).is_err());
+    }
+
+    // --- PostTraining::clear ---
+
+    #[test]
+    fn post_training_clear_resets_all_fields() {
+        let (feat, pred, gt) = symmetric_data();
+        let feat_seg = seg();
+        let pred_seg = seg();
+        let gt_seg = seg();
+        let mut pt = PostTraining::default();
+        pt.accumulate_batch(&feat, &feat_seg, &pred, &pred_seg, &gt, &gt_seg).unwrap();
+        pt.clear();
+        assert_eq!(pt.dist_a, PostTrainingDistribution::default());
+        assert_eq!(pt.dist_d, PostTrainingDistribution::default());
+    }
+
+    // --- PostTraining::new_from_segmentation_criteria ---
+
+    #[test]
+    fn post_training_new_from_seg_criteria_happy_path() {
+        let (feat, pred, gt) = symmetric_data();
+        let pt = PostTraining::new_from_segmentation_criteria(
+            &feat, &seg(), &pred, &seg(), &gt, &seg(),
+        ).unwrap();
+        assert_eq!(pt.dist_a.len + pt.dist_d.len, 8);
+    }
+
+    #[test]
+    fn post_training_new_from_seg_criteria_mismatched_lengths_errors() {
+        assert!(PostTraining::new_from_segmentation_criteria(
+            &[1_i32, 0], &seg(), &[1_i32], &seg(), &[1_i32], &seg(),
+        ).is_err());
+    }
+
+    #[test]
+    fn post_training_new_from_seg_criteria_empty_errors() {
+        let s = BiasSegmentationCriteria::new(0_i32, BiasSegmentationType::Label);
+        assert!(PostTraining::new_from_segmentation_criteria(
+            &[], &s, &[], &s, &[], &s,
+        ).is_err());
+    }
+
+    // --- BucketGeneralizedEntropy ---
+
+    #[test]
+    fn bucket_ge_len_is_sum_of_all_counts() {
+        let mut ge = BucketGeneralizedEntropy::default();
+        assert_eq!(ge.len(), 0);
+        let gt = vec![1_i32, 0, 1, 0];
+        let pred = vec![0_i32, 1, 1, 0];
+        let gt_seg = BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label);
+        let pred_seg = BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label);
+        ge.accumulate(&gt, &gt_seg, &pred, &pred_seg);
+        assert_eq!(ge.len(), 4);
+    }
+
+    #[test]
+    fn bucket_ge_clear_resets_to_zero() {
+        let mut ge = BucketGeneralizedEntropy::default();
+        let gt = vec![1_i32, 0];
+        let pred = vec![1_i32, 0];
+        let gt_seg = BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label);
+        let pred_seg = BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label);
+        ge.accumulate(&gt, &gt_seg, &pred, &pred_seg);
+        ge.clear();
+        assert_eq!(ge.len(), 0);
+    }
+
+    #[test]
+    fn bucket_ge_perfect_predictions_give_zero_entropy() {
+        // All (gt=1,pred=1) → benefit=1 for all → mean=1 → (1/1)^2-1=0 → GE=0
+        let mut ge = BucketGeneralizedEntropy::default();
+        let gt = vec![1_i32, 1, 1, 1];
+        let pred = vec![1_i32, 1, 1, 1];
+        let gt_seg = BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label);
+        let pred_seg = BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label);
+        ge.accumulate(&gt, &gt_seg, &pred, &pred_seg);
+        assert!((ge.ge_snapshot()).abs() < 1e-4);
+    }
+
+    // --- model_bias_analyzer ---
+
+    #[test]
+    fn model_bias_analyzer_returns_twelve_metrics() {
+        use crate::data_handler::BiasDataPayload;
+        let (feat, pred, gt) = symmetric_data();
+        let report = model_bias_analyzer(
+            BiasDataPayload::new_from_criteria(&feat, seg()),
+            BiasDataPayload::new_from_criteria(&pred, seg()),
+            BiasDataPayload::new_from_criteria(&gt, seg()),
+        ).unwrap();
+        assert_eq!(report.len(), 12);
+    }
+
+    #[test]
+    fn model_bias_analyzer_mismatched_lengths_returns_error() {
+        use crate::data_handler::BiasDataPayload;
+        let feat = vec![1_i32, 0, 1];
+        let pred = vec![1_i32, 0];
+        let gt   = vec![1_i32, 0, 1];
+        assert!(model_bias_analyzer(
+            BiasDataPayload::new_from_criteria(&feat, seg()),
+            BiasDataPayload::new_from_criteria(&pred, seg()),
+            BiasDataPayload::new_from_criteria(&gt, seg()),
+        ).is_err());
+    }
+
+    // --- model_bias_runtime_check / partial ---
+
+    #[test]
+    fn model_bias_runtime_check_identical_reports_passes() {
+        let result = model_bias_runtime_check(
+            full_model_bias_report(0.5),
+            full_model_bias_report(0.5),
+            0.1,
+        ).unwrap();
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn model_bias_runtime_check_missing_metric_returns_error() {
+        let mut incomplete = full_model_bias_report(0.5);
+        incomplete.remove(&M::GeneralizedEntropy);
+        assert!(model_bias_runtime_check(full_model_bias_report(0.5), incomplete, 0.1).is_err());
+    }
+
+    #[test]
+    fn model_bias_partial_runtime_check_filters_to_requested_subset() {
+        // baseline ddpl=0.1, current ddpl=0.5 → exceeds threshold → flagged
+        // baseline di=0.5, current di=0.5 → no change → not flagged
+        let mut current = full_model_bias_report(0.1);
+        current.insert(M::DifferenceInPositivePredictedLabels, 0.5);
+        let result = model_bias_partial_runtime_check::<()>(
+            full_model_bias_report(0.1),
+            current,
+            0.1,
+            &[M::DifferenceInPositivePredictedLabels],
+        ).unwrap();
+        assert!(!result.passed);
+        let failed = result.failed_report.unwrap();
+        assert!(failed.iter().any(|f| f.metric == M::DifferenceInPositivePredictedLabels));
+    }
 
     #[test]
     fn test_post_training_accum() {

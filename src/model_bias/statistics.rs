@@ -550,3 +550,305 @@ pub(crate) mod inner {
             .sum()
     }
 }
+
+#[cfg(test)]
+mod statistics_tests {
+    use super::*;
+    use crate::data_handler::{BiasSegmentationCriteria, BiasSegmentationType};
+
+    // Symmetric dataset: 4 advantaged (feat=1), 4 disadvantaged (feat=0).
+    // Each facet has identical pred=[1,1,0,0] and gt=[1,0,1,0].
+    // All difference metrics should be 0; disparate_impact should be 1.
+    fn sym_feat() -> Vec<i32> {
+        vec![1, 1, 1, 1, 0, 0, 0, 0]
+    }
+    fn sym_pred() -> Vec<i32> {
+        vec![1, 1, 0, 0, 1, 1, 0, 0]
+    }
+    fn sym_gt() -> Vec<i32> {
+        vec![1, 0, 1, 0, 1, 0, 1, 0]
+    }
+
+    fn feat_seg() -> BiasSegmentationCriteria<i32> {
+        BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label)
+    }
+
+    // --- AdHocSegmentation error paths ---
+
+    #[test]
+    fn mismatched_lengths_returns_data_length_error() {
+        // pred is shorter than feature/gt
+        let result = accuracy_difference(
+            &[1_i32, 0, 1],
+            feat_seg(),
+            &[1_i32, 0],
+            feat_seg(),
+            &[1_i32, 0, 1],
+            feat_seg(),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn no_facet_deviation_returns_error_when_one_group_empty() {
+        // all features == 1 → facet_d is empty → NoFacetDeviation
+        let feat = vec![1_i32, 1, 1, 1];
+        let pred = vec![1_i32, 0, 1, 0];
+        let gt = vec![1_i32, 0, 1, 0];
+        let result = accuracy_difference(&feat, feat_seg(), &pred, feat_seg(), &gt, feat_seg());
+        assert!(result.is_err());
+    }
+
+    // --- diff_in_pos_proportion_in_pred_labels ---
+
+    #[test]
+    fn diff_in_pos_proportion_symmetric_is_zero() {
+        let v = diff_in_pos_proportion_in_pred_labels(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        assert!((v).abs() < 1e-4);
+    }
+
+    #[test]
+    fn diff_in_pos_proportion_mismatch_errors() {
+        assert!(diff_in_pos_proportion_in_pred_labels(
+            &[1_i32, 0],
+            feat_seg(),
+            &[1_i32],
+            feat_seg(),
+            &[1_i32, 0],
+            feat_seg(),
+        )
+        .is_err());
+    }
+
+    // --- disparate_impact ---
+
+    #[test]
+    fn disparate_impact_symmetric_is_one() {
+        let v = disparate_impact(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        assert!((v - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn disparate_impact_mismatch_errors() {
+        assert!(disparate_impact(
+            &[1_i32, 0],
+            feat_seg(),
+            &[1_i32],
+            feat_seg(),
+            &[1_i32, 0],
+            feat_seg(),
+        )
+        .is_err());
+    }
+
+    // --- diff_in_cond_acceptance ---
+
+    #[test]
+    fn diff_in_cond_acceptance_symmetric_is_zero() {
+        let v = diff_in_cond_acceptance(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        assert!((v).abs() < 1e-4);
+    }
+
+    // --- accuracy_difference ---
+
+    #[test]
+    fn accuracy_difference_symmetric_is_zero() {
+        let v = accuracy_difference(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        assert!((v).abs() < 1e-4);
+    }
+
+    #[test]
+    fn accuracy_difference_nonzero_when_groups_differ() {
+        // facet_a (feat=1): pred=[1,0], gt=[1,0] → perfect → acc=1.0
+        // facet_d (feat=0): pred=[1,0], gt=[0,1] → all wrong → acc=0.0
+        let feat = vec![1_i32, 1, 0, 0];
+        let pred = vec![1_i32, 0, 1, 0];
+        let gt = vec![1_i32, 0, 0, 1];
+        let v = accuracy_difference(&feat, feat_seg(), &pred, feat_seg(), &gt, feat_seg()).unwrap();
+        assert!((v - 1.0).abs() < 1e-4);
+    }
+
+    // --- diff_in_acceptance_rate ---
+
+    #[test]
+    fn diff_in_acceptance_rate_symmetric_is_zero() {
+        let v = diff_in_acceptance_rate(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        assert!((v).abs() < 1e-4);
+    }
+
+    // --- recall_difference ---
+
+    #[test]
+    fn recall_difference_symmetric_is_zero() {
+        let v = recall_difference(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        assert!((v).abs() < 1e-4);
+    }
+
+    #[test]
+    fn recall_difference_nonzero_when_groups_differ() {
+        // facet_a (feat=1): pred=[1,0], gt=[1,0] → TP=1,FN=0 → recall=1.0
+        // facet_d (feat=0): pred=[1,0], gt=[0,1] → TP=0,FN=1 → recall=0.0
+        let feat = vec![1_i32, 1, 0, 0];
+        let pred = vec![1_i32, 0, 1, 0];
+        let gt = vec![1_i32, 0, 0, 1];
+        let v = recall_difference(&feat, feat_seg(), &pred, feat_seg(), &gt, feat_seg()).unwrap();
+        assert!((v - 1.0).abs() < 1e-4);
+    }
+
+    // --- diff_in_cond_rejection ---
+
+    #[test]
+    fn diff_in_cond_rejection_symmetric_is_zero() {
+        let v = diff_in_cond_rejection(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        assert!((v).abs() < 1e-4);
+    }
+
+    // --- specailty_difference ---
+
+    #[test]
+    fn specailty_difference_symmetric_is_zero() {
+        let v = specailty_difference(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        assert!((v).abs() < 1e-4);
+    }
+
+    // --- diff_in_rejection_rate ---
+
+    #[test]
+    fn diff_in_rejection_rate_symmetric_is_zero() {
+        let v = diff_in_rejection_rate(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        assert!((v).abs() < 1e-4);
+    }
+
+    // --- cond_dem_desp_in_pred_labels ---
+
+    #[test]
+    fn cond_dem_desp_in_pred_labels_returns_ok_for_symmetric_data() {
+        let v = cond_dem_desp_in_pred_labels(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        // With symmetric data both groups have identical distributions → result is 0
+        assert!((v).abs() < 1e-4);
+    }
+
+    // --- treatment_equity ---
+
+    #[test]
+    fn treatment_equity_symmetric_is_zero() {
+        let v = treatment_equity(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .unwrap();
+        assert!((v).abs() < 1e-4);
+    }
+
+    // --- generalized_entropy ---
+
+    #[test]
+    fn generalized_entropy_returns_ok_for_symmetric_data() {
+        assert!(generalized_entropy(
+            &sym_feat(),
+            feat_seg(),
+            &sym_pred(),
+            feat_seg(),
+            &sym_gt(),
+            feat_seg(),
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn generalized_entropy_mismatch_errors() {
+        assert!(generalized_entropy(
+            &[1_i32, 0],
+            feat_seg(),
+            &[1_i32],
+            feat_seg(),
+            &[1_i32, 0],
+            feat_seg(),
+        )
+        .is_err());
+    }
+}

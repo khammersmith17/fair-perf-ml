@@ -94,6 +94,7 @@ pub(crate) mod py_api {
 /// Reseting the baseline is also supported, which may be appropriate at some time cadence, or
 /// after a model refresh. Feature class and ground truth class labeling will be done with the
 /// provided 'data_handler::BiasSegmentationCriteria<T>'.
+#[derive(Debug)]
 pub struct StreamingDataBias<G, F>
 where
     G: PartialOrd,
@@ -267,373 +268,257 @@ where
 #[cfg(test)]
 mod data_bias_streaming_tests {
     use super::*;
+    use crate::data_bias::statistics as stats;
     use crate::data_handler::{BiasSegmentationCriteria, BiasSegmentationType};
+    use crate::metrics::DataBiasMetric as M;
+    use std::collections::HashMap;
+
+    fn test_data() -> (Vec<i32>, Vec<i32>) {
+        (
+            vec![1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1],
+            vec![0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1],
+        )
+    }
+
+    fn seg() -> BiasSegmentationCriteria<i32> {
+        BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label)
+    }
+
+    fn baseline_runtime(feat: &[i32], gt: &[i32]) -> DataBiasRuntime {
+        DataBiasRuntime {
+            ci: stats::class_imbalance(feat, seg(), gt, seg()).unwrap(),
+            dpl: stats::diff_in_proportion_of_labels(feat, seg(), gt, seg()).unwrap(),
+            kl: stats::kl_divergence(feat, seg(), gt, seg()).unwrap(),
+            js: stats::jensen_shannon(feat, seg(), gt, seg()).unwrap(),
+            lpnorm: stats::lp_norm(feat, seg(), gt, seg()).unwrap(),
+            tvd: stats::total_variation_distance(feat, seg(), gt, seg()).unwrap(),
+            ks: stats::kolmogorov_smirnov(feat, seg(), gt, seg()).unwrap(),
+        }
+    }
+
+    fn make_streaming(feat: &[i32], gt: &[i32]) -> StreamingDataBias<i32, i32> {
+        StreamingDataBias::new(feat, seg(), gt, seg()).unwrap()
+    }
 
     #[test]
     fn test_bl_construction() {
-        use crate::data_bias::statistics as stats;
-        let feature_data: Vec<i32> =
-            vec![1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1];
-        let gt_data: Vec<i32> = vec![0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1];
-
-        let ci = stats::class_imbalance(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let dpl = stats::diff_in_proportion_of_labels(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let kl = stats::kl_divergence(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-        let js = stats::jensen_shannon(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let lpnorm = stats::lp_norm(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let tvd = stats::total_variation_distance(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-        let ks = stats::kolmogorov_smirnov(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let base = DataBiasRuntime {
-            ci,
-            dpl,
-            js,
-            kl,
-            ks,
-            lpnorm,
-            tvd,
-        };
-
-        let streaming = StreamingDataBias::new(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-        assert_eq!(base, streaming.baseline_report)
+        let (feat, gt) = test_data();
+        assert_eq!(
+            baseline_runtime(&feat, &gt),
+            make_streaming(&feat, &gt).baseline_report
+        );
     }
 
     #[test]
     fn test_bl_reset() {
-        use crate::data_bias::statistics as stats;
-        let feature_data: Vec<i32> =
-            vec![1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1];
-        let gt_data: Vec<i32> = vec![0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1];
-
-        let ci = stats::class_imbalance(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let dpl = stats::diff_in_proportion_of_labels(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let kl = stats::kl_divergence(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-        let js = stats::jensen_shannon(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let lpnorm = stats::lp_norm(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let tvd = stats::total_variation_distance(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-        let ks = stats::kolmogorov_smirnov(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let base = DataBiasRuntime {
-            ci,
-            dpl,
-            js,
-            kl,
-            ks,
-            lpnorm,
-            tvd,
-        };
-
-        let mut streaming = StreamingDataBias::new(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        streaming.reset_baseline(&feature_data, &gt_data).unwrap();
-        assert_eq!(base, streaming.baseline_report)
+        let (feat, gt) = test_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        streaming.reset_baseline(&feat, &gt).unwrap();
+        assert_eq!(baseline_runtime(&feat, &gt), streaming.baseline_report);
     }
 
     #[test]
     fn reset_baseline_and_seg() {
-        use crate::data_bias::statistics as stats;
-        let feature_data: Vec<i32> =
-            vec![1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1];
-        let gt_data: Vec<i32> = vec![0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1];
-
-        let ci = stats::class_imbalance(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let dpl = stats::diff_in_proportion_of_labels(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let kl = stats::kl_divergence(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-        let js = stats::jensen_shannon(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let lpnorm = stats::lp_norm(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let tvd = stats::total_variation_distance(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-        let ks = stats::kolmogorov_smirnov(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let base = DataBiasRuntime {
-            ci,
-            dpl,
-            js,
-            kl,
-            ks,
-            lpnorm,
-            tvd,
-        };
-
-        let mut streaming = StreamingDataBias::new(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let feature_data2: Vec<i32> = feature_data.iter().map(|v| v + 1).collect();
-        let gt_data2: Vec<i32> = gt_data.iter().map(|v| v + 1).collect();
-
+        let (feat, gt) = test_data();
+        let feat2: Vec<i32> = feat.iter().map(|v| v + 1).collect();
+        let gt2: Vec<i32> = gt.iter().map(|v| v + 1).collect();
+        let mut streaming = make_streaming(&feat, &gt);
         streaming
             .reset_baseline_and_segmentation(
-                &feature_data2,
+                &feat2,
                 BiasSegmentationCriteria::new(2_i32, BiasSegmentationType::Label),
-                &gt_data2,
+                &gt2,
                 BiasSegmentationCriteria::new(2_i32, BiasSegmentationType::Label),
             )
             .unwrap();
-        assert_eq!(base, streaming.baseline_report)
+        assert_eq!(baseline_runtime(&feat, &gt), streaming.baseline_report);
     }
 
     #[test]
     fn perf_report() {
-        use crate::data_bias::statistics as stats;
-        use crate::metrics::DataBiasMetric as M;
-        let feature_data: Vec<i32> =
-            vec![1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1];
-        let gt_data: Vec<i32> = vec![0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1];
-
-        let ci = stats::class_imbalance(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let dpl = stats::diff_in_proportion_of_labels(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let kl = stats::kl_divergence(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-        let js = stats::jensen_shannon(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let lpnorm = stats::lp_norm(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let tvd = stats::total_variation_distance(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-        let ks = stats::kolmogorov_smirnov(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let mut streaming = StreamingDataBias::new(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-        )
-        .unwrap();
-
-        let mut result = std::collections::HashMap::new();
-        result.insert(M::ClassImbalance, ci);
-        result.insert(M::DifferenceInProportionOfLabels, dpl);
-        result.insert(M::KlDivergence, kl);
-        result.insert(M::JsDivergence, js);
-        result.insert(M::LpNorm, lpnorm);
-        result.insert(M::TotalVariationDistance, tvd);
-        result.insert(M::KolmorogvSmirnov, ks);
-
-        streaming.push_batch(&feature_data, &gt_data).unwrap();
-
-        assert_eq!(result, streaming.performance_snapshot().unwrap());
+        let (feat, gt) = test_data();
+        let base = baseline_runtime(&feat, &gt);
+        let expected: HashMap<M, f32> = [
+            (M::ClassImbalance, base.ci),
+            (M::DifferenceInProportionOfLabels, base.dpl),
+            (M::KlDivergence, base.kl),
+            (M::JsDivergence, base.js),
+            (M::LpNorm, base.lpnorm),
+            (M::TotalVariationDistance, base.tvd),
+            (M::KolmorogvSmirnov, base.ks),
+        ]
+        .into_iter()
+        .collect();
+        let mut streaming = make_streaming(&feat, &gt);
+        streaming.push_batch(&feat, &gt).unwrap();
+        assert_eq!(expected, streaming.performance_snapshot().unwrap());
     }
 
     #[test]
     fn drift_report() {
-        use crate::metrics::DataBiasMetric as M;
-        let feature_data: Vec<i32> =
-            vec![1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1];
-        let gt_data: Vec<i32> = vec![0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1];
-        let mut streaming = StreamingDataBias::new(
-            &feature_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
-            &gt_data,
-            BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label),
+        let (feat, gt) = test_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        streaming.push_batch(&feat, &gt).unwrap();
+        let expected: HashMap<M, f32> = [
+            (M::ClassImbalance, 0_f32),
+            (M::DifferenceInProportionOfLabels, 0_f32),
+            (M::KlDivergence, 0_f32),
+            (M::JsDivergence, 0_f32),
+            (M::LpNorm, 0_f32),
+            (M::TotalVariationDistance, 0_f32),
+            (M::KolmorogvSmirnov, 0_f32),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(expected, streaming.drift_snapshot().unwrap());
+    }
+
+    // Runtime data where both facets have 50% acceptance, vs baseline 70%/20%.
+    // DPL drift = |0.0 - 0.5| = 0.5, KL drift ≈ 0.58 — both well above any reasonable threshold.
+    // CI remains 0 for both (balanced classes), giving a metric with zero drift to test against.
+    fn drifted_data() -> (Vec<i32>, Vec<i32>) {
+        (
+            vec![1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+            vec![1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1],
         )
-        .unwrap();
+    }
 
-        streaming.push_batch(&feature_data, &gt_data).unwrap();
+    // --- push ---
 
-        let mut clean_rt = std::collections::HashMap::new();
-        clean_rt.insert(M::ClassImbalance, 0_f32);
-        clean_rt.insert(M::DifferenceInProportionOfLabels, 0_f32);
-        clean_rt.insert(M::KlDivergence, 0_f32);
-        clean_rt.insert(M::JsDivergence, 0_f32);
-        clean_rt.insert(M::LpNorm, 0_f32);
-        clean_rt.insert(M::TotalVariationDistance, 0_f32);
-        clean_rt.insert(M::KolmorogvSmirnov, 0_f32);
-        assert_eq!(clean_rt, streaming.drift_snapshot().unwrap());
+    #[test]
+    fn push_single_example_populates_stream() {
+        let (feat, gt) = test_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        streaming.push(&1_i32, &1_i32);
+        // Should error here as 1 examples results in only 1 class having data.
+        assert!(streaming.drift_snapshot().is_err());
+    }
+
+    // --- flush ---
+
+    #[test]
+    fn flush_clears_runtime_and_subsequent_operations_return_empty_error() {
+        let (feat, gt) = test_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        streaming.push_batch(&feat, &gt).unwrap();
+        streaming.flush();
+        assert!(streaming.drift_snapshot().is_err());
+        assert!(streaming.drift_report(None).is_err());
+        assert!(streaming.performance_snapshot().is_err());
+    }
+
+    // --- empty stream errors ---
+
+    #[test]
+    fn drift_snapshot_on_empty_stream_returns_error() {
+        let (feat, gt) = test_data();
+        assert!(make_streaming(&feat, &gt).drift_snapshot().is_err());
+    }
+
+    #[test]
+    fn drift_report_on_empty_stream_returns_error() {
+        let (feat, gt) = test_data();
+        assert!(make_streaming(&feat, &gt).drift_report(None).is_err());
+    }
+
+    #[test]
+    fn performance_snapshot_on_empty_stream_returns_error() {
+        let (feat, gt) = test_data();
+        assert!(make_streaming(&feat, &gt).performance_snapshot().is_err());
+    }
+
+    // --- drift_snapshot with actual non-zero drift ---
+
+    #[test]
+    fn drift_snapshot_nonzero_when_runtime_differs_from_baseline() {
+        let (feat, gt) = test_data();
+        let (rt_feat, rt_gt) = drifted_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        streaming.push_batch(&rt_feat, &rt_gt).unwrap();
+        let snapshot = streaming.drift_snapshot().unwrap();
+        assert!(snapshot.values().any(|v| *v > 0.0));
+    }
+
+    // --- drift_report threshold ---
+
+    #[test]
+    fn drift_report_passes_when_runtime_matches_baseline() {
+        let (feat, gt) = test_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        streaming.push_batch(&feat, &gt).unwrap();
+        let report = streaming.drift_report(Some(0.10)).unwrap();
+        assert!(report.passed);
+        assert!(report.failed_report.is_none());
+    }
+
+    #[test]
+    fn drift_report_fails_when_drift_exceeds_threshold() {
+        let (feat, gt) = test_data();
+        let (rt_feat, rt_gt) = drifted_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        streaming.push_batch(&rt_feat, &rt_gt).unwrap();
+        let report = streaming.drift_report(Some(0.10)).unwrap();
+        assert!(!report.passed);
+        assert!(report.failed_report.is_some());
+    }
+
+    // --- drift_report_partial_metrics ---
+
+    #[test]
+    fn drift_report_partial_metrics_filters_to_requested_subset() {
+        let (feat, gt) = test_data();
+        let (rt_feat, rt_gt) = drifted_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        streaming.push_batch(&rt_feat, &rt_gt).unwrap();
+
+        // CI has zero drift (both baseline and runtime have balanced classes), so
+        // restricting to CI only should produce a passing report even though full
+        // drift is large.
+        let ci_only = streaming
+            .drift_report_partial_metrics(&[M::ClassImbalance], Some(0.10))
+            .unwrap();
+        assert!(ci_only.passed);
+
+        // DPL drifts by ~0.5, so restricting to DPL should produce a failing report.
+        let dpl_only = streaming
+            .drift_report_partial_metrics(&[M::DifferenceInProportionOfLabels], Some(0.10))
+            .unwrap();
+        assert!(!dpl_only.passed);
+    }
+
+    // --- push_batch error cases ---
+
+    #[test]
+    fn push_batch_mismatched_lengths_returns_error() {
+        let (feat, gt) = test_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        assert!(streaming.push_batch(&[1_i32, 0, 1], &[0_i32, 1]).is_err());
+    }
+
+    #[test]
+    fn push_batch_empty_returns_error() {
+        let (feat, gt) = test_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        assert!(streaming.push_batch(&[], &[]).is_err());
+    }
+
+    // --- reset_baseline clears accumulated runtime ---
+
+    #[test]
+    fn reset_baseline_clears_accumulated_runtime() {
+        let (feat, gt) = test_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        streaming.push_batch(&feat, &gt).unwrap();
+        streaming.reset_baseline(&feat, &gt).unwrap();
+        assert!(streaming.drift_snapshot().is_err());
+    }
+
+    // --- reset_baseline error case ---
+
+    #[test]
+    fn reset_baseline_with_empty_data_returns_error() {
+        let (feat, gt) = test_data();
+        let mut streaming = make_streaming(&feat, &gt);
+        assert!(streaming.reset_baseline(&[], &[]).is_err());
     }
 }

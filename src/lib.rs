@@ -22,11 +22,12 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     };
 
     use drift::python_impl::py_api::{
-        PyCategoricalDataDrift, PyContinuousDataDrift, PyStreamingCategoricalDataDrift,
-        PyStreamingContinuousDataDrift,
+        PyCategoricalDataDrift, PyContinuousDataDrift, PyStreamingCategoricalDataDriftDecay,
+        PyStreamingCategoricalDataDriftFlush, PyStreamingContinuousDataDriftDecay,
+        PyStreamingContinuousDataDriftFlush,
     };
 
-    use model_bias::py_api::{
+    use model_bias::python_impl::py_api::{
         py_model_bias_analyzer, py_model_bias_partial_check, py_model_bias_runtime_check,
     };
 
@@ -38,7 +39,7 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     };
 
     use data_bias::streaming::py_api::PyDataBiasStreaming;
-    use model_bias::streaming::py_api::PyModelBiasStreaming;
+    use model_bias::python_impl::py_streaming_api::PyModelBiasStreaming;
     use model_perf::streaming::py_api::{
         PyBinaryClassificationStreaming, PyLinearRegressionStreaming, PyLogisticRegressionStreaming,
     };
@@ -61,8 +62,10 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<PyCategoricalDataDrift>()?;
     m.add_class::<PyContinuousDataDrift>()?;
-    m.add_class::<PyStreamingContinuousDataDrift>()?;
-    m.add_class::<PyStreamingCategoricalDataDrift>()?;
+    m.add_class::<PyStreamingContinuousDataDriftFlush>()?;
+    m.add_class::<PyStreamingContinuousDataDriftDecay>()?;
+    m.add_class::<PyStreamingCategoricalDataDriftFlush>()?;
+    m.add_class::<PyStreamingCategoricalDataDriftDecay>()?;
     m.add_class::<PyDataBiasStreaming>()?;
     m.add_class::<PyModelBiasStreaming>()?;
     m.add_class::<PyBinaryClassificationStreaming>()?;

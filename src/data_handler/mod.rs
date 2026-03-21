@@ -1,7 +1,6 @@
 use crate::errors::{ModelPerfResult, ModelPerformanceError};
 #[cfg(feature = "python")]
 pub(crate) mod py_types_handler {
-    use super::{apply_label_continuous, apply_label_discrete};
     use numpy::dtype;
     use numpy::PyUntypedArrayMethods;
     use numpy::{PyArrayDescrMethods, PyUntypedArray};
@@ -116,6 +115,30 @@ pub(crate) mod py_types_handler {
 
     fn generate_type_err() -> PyErr {
         PyTypeError::new_err("Data passed in is of hetergeneous types")
+    }
+
+    #[inline]
+    fn apply_label_discrete<T>(array: &[T], label: &T) -> Vec<i16>
+    where
+        T: PartialEq<T>,
+    {
+        let labeled_array: Vec<i16> = array
+            .iter()
+            .map(|value| if value == label { 1_i16 } else { 0_i16 })
+            .collect();
+        labeled_array
+    }
+
+    #[inline]
+    fn apply_label_continuous<T>(array: &[T], threshold: &T) -> Vec<i16>
+    where
+        T: PartialOrd<T>,
+    {
+        let labeled_array: Vec<i16> = array
+            .iter()
+            .map(|value| if value >= threshold { 1_i16 } else { 0_i16 })
+            .collect();
+        labeled_array
     }
 
     // Handles untyped nature of python data. Determines type and labels accordingly. This function
@@ -309,7 +332,7 @@ impl ConfusionMatrix {
     }
 }
 /// Defines segmentation definition for [`BiasSegmentationType::Threshold`].
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum SegmentationThresholdType {
     GreaterThan,
     GreaterThanEqualTo,
@@ -320,7 +343,7 @@ pub enum SegmentationThresholdType {
 /// threshold. Dicrete data should be segmented by a label and continuous data should be segmented
 /// by a threshold. For example a categorical dataset should use the label variant, where as a
 /// linear regression prediction dataset should use the threshold.
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum BiasSegmentationType {
     Label,
     Threshold(SegmentationThresholdType),
@@ -342,6 +365,7 @@ pub enum BiasSegmentationType {
 /// This intentionally does not implement Clone, to avoid narrowing the scope of possible types that
 /// can be used.
 /// This type is cheap enough to reconstuct when needed
+#[derive(Debug)]
 pub struct BiasSegmentationCriteria<T>
 where
     T: PartialOrd,
@@ -430,30 +454,6 @@ where
     pub(crate) fn generate_labeled_data(&self) -> Vec<i16> {
         self.segmentation_criteria.generate_labeled_array(self.data)
     }
-}
-
-#[inline]
-fn apply_label_discrete<T>(array: &[T], label: &T) -> Vec<i16>
-where
-    T: PartialEq<T>,
-{
-    let labeled_array: Vec<i16> = array
-        .iter()
-        .map(|value| if value == label { 1_i16 } else { 0_i16 })
-        .collect();
-    labeled_array
-}
-
-#[inline]
-fn apply_label_continuous<T>(array: &[T], threshold: &T) -> Vec<i16>
-where
-    T: PartialOrd<T>,
-{
-    let labeled_array: Vec<i16> = array
-        .iter()
-        .map(|value| if value >= threshold { 1_i16 } else { 0_i16 })
-        .collect();
-    labeled_array
 }
 
 #[cfg(test)]

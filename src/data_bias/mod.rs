@@ -11,16 +11,24 @@ use statistics::AdHocSegmentation;
 
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
-    use super::core::data_bias_analysis_core;
     use super::data_bias_runtime_check;
+    use crate::data_bias::{core::pre_training_bias, PreTraining};
     use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict, PyDictResult};
-    use crate::errors::InvalidMetricError;
+    use crate::errors::{BiasError, InvalidMetricError};
     use crate::metrics::{DataBiasMetric, DataBiasMetricVec};
-    use crate::reporting::DriftReport;
+    use crate::reporting::{DataBiasAnalysisReport, DriftReport};
     use crate::runtime::DataBiasRuntime;
     use numpy::PyUntypedArray;
     use pyo3::{prelude::*, types::IntoPyDict, Bound, Python};
     use std::collections::HashMap;
+
+    fn data_bias_analysis_core(
+        labeled_features: Vec<i16>,
+        labeled_ground_truth: Vec<i16>,
+    ) -> Result<DataBiasAnalysisReport, BiasError> {
+        let pre_training = PreTraining::new_from_labeled(&labeled_features, &labeled_ground_truth)?;
+        Ok(pre_training_bias(pre_training)?)
+    }
 
     /// Method to perform data bias analysis
     #[pyfunction]
@@ -215,7 +223,7 @@ impl PreTraining {
         facet_a: &PreTrainingDistribution,
         facet_d: &PreTrainingDistribution,
     ) -> Result<(), BiasError> {
-        if facet_a.positive == 0 || facet_d.positive == 0 {
+        if facet_a.len == 0 || facet_d.len == 0 {
             return Err(BiasError::NoFacetDeviation);
         }
         Ok(())
@@ -294,7 +302,6 @@ impl PreTraining {
         f: &F,
         feat_seg: &BiasSegmentationCriteria<F>,
         g: &G,
-
         gt_seg: &BiasSegmentationCriteria<G>,
     ) where
         F: PartialOrd,

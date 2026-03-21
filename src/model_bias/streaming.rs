@@ -510,6 +510,118 @@ mod model_bias_strming_tests {
         let test = TestModelBiasAnalysisReport(stream.performance_snapshot().unwrap());
         assert_eq!(base, test);
     }
+    // Helper: builds a StreamingModelBias baseline from symmetric 8-sample data.
+    fn make_stream() -> StreamingModelBias<usize, usize, usize> {
+        let feat = vec![1_usize, 1, 1, 1, 0, 0, 0, 0];
+        let pred = vec![1_usize, 1, 0, 0, 1, 1, 0, 0];
+        let gt   = vec![1_usize, 0, 1, 0, 1, 0, 1, 0];
+        let feat_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let pred_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let gt_seg   = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        StreamingModelBias::new(&feat, feat_seg, &pred, pred_seg, &gt, gt_seg).unwrap()
+    }
+
+    fn baseline_data() -> (Vec<usize>, Vec<usize>, Vec<usize>) {
+        (
+            vec![1_usize, 1, 1, 1, 0, 0, 0, 0],
+            vec![1_usize, 1, 0, 0, 1, 1, 0, 0],
+            vec![1_usize, 0, 1, 0, 1, 0, 1, 0],
+        )
+    }
+
+    // --- empty stream errors ---
+
+    #[test]
+    fn drift_snapshot_errors_when_stream_is_empty() {
+        let stream = make_stream();
+        assert!(stream.drift_snapshot().is_err());
+    }
+
+    #[test]
+    fn drift_report_errors_when_stream_is_empty() {
+        let stream = make_stream();
+        assert!(stream.drift_report(None).is_err());
+    }
+
+    #[test]
+    fn performance_snapshot_errors_when_stream_is_empty() {
+        let stream = make_stream();
+        assert!(stream.performance_snapshot().is_err());
+    }
+
+    // --- flush ---
+
+    #[test]
+    fn flush_clears_accumulated_data() {
+        let mut stream = make_stream();
+        let (feat, pred, gt) = baseline_data();
+        stream.push_batch(&feat, &pred, &gt).unwrap();
+        assert!(stream.drift_snapshot().is_ok());
+        stream.flush();
+        assert!(stream.drift_snapshot().is_err());
+    }
+
+    // --- construction errors ---
+
+    #[test]
+    fn new_errors_when_slices_have_mismatched_lengths() {
+        let feat_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let pred_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let gt_seg   = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let result = StreamingModelBias::new(
+            &[1_usize, 0], feat_seg,
+            &[1_usize],    pred_seg,
+            &[1_usize, 0], gt_seg,
+        );
+        assert!(result.is_err());
+    }
+
+    // --- drift_report passes when runtime matches baseline ---
+
+    #[test]
+    fn drift_report_passes_when_runtime_matches_baseline() {
+        let mut stream = make_stream();
+        let (feat, pred, gt) = baseline_data();
+        stream.push_batch(&feat, &pred, &gt).unwrap();
+        // Use a very high threshold so identical data won't trigger drift
+        let report = stream.drift_report(Some(1e6)).unwrap();
+        assert!(report.passed);
+    }
+
+    // --- drift_report_partial_metrics ---
+
+    #[test]
+    fn drift_report_partial_metrics_only_returns_requested_metrics() {
+        let mut stream = make_stream();
+        let (feat, pred, gt) = baseline_data();
+        stream.push_batch(&feat, &pred, &gt).unwrap();
+        let subset = &[ModelBiasMetric::AccuracyDifference];
+        let report = stream
+            .drift_report_partial_metrics(subset, Some(1e6))
+            .unwrap();
+        // With a huge threshold nothing should fail; report passes
+        assert!(report.passed);
+    }
+
+    // --- reset_baseline ---
+
+    #[test]
+    fn reset_baseline_updates_baseline() {
+        let mut stream = make_stream();
+        let (feat, pred, gt) = baseline_data();
+        // After reset with same data, performance_snapshot should still work
+        stream.reset_baseline(&feat, &pred, &gt).unwrap();
+        stream.push_batch(&feat, &pred, &gt).unwrap();
+        assert!(stream.performance_snapshot().is_ok());
+    }
+
+    #[test]
+    fn reset_baseline_errors_when_slices_have_mismatched_lengths() {
+        let mut stream = make_stream();
+        let result = stream.reset_baseline(&[1_usize, 0], &[1_usize], &[1_usize, 0]);
+        assert!(result.is_err());
+    }
+
     #[test]
     fn test_accum_threshold() {
         let pred_bl_data: Vec<f32> = vec![

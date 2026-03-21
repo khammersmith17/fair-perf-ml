@@ -383,7 +383,6 @@ mod test_data_bias_statistics {
         )
         .unwrap();
         let base = 0.5_f32 * ((0.7_f32 - 0.2_f32).abs() + (0.3_f32 - 0.8_f32).abs());
-        dbg!(base);
         assert_eq!(tvd, base);
         assert!(tvd < 1_f32 && tvd > 0_f32)
     }

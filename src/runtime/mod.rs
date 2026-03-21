@@ -1388,8 +1388,7 @@ impl TryFrom<HashMap<String, f32>> for LinearRegressionRuntime {
 mod runtime_container_tests {
     use super::*;
     use crate::metrics::{
-        ClassificationEvaluationMetric as C, DataBiasMetric,
-        LinearRegressionEvaluationMetric as L,
+        ClassificationEvaluationMetric as C, DataBiasMetric, LinearRegressionEvaluationMetric as L,
     };
 
     // --- DataBiasRuntime ---
@@ -1712,6 +1711,446 @@ mod runtime_container_tests {
         };
         let result = runtime.compare_to_baseline(&[L::MeanSquaredError], &baseline, 0.1_f32);
         assert!(result.contains_key(&L::MeanSquaredError));
+    }
+}
+
+#[cfg(test)]
+mod runtime_coverage_tests {
+    use super::*;
+    use crate::metrics::{
+        ClassificationEvaluationMetric as C, DataBiasMetric as D,
+        LinearRegressionEvaluationMetric as L, ModelBiasMetric as M, FULL_MODEL_BIAS_METRICS,
+    };
+    use std::collections::HashMap;
+
+    // --- helpers ---
+
+    fn data_bias_runtime(v: f32) -> DataBiasRuntime {
+        DataBiasRuntime {
+            ci: v,
+            dpl: v,
+            kl: v,
+            js: v,
+            lpnorm: v,
+            tvd: v,
+            ks: v,
+        }
+    }
+
+    fn model_bias_report(v: f32) -> ModelBiasAnalysisReport {
+        let mut m = HashMap::with_capacity(12);
+        m.insert(M::DifferenceInPositivePredictedLabels, v);
+        m.insert(M::DisparateImpact, v);
+        m.insert(M::AccuracyDifference, v);
+        m.insert(M::RecallDifference, v);
+        m.insert(M::DifferenceInConditionalAcceptance, v);
+        m.insert(M::DifferenceInAcceptanceRate, v);
+        m.insert(M::SpecialityDifference, v);
+        m.insert(M::DifferenceInConditionalRejection, v);
+        m.insert(M::DifferenceInRejectionRate, v);
+        m.insert(M::TreatmentEquity, v);
+        m.insert(M::ConditionalDemographicDesparityPredictedLabels, v);
+        m.insert(M::GeneralizedEntropy, v);
+        m
+    }
+
+    fn model_bias_string_map(v: f32) -> HashMap<String, f32> {
+        let mut m = HashMap::with_capacity(12);
+        m.insert("DifferenceInPositivePredictedLabels".into(), v);
+        m.insert("DisparateImpact".into(), v);
+        m.insert("AccuracyDifference".into(), v);
+        m.insert("RecallDifference".into(), v);
+        m.insert("DifferenceInConditionalAcceptance".into(), v);
+        m.insert("DifferenceInAcceptanceRate".into(), v);
+        m.insert("SpecialityDifference".into(), v);
+        m.insert("DifferenceInConditionalRejection".into(), v);
+        m.insert("DifferenceInRejectionRate".into(), v);
+        m.insert("TreatmentEquity".into(), v);
+        m.insert("ConditionalDemographicDesparityPredictedLabels".into(), v);
+        m.insert("GeneralizedEntropy".into(), v);
+        m
+    }
+
+    fn binary_classification_runtime(v: f32) -> BinaryClassificationRuntime {
+        BinaryClassificationRuntime {
+            balanced_accuracy: v,
+            precision_positive: v,
+            precision_negative: v,
+            recall_positive: v,
+            recall_negative: v,
+            accuracy: v,
+            f1_score: v,
+        }
+    }
+
+    fn binary_classification_string_map(v: f32) -> HashMap<String, f32> {
+        let mut m = HashMap::with_capacity(7);
+        m.insert("BalancedAccuracy".into(), v);
+        m.insert("PrecisionPositive".into(), v);
+        m.insert("PrecisionNegative".into(), v);
+        m.insert("RecallPositive".into(), v);
+        m.insert("RecallNegative".into(), v);
+        m.insert("Accuracy".into(), v);
+        m.insert("F1Score".into(), v);
+        m
+    }
+
+    fn logistic_regression_runtime(v: f32) -> LogisticRegressionRuntime {
+        LogisticRegressionRuntime {
+            balanced_accuracy: v,
+            precision_positive: v,
+            precision_negative: v,
+            recall_positive: v,
+            recall_negative: v,
+            accuracy: v,
+            f1_score: v,
+            log_loss: v,
+        }
+    }
+
+    fn logistic_regression_string_map(v: f32) -> HashMap<String, f32> {
+        let mut m = HashMap::with_capacity(8);
+        m.insert("BalancedAccuracy".into(), v);
+        m.insert("PrecisionPositive".into(), v);
+        m.insert("PrecisionNegative".into(), v);
+        m.insert("RecallPositive".into(), v);
+        m.insert("RecallNegative".into(), v);
+        m.insert("Accuracy".into(), v);
+        m.insert("F1Score".into(), v);
+        m.insert("LogLoss".into(), v);
+        m
+    }
+
+    fn linear_regression_runtime(v: f32) -> LinearRegressionRuntime {
+        LinearRegressionRuntime {
+            rmse: v,
+            mse: v,
+            mae: v,
+            r_squared: v,
+            max_error: v,
+            msle: v,
+            rmsle: v,
+            mape: v,
+        }
+    }
+
+    fn linear_regression_string_map(v: f32) -> HashMap<String, f32> {
+        let mut m = HashMap::with_capacity(8);
+        m.insert("RootMeanSquaredError".into(), v);
+        m.insert("MeanSquaredError".into(), v);
+        m.insert("MeanAbsoluteError".into(), v);
+        m.insert("RSquared".into(), v);
+        m.insert("MaxError".into(), v);
+        m.insert("MeanSquaredLogError".into(), v);
+        m.insert("RootMeanSquaredLogError".into(), v);
+        m.insert("MeanAbsolutePercentageError".into(), v);
+        m
+    }
+
+    // --- DataBiasRuntime::runtime_drift_report ---
+
+    #[test]
+    fn data_bias_runtime_drift_report_identical_is_zero() {
+        let rt = data_bias_runtime(0.5);
+        let report = rt.runtime_drift_report(&rt);
+        assert_eq!(report.len(), 7);
+        for v in report.values() {
+            assert!(*v < 1e-5, "expected zero drift, got {v}");
+        }
+    }
+
+    #[test]
+    fn data_bias_runtime_drift_report_contains_all_metric_keys() {
+        let baseline = data_bias_runtime(0.2);
+        let runtime = data_bias_runtime(0.6);
+        let report = runtime.runtime_drift_report(&baseline);
+        assert!(report.contains_key(&D::ClassImbalance));
+        assert!(report.contains_key(&D::DifferenceInProportionOfLabels));
+        assert!(report.contains_key(&D::KlDivergence));
+        assert!(report.contains_key(&D::JsDivergence));
+        assert!(report.contains_key(&D::LpNorm));
+        assert!(report.contains_key(&D::TotalVariationDistance));
+        assert!(report.contains_key(&D::KolmorogvSmirnov));
+    }
+
+    #[test]
+    fn data_bias_runtime_drift_report_nonzero_when_different() {
+        let baseline = data_bias_runtime(0.2);
+        let runtime = data_bias_runtime(0.6);
+        let report = runtime.runtime_drift_report(&baseline);
+        assert!(report.values().all(|v| *v > 0.0));
+    }
+
+    // --- DataBiasRuntime::runtime_check per metric ---
+
+    // Baseline values are 0.2 throughout; runtime sets the tested metric to 0.5
+    // so it exceeds 0.2 * 1.1 = 0.22, triggering a flag.
+    fn baseline_02() -> DataBiasRuntime {
+        data_bias_runtime(0.2)
+    }
+
+    #[test]
+    fn data_bias_runtime_check_dpl_flagged() {
+        let mut rt = baseline_02();
+        rt.dpl = 0.5;
+        let result = rt.runtime_check(baseline_02(), 0.1, &[D::DifferenceInProportionOfLabels]);
+        assert!(result.contains_key(&D::DifferenceInProportionOfLabels));
+    }
+
+    #[test]
+    fn data_bias_runtime_check_kl_flagged() {
+        let mut rt = baseline_02();
+        rt.kl = 0.5;
+        let result = rt.runtime_check(baseline_02(), 0.1, &[D::KlDivergence]);
+        assert!(result.contains_key(&D::KlDivergence));
+    }
+
+    #[test]
+    fn data_bias_runtime_check_js_flagged() {
+        let mut rt = baseline_02();
+        rt.js = 0.5;
+        let result = rt.runtime_check(baseline_02(), 0.1, &[D::JsDivergence]);
+        assert!(result.contains_key(&D::JsDivergence));
+    }
+
+    #[test]
+    fn data_bias_runtime_check_lpnorm_flagged() {
+        let mut rt = baseline_02();
+        rt.lpnorm = 0.5;
+        let result = rt.runtime_check(baseline_02(), 0.1, &[D::LpNorm]);
+        assert!(result.contains_key(&D::LpNorm));
+    }
+
+    #[test]
+    fn data_bias_runtime_check_tvd_flagged() {
+        let mut rt = baseline_02();
+        rt.tvd = 0.5;
+        let result = rt.runtime_check(baseline_02(), 0.1, &[D::TotalVariationDistance]);
+        assert!(result.contains_key(&D::TotalVariationDistance));
+    }
+
+    #[test]
+    fn data_bias_runtime_check_ks_flagged() {
+        let mut rt = baseline_02();
+        rt.ks = 0.5;
+        let result = rt.runtime_check(baseline_02(), 0.1, &[D::KolmorogvSmirnov]);
+        assert!(result.contains_key(&D::KolmorogvSmirnov));
+    }
+
+    #[test]
+    fn data_bias_runtime_check_metric_not_in_subset_is_not_reported() {
+        // runtime has large drift on CI, but we only check DPL — CI should be absent
+        let mut rt = baseline_02();
+        rt.ci = 0.9;
+        let result = rt.runtime_check(baseline_02(), 0.1, &[D::DifferenceInProportionOfLabels]);
+        assert!(!result.contains_key(&D::ClassImbalance));
+    }
+
+    // --- ModelBiasRuntime ---
+
+    #[test]
+    fn model_bias_runtime_from_analysis_report_happy_path() {
+        let rt = ModelBiasRuntime::try_from(model_bias_report(0.5)).unwrap();
+        assert_eq!(rt.ddpl, 0.5);
+        assert_eq!(rt.ge, 0.5);
+    }
+
+    #[test]
+    fn model_bias_runtime_from_analysis_report_missing_key_returns_error() {
+        let mut report = model_bias_report(0.5);
+        report.remove(&M::GeneralizedEntropy);
+        assert!(ModelBiasRuntime::try_from(report).is_err());
+    }
+
+    #[test]
+    fn model_bias_runtime_from_string_map_happy_path() {
+        let rt = ModelBiasRuntime::try_from(model_bias_string_map(0.3)).unwrap();
+        assert_eq!(rt.ddpl, 0.3);
+        assert_eq!(rt.ge, 0.3);
+    }
+
+    #[test]
+    fn model_bias_runtime_from_string_map_missing_key_returns_error() {
+        let mut map = model_bias_string_map(0.3);
+        map.remove("DisparateImpact");
+        assert!(ModelBiasRuntime::try_from(map).is_err());
+    }
+
+    #[test]
+    fn model_bias_runtime_generate_report_round_trip() {
+        let rt = ModelBiasRuntime::try_from(model_bias_report(0.4)).unwrap();
+        let report = rt.generate_report();
+        let rt2 = ModelBiasRuntime::try_from(report).unwrap();
+        assert_eq!(rt.ddpl, rt2.ddpl);
+        assert_eq!(rt.ge, rt2.ge);
+    }
+
+    #[test]
+    fn model_bias_runtime_check_detects_drift() {
+        let baseline = ModelBiasRuntime::try_from(model_bias_report(0.2)).unwrap();
+        // ddpl=0.5 > 0.2 * 1.1 → flagged
+        let mut drifted = model_bias_report(0.2);
+        drifted.insert(M::DifferenceInPositivePredictedLabels, 0.5);
+        let runtime = ModelBiasRuntime::try_from(drifted).unwrap();
+        let result =
+            runtime.runtime_check(baseline, 0.1, &[M::DifferenceInPositivePredictedLabels]);
+        assert!(result.contains_key(&M::DifferenceInPositivePredictedLabels));
+    }
+
+    #[test]
+    fn model_bias_runtime_check_no_drift_within_threshold() {
+        let baseline = ModelBiasRuntime::try_from(model_bias_report(0.2)).unwrap();
+        // same values → no drift
+        let runtime = ModelBiasRuntime::try_from(model_bias_report(0.2)).unwrap();
+        let result = runtime.runtime_check(baseline, 0.1, &FULL_MODEL_BIAS_METRICS);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn model_bias_runtime_drift_report_identical_is_zero() {
+        let rt = ModelBiasRuntime::try_from(model_bias_report(0.4)).unwrap();
+        let rt2 = ModelBiasRuntime::try_from(model_bias_report(0.4)).unwrap();
+        let report = rt.runtime_drift_report(&rt2);
+        assert_eq!(report.len(), 12);
+        for v in report.values() {
+            assert!(*v < 1e-5, "expected zero drift, got {v}");
+        }
+    }
+
+    // --- BinaryClassificationRuntime ---
+
+    #[test]
+    fn binary_classification_runtime_from_string_map_happy_path() {
+        let rt =
+            BinaryClassificationRuntime::try_from(binary_classification_string_map(0.8)).unwrap();
+        assert!((rt.accuracy - 0.8).abs() < 1e-5);
+    }
+
+    #[test]
+    fn binary_classification_runtime_from_string_map_missing_key_returns_error() {
+        let mut map = binary_classification_string_map(0.8);
+        map.remove("Accuracy");
+        assert!(BinaryClassificationRuntime::try_from(map).is_err());
+    }
+
+    #[test]
+    fn binary_classification_runtime_from_report_missing_key_returns_error() {
+        let mut report = binary_classification_runtime(0.8).generate_report();
+        report.remove(&C::F1Score);
+        assert!(BinaryClassificationRuntime::try_from(&report).is_err());
+    }
+
+    #[test]
+    fn binary_classification_runtime_drift_report_identical_is_zero() {
+        let rt = binary_classification_runtime(0.9);
+        let report = rt.runtime_drift_report(&rt);
+        assert_eq!(report.len(), 7);
+        for v in report.values() {
+            assert!(v.abs() < 1e-5, "expected zero drift, got {v}");
+        }
+    }
+
+    #[test]
+    fn binary_classification_runtime_drift_report_reflects_degradation() {
+        let baseline = binary_classification_runtime(0.9);
+        let runtime = binary_classification_runtime(0.5);
+        let report = runtime.runtime_drift_report(&baseline);
+        for v in report.values() {
+            assert!(*v > 0.0, "expected positive drift");
+        }
+    }
+
+    // --- LogisticRegressionRuntime ---
+
+    #[test]
+    fn logistic_regression_runtime_new_length_mismatch_returns_error() {
+        let y_true = vec![1.0_f32, 0.0, 1.0];
+        let y_pred = vec![0.9_f32, 0.1];
+        assert!(LogisticRegressionRuntime::new(&y_true, &y_pred, 0.5).is_err());
+    }
+
+    #[test]
+    fn logistic_regression_runtime_generate_report_round_trip() {
+        let rt = logistic_regression_runtime(0.7);
+        let report = rt.generate_report();
+        let rt2 = LogisticRegressionRuntime::try_from(&report).unwrap();
+        assert_eq!(rt, rt2);
+    }
+
+    #[test]
+    fn logistic_regression_runtime_from_report_missing_key_returns_error() {
+        let mut report = logistic_regression_runtime(0.7).generate_report();
+        report.remove(&C::LogLoss);
+        assert!(LogisticRegressionRuntime::try_from(&report).is_err());
+    }
+
+    #[test]
+    fn logistic_regression_runtime_from_string_map_happy_path() {
+        let rt = LogisticRegressionRuntime::try_from(logistic_regression_string_map(0.6)).unwrap();
+        assert!((rt.accuracy - 0.6).abs() < 1e-5);
+        assert!((rt.log_loss - 0.6).abs() < 1e-5);
+    }
+
+    #[test]
+    fn logistic_regression_runtime_from_string_map_missing_key_returns_error() {
+        let mut map = logistic_regression_string_map(0.6);
+        map.remove("LogLoss");
+        assert!(LogisticRegressionRuntime::try_from(map).is_err());
+    }
+
+    #[test]
+    fn logistic_regression_runtime_drift_report_identical_is_zero() {
+        let rt = logistic_regression_runtime(0.8);
+        let rt2 = logistic_regression_runtime(0.8);
+        let report = rt.runtime_drift_report(&rt2);
+        assert_eq!(report.len(), 8);
+        for v in report.values() {
+            assert!(v.abs() < 1e-5, "expected zero drift, got {v}");
+        }
+    }
+
+    // --- LinearRegressionRuntime ---
+
+    #[test]
+    fn linear_regression_runtime_from_string_map_happy_path() {
+        let rt = LinearRegressionRuntime::try_from(linear_regression_string_map(0.5)).unwrap();
+        assert!((rt.mse - 0.5).abs() < 1e-5);
+        assert!((rt.r_squared - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn linear_regression_runtime_from_string_map_missing_key_returns_error() {
+        let mut map = linear_regression_string_map(0.5);
+        map.remove("RSquared");
+        assert!(LinearRegressionRuntime::try_from(map).is_err());
+    }
+
+    #[test]
+    fn linear_regression_runtime_from_report_missing_key_returns_error() {
+        let mut report = linear_regression_runtime(0.5).generate_report();
+        report.remove(&L::MaxError);
+        assert!(LinearRegressionRuntime::try_from(&report).is_err());
+    }
+
+    #[test]
+    fn linear_regression_runtime_drift_report_identical_is_zero() {
+        let rt = linear_regression_runtime(0.5);
+        let rt2 = linear_regression_runtime(0.5);
+        let report = rt.runtime_drift_report(&rt2);
+        assert_eq!(report.len(), 8);
+        for v in report.values() {
+            assert!(v.abs() < 1e-5, "expected zero drift, got {v}");
+        }
+    }
+
+    #[test]
+    fn linear_regression_runtime_drift_report_nonzero_when_different() {
+        let baseline = linear_regression_runtime(0.1);
+        let runtime = linear_regression_runtime(0.5);
+        let report = runtime.runtime_drift_report(&baseline);
+        for v in report.values() {
+            assert!(*v > 0.0, "expected nonzero drift");
+        }
     }
 }
 

@@ -2,7 +2,7 @@ use super::{
     baseline::{BaselineCategoricalBins, BaselineContinuousBins},
     distribution::QuantileType,
     drift_metrics::{global_compute_drift, DataDriftType, DriftContainer, DriftContainerType},
-    DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
+    DEFAULT_DECAY_HALF_LIFE, DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
 };
 use crate::errors::DriftError;
 use ahash::{HashMap, HashMapExt};
@@ -162,10 +162,6 @@ impl DriftContainer for ContinuousDataDrift {
         &self.rt_bins
     }
 
-    fn get_bin_edges(&self) -> Option<&[f64]> {
-        Some(&self.baseline.bin_edges)
-    }
-
     fn num_examples(&self) -> f64 {
         self.rt_bins.iter().sum()
     }
@@ -177,13 +173,26 @@ impl DriftContainer for ContinuousDataDrift {
 
 impl ContinuousDataDrift {
     /// Construct a new instance from a baseline dataset. The baseline is sorted and used to
-    /// define histogram bin edges. The number of bins is derived from the baseline using the
-    /// provided [`QuantileType`] heuristic. If `None` is provided, [`FreedmanDiaconis`] is used.
+    /// define histogram bin edges.
+    ///
+    /// `quantile_type` controls how many bins are derived from the baseline. The bin count
+    /// determines the resolution of the drift signal — more bins capture finer distributional
+    /// shifts but require more runtime data per bin to be statistically meaningful. Pass `None`
+    /// to use the default. Options:
+    ///
+    /// - [`FreedmanDiaconis`] *(default)*: `width = 2 * IQR * n^(-1/3)`. Robust to outliers.
+    ///   Preferred for most use cases.
+    /// - [`Scott`]: `width = 3.49 * σ * n^(-1/3)`. Assumes approximately normal data; sensitive
+    ///   to outliers in the tails.
+    /// - [`Sturges`]: `k = floor(log2(n)) + 1`. Simple rule that works best for small, roughly
+    ///   normal datasets.
     ///
     /// Returns [`DriftError::EmptyBaselineData`] if the baseline slice has fewer than 2 elements,
     /// or [`DriftError::NaNValueError`] if any value is NaN.
     ///
     /// [`FreedmanDiaconis`]: QuantileType::FreedmanDiaconis
+    /// [`Scott`]: QuantileType::Scott
+    /// [`Sturges`]: QuantileType::Sturges
     pub fn new_from_baseline(
         quantile_type: Option<QuantileType>,
         bl_slice: &[f64],
@@ -301,10 +310,6 @@ impl<M> DriftContainer for StreamingContinuousDataDrift<M> {
         &self.stream_bins
     }
 
-    fn get_bin_edges(&self) -> Option<&[f64]> {
-        Some(&self.baseline.bin_edges)
-    }
-
     fn num_examples(&self) -> f64 {
         self.total_stream_size
     }
@@ -319,24 +324,36 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
     /// [`compute_drift_multiple_criteria`] call, all bin counts and `total_stream_size` are
     /// multiplied by α = 0.5^(1/`half_life`), where `half_life` is the number of seconds after
     /// which a sample's weight is halved. Older data is continuously down-weighted rather than
-    /// discarded.
+    /// discarded, giving a recency-weighted view of the distribution with no hard resets.
+    ///
+    /// `quantile_type` controls histogram bin count. See [`ContinuousDataDrift::new_from_baseline`]
+    /// for a full description of each option. Pass `None` to use [`FreedmanDiaconis`] (default).
+    ///
+    /// `half_life_opt`: decay half-life in seconds. A shorter half-life makes the signal more
+    /// sensitive to recent shifts at the cost of higher variance — older data loses influence
+    /// quickly. A longer half-life produces a smoother, more stable signal that responds slowly
+    /// to new patterns. Defaults to 86,400 (24 hours), meaning a sample's contribution is halved
+    /// after 24 hours worth of [`compute_drift`] calls.
     ///
     /// When computing multiple drift metrics on the same accumulated state, use
     /// [`compute_drift_multiple_criteria`] — decay is applied once before all metrics are
-    /// evaluated. Calling [`compute_drift`] in a loop will apply decay on each call.
+    /// evaluated. Calling [`compute_drift`] in a loop applies decay on each call.
     ///
     /// Returns [`DriftError::EmptyBaselineData`] if the baseline has fewer than 2 elements.
     ///
+    /// [`FreedmanDiaconis`]: QuantileType::FreedmanDiaconis
     /// [`compute_drift`]: StreamingContinuousDataDrift::compute_drift
     /// [`compute_drift_multiple_criteria`]: StreamingContinuousDataDrift::compute_drift_multiple_criteria
     pub fn new_decay(
         baseline_data: &[f64],
-        quantile_type: QuantileType,
-        half_life: NonZeroU64,
+        quantile_type: Option<QuantileType>,
+        half_life_opt: Option<NonZeroU64>,
     ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftError> {
-        let baseline = BaselineContinuousBins::new(baseline_data, quantile_type)?;
+        let baseline =
+            BaselineContinuousBins::new(baseline_data, quantile_type.unwrap_or_default())?;
         let bl_hist_len = baseline.baseline_hist.len();
         let stream_bins: Vec<f64> = vec![0_f64; bl_hist_len];
+        let half_life = half_life_opt.unwrap_or(NonZeroU64::new(DEFAULT_DECAY_HALF_LIFE).unwrap());
         let mode = StreamModeInner::ExponentialDecay(0.5_f64.powf(1_f64 / half_life.get() as f64));
 
         Ok(StreamingContinuousDataDrift {
@@ -347,6 +364,7 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
             _mark: PhantomData,
         })
     }
+
     /// Compute drift between the accumulated stream and the baseline. Applies exponential decay
     /// to all bin counts before computing, down-weighting older data by α = 0.5^(1/half_life).
     ///
@@ -423,40 +441,40 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
 }
 
 impl StreamingContinuousDataDrift<FlushModeMark> {
-    /// Construct a flush-mode stream with default parameters: flush size of
-    /// `DEFAULT_MAX_STREAM_SIZE` samples and a cadence of `DEFAULT_STREAM_FLUSH_CADENCE` seconds,
-    /// using [`FreedmanDiaconis`] bin count heuristic.
+    /// Construct a flush-mode stream. The stream accumulates data until either `flush_size_opt`
+    /// samples have been observed or `flush_cadence_opt` has elapsed since the last flush —
+    /// whichever is reached first — at which point all accumulated runtime data is cleared and
+    /// the window restarts fresh.
     ///
-    /// [`FreedmanDiaconis`]: QuantileType::FreedmanDiaconis
-    pub fn default_flush(
-        baseline_data: &[f64],
-    ) -> Result<StreamingContinuousDataDrift<FlushModeMark>, DriftError> {
-        Self::new_flush(
-            baseline_data,
-            QuantileType::default(),
-            DEFAULT_MAX_STREAM_SIZE,
-            Duration::from_secs(DEFAULT_STREAM_FLUSH_CADENCE / 1000),
-        )
-    }
-    /// Construct a flush-mode stream with explicit parameters. The stream accumulates data until
-    /// either `flush_size` samples have been observed or `flush_cadence` has elapsed since the
-    /// last flush, at which point all accumulated runtime data is cleared and the window restarts.
-    /// The flush check is evaluated on every push, with the time-based check amortized over
-    /// batches of 256 items to avoid reading the clock on every sample.
+    /// `quantile_type` controls histogram bin count. See [`ContinuousDataDrift::new_from_baseline`]
+    /// for a full description of each option. Pass `None` to use [`FreedmanDiaconis`] (default).
+    ///
+    /// `flush_size_opt`: number of accumulated samples that triggers an automatic flush. A lower
+    /// value means more frequent resets and a more responsive signal, but each window contains
+    /// fewer samples making the drift estimate noisier. Defaults to 1,000,000.
+    ///
+    /// `flush_cadence_opt`: time elapsed since the last flush that triggers an automatic flush,
+    /// regardless of sample count. The time check is amortized over batches of 256 pushes to
+    /// avoid reading the clock on every sample. Defaults to 86,400 seconds (24 hours).
     ///
     /// Returns [`DriftError::EmptyBaselineData`] if the baseline has fewer than 2 elements.
+    ///
+    /// [`FreedmanDiaconis`]: QuantileType::FreedmanDiaconis
     pub fn new_flush(
         baseline_data: &[f64],
-        quantile_type: QuantileType,
-        flush_size: u64,
-        flush_cadence: Duration,
+        quantile_type: Option<QuantileType>,
+        flush_size_opt: Option<u64>,
+        flush_cadence_opt: Option<Duration>,
     ) -> Result<StreamingContinuousDataDrift<FlushModeMark>, DriftError> {
-        let baseline = BaselineContinuousBins::new(baseline_data, quantile_type)?;
+        let baseline =
+            BaselineContinuousBins::new(baseline_data, quantile_type.unwrap_or_default())?;
         let bl_hist_len = baseline.baseline_hist.len();
         let stream_bins: Vec<f64> = vec![0_f64; bl_hist_len];
+        let flush_size = flush_size_opt.unwrap_or(DEFAULT_MAX_STREAM_SIZE);
+        let cadence = flush_cadence_opt.unwrap_or(Duration::new(DEFAULT_STREAM_FLUSH_CADENCE, 0));
         let mode = StreamModeInner::Flush {
             size: flush_size as f64,
-            cadence: flush_cadence,
+            cadence,
             last_flush_ts: Instant::now(),
         };
 
@@ -655,10 +673,6 @@ impl<T: Hash + Ord + Clone> DriftContainer for CategoricalDataDrift<T> {
         &self.rt_bins
     }
 
-    fn get_bin_edges(&self) -> Option<&[f64]> {
-        None
-    }
-
     fn num_examples(&self) -> f64 {
         self.rt_bins.iter().sum()
     }
@@ -783,10 +797,6 @@ impl<T: Hash + Ord + Clone, M> DriftContainer for StreamingCategoricalDataDrift<
         &self.stream_bins
     }
 
-    fn get_bin_edges(&self) -> Option<&[f64]> {
-        None
-    }
-
     fn num_examples(&self) -> f64 {
         self.total_stream_size
     }
@@ -797,38 +807,33 @@ impl<T: Hash + Ord + Clone, M> DriftContainer for StreamingCategoricalDataDrift<
 }
 
 impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, FlushModeMark> {
-    /// Construct a flush-mode stream with default parameters: flush size of
-    /// `DEFAULT_MAX_STREAM_SIZE` samples and a cadence of `DEFAULT_STREAM_FLUSH_CADENCE` seconds.
+    /// Construct a flush-mode stream. The stream accumulates data until either `flush_size_opt`
+    /// samples have been observed or `flush_cadence_opt` has elapsed since the last flush —
+    /// whichever is reached first — at which point all accumulated runtime data is cleared and
+    /// the window restarts fresh.
     ///
-    /// Returns [`DriftError::EmptyBaselineData`] if `baseline_data` is empty.
-    pub fn default_flush(
-        baseline_data: &[T],
-    ) -> Result<StreamingCategoricalDataDrift<T, FlushModeMark>, DriftError> {
-        Self::new_flush(
-            baseline_data,
-            DEFAULT_MAX_STREAM_SIZE,
-            Duration::from_secs(DEFAULT_STREAM_FLUSH_CADENCE / 1000),
-        )
-    }
-
-    /// Construct a flush-mode stream with explicit parameters. The stream accumulates data until
-    /// either `flush_size` samples have been observed or `flush_cadence` has elapsed since the
-    /// last flush, at which point all accumulated runtime data is cleared and the window restarts.
-    /// The flush check is evaluated on every push, with the time-based check amortized over
-    /// batches of 256 items to avoid reading the clock on every sample.
+    /// `flush_size_opt`: number of accumulated samples that triggers an automatic flush. A lower
+    /// value means more frequent resets and a more responsive signal, but each window contains
+    /// fewer samples making the drift estimate noisier. Defaults to 1,000,000.
+    ///
+    /// `flush_cadence_opt`: time elapsed since the last flush that triggers an automatic flush,
+    /// regardless of sample count. The time check is amortized over batches of 256 pushes to
+    /// avoid reading the clock on every sample. Defaults to 86,400 seconds (24 hours).
     ///
     /// Returns [`DriftError::EmptyBaselineData`] if `baseline_data` is empty.
     pub fn new_flush(
         baseline_data: &[T],
-        flush_size: u64,
-        flush_cadence: Duration,
+        flush_size_opt: Option<u64>,
+        flush_cadence_opt: Option<Duration>,
     ) -> Result<StreamingCategoricalDataDrift<T, FlushModeMark>, DriftError> {
         let baseline = BaselineCategoricalBins::new(baseline_data)?;
         let bl_hist_len = baseline.baseline_bins.len();
         let stream_bins: Vec<f64> = vec![0_f64; bl_hist_len];
+        let size = flush_size_opt.unwrap_or(DEFAULT_MAX_STREAM_SIZE);
+        let cadence = flush_cadence_opt.unwrap_or(Duration::new(DEFAULT_STREAM_FLUSH_CADENCE, 0));
         let mode = StreamModeInner::Flush {
-            size: flush_size as f64,
-            cadence: flush_cadence,
+            size: size as f64,
+            cadence,
             last_flush_ts: Instant::now(),
         };
 
@@ -919,11 +924,17 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, DecayModeMark> {
     /// [`compute_drift_multiple_criteria`] call, all bin counts and `total_stream_size` are
     /// multiplied by α = 0.5^(1/`half_life`), where `half_life` is the number of seconds after
     /// which a sample's weight is halved. Older data is continuously down-weighted rather than
-    /// discarded.
+    /// discarded, giving a recency-weighted view of the distribution with no hard resets.
+    ///
+    /// `half_life_opt`: decay half-life in seconds. A shorter half-life makes the signal more
+    /// sensitive to recent shifts at the cost of higher variance — older data loses influence
+    /// quickly. A longer half-life produces a smoother, more stable signal that responds slowly
+    /// to new patterns. Defaults to 86,400 (24 hours), meaning a sample's contribution is halved
+    /// after 24 hours worth of [`compute_drift`] calls.
     ///
     /// When computing multiple drift metrics on the same accumulated state, use
     /// [`compute_drift_multiple_criteria`] — decay is applied once before all metrics are
-    /// evaluated. Calling [`compute_drift`] in a loop will apply decay on each call.
+    /// evaluated. Calling [`compute_drift`] in a loop applies decay on each call.
     ///
     /// Returns [`DriftError::EmptyBaselineData`] if `baseline_data` is empty.
     ///
@@ -931,11 +942,12 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, DecayModeMark> {
     /// [`compute_drift_multiple_criteria`]: StreamingCategoricalDataDrift::compute_drift_multiple_criteria
     pub fn new_decay(
         baseline_data: &[T],
-        half_life: NonZeroU64,
+        half_life_opt: Option<NonZeroU64>,
     ) -> Result<StreamingCategoricalDataDrift<T, DecayModeMark>, DriftError> {
         let baseline = BaselineCategoricalBins::new(baseline_data)?;
         let bl_hist_len = baseline.baseline_bins.len();
         let stream_bins: Vec<f64> = vec![0_f64; bl_hist_len];
+        let half_life = half_life_opt.unwrap_or(NonZeroU64::new(DEFAULT_DECAY_HALF_LIFE).unwrap());
         let mode = StreamModeInner::ExponentialDecay(0.5_f64.powf(1_f64 / half_life.get() as f64));
 
         Ok(StreamingCategoricalDataDrift {
@@ -1037,6 +1049,7 @@ impl<T: Hash + Ord + Clone, M: StreamingDataDriftMark> StreamingCategoricalDataD
         self.baseline.reset(new_baseline)?;
         self.mode.perform_flush();
         self.init_stream_bins();
+        self.total_stream_size = 0_f64;
         Ok(())
     }
 
@@ -1079,6 +1092,10 @@ impl<T: Hash + Ord + Clone, M: StreamingDataDriftMark> StreamingCategoricalDataD
     fn flush_runtime_stream(&mut self) {
         self.stream_bins.fill(0_f64);
         self.total_stream_size = 0_f64;
+    }
+
+    pub fn num_bins(&self) -> usize {
+        self.stream_bins.len()
     }
 }
 
@@ -1124,7 +1141,8 @@ mod continuous_tests {
     #[test]
     fn test_streaming_continuous_accumulation() {
         let baseline = [1_f64, 2_f64, 3_f64, 3_f64, 4_f64];
-        let mut streaming = StreamingContinuousDataDrift::default_flush(&baseline).unwrap();
+        let mut streaming =
+            StreamingContinuousDataDrift::new_flush(&baseline, None, None, None).unwrap();
 
         streaming
             .update_stream_batch(&[1.0, 2.0, 2.0, 3.0, 4.0])
@@ -1149,12 +1167,229 @@ mod continuous_tests {
     #[test]
     fn test_streaming_flush() {
         let baseline = [1.0, 2.0, 3.0, 4.0];
-        let mut streaming = StreamingContinuousDataDrift::default_flush(&baseline).unwrap();
+        let mut streaming =
+            StreamingContinuousDataDrift::new_flush(&baseline, None, None, None).unwrap();
 
         streaming.update_stream_batch(&[1.0, 2.0, 3.0]).unwrap();
         streaming.flush();
 
         assert_eq!(streaming.total_samples(), 0);
+    }
+
+    // --- error paths ---
+
+    #[test]
+    fn continuous_batch_empty_baseline_returns_err() {
+        assert!(ContinuousDataDrift::new_from_baseline(None, &[1.0]).is_err());
+    }
+
+    #[test]
+    fn continuous_batch_nan_baseline_returns_err() {
+        assert!(ContinuousDataDrift::new_from_baseline(None, &[1.0, f64::NAN, 3.0]).is_err());
+    }
+
+    #[test]
+    fn continuous_batch_empty_runtime_returns_err() {
+        let mut det =
+            ContinuousDataDrift::new_from_baseline(None, &[1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        assert!(det
+            .compute_drift(&[], DataDriftType::PopulationStabilityIndex)
+            .is_err());
+    }
+
+    #[test]
+    fn continuous_streaming_empty_batch_returns_err() {
+        let mut s =
+            StreamingContinuousDataDrift::new_flush(&[1.0, 2.0, 3.0, 4.0, 5.0], None, None, None)
+                .unwrap();
+        assert!(s.update_stream_batch(&[]).is_err());
+    }
+
+    #[test]
+    fn continuous_streaming_compute_on_empty_returns_err() {
+        let mut s =
+            StreamingContinuousDataDrift::new_flush(&[1.0, 2.0, 3.0, 4.0, 5.0], None, None, None)
+                .unwrap();
+        assert!(s
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .is_err());
+    }
+
+    // --- statelessness ---
+
+    #[test]
+    fn continuous_batch_compute_drift_is_stateless() {
+        let baseline: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        let runtime: Vec<f64> = (10..40).map(|i| i as f64).collect();
+        let mut det = ContinuousDataDrift::new_from_baseline(None, &baseline).unwrap();
+
+        let d1 = det
+            .compute_drift(&runtime, DataDriftType::PopulationStabilityIndex)
+            .unwrap();
+        let d2 = det
+            .compute_drift(&runtime, DataDriftType::PopulationStabilityIndex)
+            .unwrap();
+        assert!((d1 - d2).abs() < 1e-12);
+    }
+
+    // --- all drift types ---
+
+    #[test]
+    fn continuous_batch_all_drift_types_finite_nonnegative() {
+        let baseline: Vec<f64> = (0..100).map(|i| i as f64).collect();
+        let runtime: Vec<f64> = (20..80).map(|i| i as f64).collect();
+        let mut det = ContinuousDataDrift::new_from_baseline(None, &baseline).unwrap();
+
+        for drift_type in [
+            DataDriftType::PopulationStabilityIndex,
+            DataDriftType::KullbackLeibler,
+            DataDriftType::JensenShannon,
+            DataDriftType::WassersteinDistance,
+        ] {
+            let v = det.compute_drift(&runtime, drift_type).unwrap();
+            assert!(v.is_finite(), "{drift_type:?} produced non-finite value");
+            assert!(v >= 0.0, "{drift_type:?} produced negative value");
+        }
+    }
+
+    // --- reset_baseline ---
+
+    #[test]
+    fn continuous_batch_reset_baseline_changes_n_bins() {
+        let mut det =
+            ContinuousDataDrift::new_from_baseline(None, &[1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let old_bins = det.n_bins();
+
+        let large_baseline: Vec<f64> = (0..200).map(|i| i as f64).collect();
+        det.reset_baseline(&large_baseline).unwrap();
+
+        assert_ne!(det.n_bins(), old_bins);
+        assert_eq!(det.rt_bins.len(), det.n_bins());
+    }
+
+    // --- export_baseline ---
+
+    #[test]
+    fn continuous_batch_export_baseline_sums_to_one() {
+        let baseline: Vec<f64> = (0..100).map(|i| i as f64).collect();
+        let det = ContinuousDataDrift::new_from_baseline(None, &baseline).unwrap();
+        let sum: f64 = det.export_baseline().iter().sum();
+        assert!((sum - 1.0).abs() < 1e-9);
+    }
+
+    // --- streaming flush-mode extras ---
+
+    #[test]
+    fn continuous_streaming_flush_is_empty_after() {
+        let baseline: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        let mut s = StreamingContinuousDataDrift::new_flush(&baseline, None, None, None).unwrap();
+        s.update_stream_batch(&[1.0, 2.0, 3.0]).unwrap();
+        assert!(!s.is_empty());
+        s.flush();
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn continuous_streaming_reset_baseline_clears_stream() {
+        let baseline: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        let mut s = StreamingContinuousDataDrift::new_flush(&baseline, None, None, None).unwrap();
+        s.update_stream_batch(&[10.0, 20.0, 30.0]).unwrap();
+
+        let new_baseline: Vec<f64> = (0..100).map(|i| i as f64).collect();
+        s.reset_baseline(&new_baseline).unwrap();
+
+        assert!(s.is_empty());
+        assert_eq!(s.total_samples(), 0);
+        assert_eq!(s.stream_bins.len(), s.baseline.baseline_hist.len());
+    }
+
+    #[test]
+    fn continuous_streaming_export_snapshot_empty_returns_err() {
+        let baseline: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        let s = StreamingContinuousDataDrift::new_flush(&baseline, None, None, None).unwrap();
+        assert!(s.export_snapshot().is_err());
+    }
+
+    #[test]
+    fn continuous_streaming_export_snapshot_has_expected_keys() {
+        let baseline: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        let mut s = StreamingContinuousDataDrift::new_flush(&baseline, None, None, None).unwrap();
+        s.update_stream_batch(&[10.0, 20.0, 30.0]).unwrap();
+
+        let snap = s.export_snapshot().unwrap();
+        assert!(snap.contains_key("binEdges"));
+        assert!(snap.contains_key("baselineBins"));
+        assert!(snap.contains_key("streamBins"));
+    }
+
+    // --- decay mode ---
+
+    #[test]
+    fn continuous_decay_empty_compute_returns_err() {
+        let baseline: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        let mut s = StreamingContinuousDataDrift::new_decay(
+            &baseline,
+            Some(super::super::distribution::QuantileType::default()),
+            Some(std::num::NonZeroU64::new(1).unwrap()),
+        )
+        .unwrap();
+        assert!(s
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .is_err());
+    }
+
+    #[test]
+    fn continuous_decay_reduces_total_samples() {
+        // half_life=1 → α=0.5, so after one compute_drift call total_samples halves
+        let baseline: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        let mut s = StreamingContinuousDataDrift::new_decay(
+            &baseline,
+            Some(super::super::distribution::QuantileType::default()),
+            Some(std::num::NonZeroU64::new(1).unwrap()),
+        )
+        .unwrap();
+
+        let data: Vec<f64> = (0..100).map(|i| (i % 50) as f64).collect();
+        s.update_stream_batch(&data).unwrap();
+        assert_eq!(s.total_samples(), 100);
+
+        s.compute_drift(DataDriftType::PopulationStabilityIndex)
+            .unwrap();
+        assert!(s.total_samples() < 100);
+    }
+
+    #[test]
+    fn continuous_decay_multiple_criteria_applies_decay_once() {
+        // half_life=1 → α=0.5. After compute_drift_multiple_criteria with N metrics,
+        // total_samples should be floor(100*0.5)=50, same as a single compute_drift call.
+        // Calling compute_drift three times separately would give floor(floor(floor(100*0.5)*0.5)*0.5)=12.
+        let baseline: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        let half_life = std::num::NonZeroU64::new(1).unwrap();
+        let qt = super::super::distribution::QuantileType::default();
+
+        let mut s_multi =
+            StreamingContinuousDataDrift::new_decay(&baseline, Some(qt), Some(half_life)).unwrap();
+        let data: Vec<f64> = (0..100).map(|i| (i % 50) as f64).collect();
+        s_multi.update_stream_batch(&data).unwrap();
+        s_multi
+            .compute_drift_multiple_criteria(&[
+                DataDriftType::PopulationStabilityIndex,
+                DataDriftType::KullbackLeibler,
+                DataDriftType::JensenShannon,
+            ])
+            .unwrap();
+        let samples_multi = s_multi.total_samples();
+
+        let qt2 = super::super::distribution::QuantileType::default();
+        let mut s_single =
+            StreamingContinuousDataDrift::new_decay(&baseline, Some(qt2), Some(half_life)).unwrap();
+        s_single.update_stream_batch(&data).unwrap();
+        s_single
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .unwrap();
+        let samples_single = s_single.total_samples();
+
+        assert_eq!(samples_multi, samples_single);
     }
 }
 
@@ -1196,7 +1431,8 @@ mod categorical_tests {
     #[test]
     fn test_streaming_categorical_accumulation() {
         let baseline = ["a", "b"];
-        let mut streaming = StreamingCategoricalDataDrift::default_flush(&baseline).unwrap();
+        let mut streaming =
+            StreamingCategoricalDataDrift::new_flush(&baseline, None, None).unwrap();
 
         streaming.update_stream_batch(&["a", "b"]).unwrap();
         let d1 = streaming
@@ -1219,5 +1455,213 @@ mod categorical_tests {
         assert_eq!(streaming.total_samples(), 992);
         assert!(d1 < 1e-9);
         assert!(d2 < 1e-2);
+    }
+
+    // --- error paths ---
+
+    #[test]
+    fn categorical_batch_empty_baseline_returns_err() {
+        let empty: &[&str] = &[];
+        assert!(CategoricalDataDrift::new(empty).is_err());
+    }
+
+    #[test]
+    fn categorical_batch_empty_runtime_returns_err() {
+        let mut det = CategoricalDataDrift::new(&["a", "b", "c"]).unwrap();
+        let empty: &[&str] = &[];
+        assert!(det
+            .compute_drift(empty, DataDriftType::PopulationStabilityIndex)
+            .is_err());
+    }
+
+    #[test]
+    fn categorical_streaming_empty_batch_returns_err() {
+        let mut s = StreamingCategoricalDataDrift::new_flush(&["a", "b"], None, None).unwrap();
+        let empty: &[&str] = &[];
+        assert!(s.update_stream_batch(empty).is_err());
+    }
+
+    #[test]
+    fn categorical_streaming_compute_on_empty_returns_err() {
+        let mut s = StreamingCategoricalDataDrift::new_flush(&["a", "b"], None, None).unwrap();
+        assert!(s
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .is_err());
+    }
+
+    // --- novel label routing ---
+
+    #[test]
+    fn categorical_batch_novel_label_routes_to_other_bin() {
+        // runtime with only unseen labels should produce higher drift than runtime matching baseline
+        let baseline = ["a", "b", "a", "b", "a"];
+        let mut det = CategoricalDataDrift::new(&baseline).unwrap();
+
+        let matching_drift = det
+            .compute_drift(
+                &["a", "b", "a", "b", "a"],
+                DataDriftType::PopulationStabilityIndex,
+            )
+            .unwrap();
+        let novel_drift = det
+            .compute_drift(
+                &["x", "y", "z", "x", "y"],
+                DataDriftType::PopulationStabilityIndex,
+            )
+            .unwrap();
+
+        assert!(novel_drift > matching_drift);
+    }
+
+    // --- all drift types ---
+
+    #[test]
+    fn categorical_batch_all_drift_types_finite_nonnegative() {
+        let baseline = ["a", "a", "b", "b", "c"];
+        let runtime = ["a", "b", "b", "c", "c"];
+        let mut det = CategoricalDataDrift::new(&baseline).unwrap();
+
+        for drift_type in [
+            DataDriftType::PopulationStabilityIndex,
+            DataDriftType::KullbackLeibler,
+            DataDriftType::JensenShannon,
+            DataDriftType::WassersteinDistance,
+        ] {
+            let v = det.compute_drift(&runtime, drift_type).unwrap();
+            assert!(v.is_finite(), "{drift_type:?} produced non-finite value");
+            assert!(v >= 0.0, "{drift_type:?} produced negative value");
+        }
+    }
+
+    // --- reset_baseline ---
+
+    #[test]
+    fn categorical_batch_reset_baseline_changes_bin_count() {
+        let mut det = CategoricalDataDrift::new(&["a", "b"]).unwrap();
+        assert_eq!(det.rt_bins.len(), 3); // 2 labels + other
+
+        det.reset_baseline(&["a", "b", "c", "d"]).unwrap();
+        assert_eq!(det.rt_bins.len(), 5); // 4 labels + other
+    }
+
+    // --- export_baseline ---
+
+    #[test]
+    fn categorical_batch_export_baseline_contains_all_labels() {
+        let baseline = ["a", "b", "c", "a", "b"];
+        let det = CategoricalDataDrift::new(&baseline).unwrap();
+        let exported = det.export_baseline();
+
+        assert!(exported.contains_key("a"));
+        assert!(exported.contains_key("b"));
+        assert!(exported.contains_key("c"));
+        let sum: f64 = exported.values().sum();
+        assert!((sum - 1.0).abs() < 1e-9);
+    }
+
+    // --- streaming flush-mode extras ---
+
+    #[test]
+    fn categorical_streaming_flush_resets_stream() {
+        let mut s = StreamingCategoricalDataDrift::new_flush(&["a", "b"], None, None).unwrap();
+        s.update_stream_batch(&["a", "b", "a"]).unwrap();
+        assert!(!s.is_empty());
+        s.flush();
+        assert!(s.is_empty());
+        assert_eq!(s.total_samples(), 0);
+    }
+
+    #[test]
+    fn categorical_streaming_novel_label_accumulates_in_other_bin() {
+        let mut s = StreamingCategoricalDataDrift::new_flush(&["a", "b"], None, None).unwrap();
+        // push only labels not in the baseline
+        s.update_stream_batch(&["x", "y", "x", "z"]).unwrap();
+
+        // drift should be elevated since all traffic is in the other bin
+        let drift = s
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .unwrap();
+        assert!(drift > 0.5);
+    }
+
+    #[test]
+    fn categorical_streaming_reset_baseline_clears_stream() {
+        let mut s = StreamingCategoricalDataDrift::new_flush(&["a", "b"], None, None).unwrap();
+        s.update_stream_batch(&["a", "b"]).unwrap();
+
+        s.reset_baseline(&["x", "y", "z"]).unwrap();
+        assert!(s.is_empty());
+        assert_eq!(s.total_samples(), 0);
+        assert_eq!(s.stream_bins.len(), 4); // 3 labels + other
+    }
+
+    // --- decay mode ---
+
+    #[test]
+    fn categorical_decay_empty_compute_returns_err() {
+        let mut s = StreamingCategoricalDataDrift::<&str, DecayModeMark>::new_decay(
+            &["a", "b"],
+            Some(std::num::NonZeroU64::new(1).unwrap()),
+        )
+        .unwrap();
+        assert!(s
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .is_err());
+    }
+
+    #[test]
+    fn categorical_decay_reduces_total_samples() {
+        // half_life=1 → α=0.5
+        let mut s = StreamingCategoricalDataDrift::<&str, DecayModeMark>::new_decay(
+            &["a", "b"],
+            Some(std::num::NonZeroU64::new(1).unwrap()),
+        )
+        .unwrap();
+
+        let data: Vec<&str> = (0..100)
+            .map(|i| if i % 2 == 0 { "a" } else { "b" })
+            .collect();
+        s.update_stream_batch(&data).unwrap();
+        assert_eq!(s.total_samples(), 100);
+
+        s.compute_drift(DataDriftType::PopulationStabilityIndex)
+            .unwrap();
+        assert!(s.total_samples() < 100);
+    }
+
+    #[test]
+    fn categorical_decay_multiple_criteria_applies_decay_once() {
+        let half_life = std::num::NonZeroU64::new(1).unwrap();
+        let data: Vec<&str> = (0..100)
+            .map(|i| if i % 2 == 0 { "a" } else { "b" })
+            .collect();
+
+        let mut s_multi = StreamingCategoricalDataDrift::<&str, DecayModeMark>::new_decay(
+            &["a", "b"],
+            Some(half_life),
+        )
+        .unwrap();
+        s_multi.update_stream_batch(&data).unwrap();
+        s_multi
+            .compute_drift_multiple_criteria(&[
+                DataDriftType::PopulationStabilityIndex,
+                DataDriftType::KullbackLeibler,
+                DataDriftType::JensenShannon,
+            ])
+            .unwrap();
+        let samples_multi = s_multi.total_samples();
+
+        let mut s_single = StreamingCategoricalDataDrift::<&str, DecayModeMark>::new_decay(
+            &["a", "b"],
+            Some(half_life),
+        )
+        .unwrap();
+        s_single.update_stream_batch(&data).unwrap();
+        s_single
+            .compute_drift(DataDriftType::PopulationStabilityIndex)
+            .unwrap();
+        let samples_single = s_single.total_samples();
+
+        assert_eq!(samples_multi, samples_single);
     }
 }

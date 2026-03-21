@@ -342,4 +342,134 @@ pub fn model_perf_logistic_regression_analysis(
 }
 
 #[cfg(test)]
-mod test_discrete_model_perf_utilities {}
+mod test_discrete_model_perf_utilities {
+    use super::*;
+    use crate::metrics::{ClassificationEvaluationMetric as CM, LinearRegressionEvaluationMetric as LRM};
+
+    // Shared binary classification data
+    fn bin_true() -> Vec<i32> { vec![1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1] }
+    fn bin_pred() -> Vec<i32> { vec![1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1] }
+
+    // Shared regression data
+    fn reg_true() -> Vec<f32> { vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6] }
+    fn reg_pred() -> Vec<f32> { vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0] }
+
+    // Logistic regression data
+    fn log_true() -> Vec<f32> { vec![0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0] }
+    fn log_pred() -> Vec<f32> { vec![0.7, 0.3, 0.65, 0.55, 0.1, 0.2, 0.25, 0.66, 0.12, 0.98, 0.23, 0.34, 0.67, 0.77, 0.45, 0.88] }
+
+    // --- model_perf_binary_classification_analysis ---
+
+    #[test]
+    fn binary_analysis_returns_seven_metrics() {
+        let report = model_perf_binary_classification_analysis(&bin_true(), &bin_pred(), 1).unwrap();
+        assert_eq!(report.len(), 7);
+    }
+
+    #[test]
+    fn binary_analysis_length_mismatch_errors() {
+        assert!(model_perf_binary_classification_analysis(&[1, 0], &[1], 1).is_err());
+    }
+
+    // --- model_perf_regression_analysis ---
+
+    #[test]
+    fn regression_analysis_returns_eight_metrics() {
+        let report = model_perf_regression_analysis(&reg_true(), &reg_pred()).unwrap();
+        assert_eq!(report.len(), 8);
+    }
+
+    #[test]
+    fn regression_analysis_length_mismatch_errors() {
+        assert!(model_perf_regression_analysis(&[1.0_f32, 2.0], &[1.0_f32]).is_err());
+    }
+
+    #[test]
+    fn regression_analysis_empty_errors() {
+        let empty: &[f32] = &[];
+        assert!(model_perf_regression_analysis(empty, empty).is_err());
+    }
+
+    // --- model_perf_logistic_regression_analysis ---
+
+    #[test]
+    fn logistic_analysis_returns_eight_metrics() {
+        let report = model_perf_logistic_regression_analysis(&log_true(), &log_pred(), 0.5).unwrap();
+        assert_eq!(report.len(), 8);
+        assert!(report.contains_key(&CM::LogLoss));
+    }
+
+    #[test]
+    fn logistic_analysis_length_mismatch_errors() {
+        assert!(model_perf_logistic_regression_analysis(&[1.0_f32, 0.0], &[0.7_f32], 0.5).is_err());
+    }
+
+    // --- classification_performance_runtime ---
+
+    #[test]
+    fn classification_runtime_same_data_passes() {
+        let report = model_perf_binary_classification_analysis(&bin_true(), &bin_pred(), 1).unwrap();
+        let string_map: HashMap<String, f32> =
+            report.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        let result = classification_performance_runtime(
+            string_map.clone(),
+            string_map,
+            &[CM::Accuracy, CM::F1Score],
+            Some(1e6),
+        ).unwrap();
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn classification_runtime_missing_key_errors() {
+        let mut map = HashMap::new();
+        map.insert("NotAMetric".to_string(), 0.5_f32);
+        assert!(classification_performance_runtime(map.clone(), map, &[CM::Accuracy], None).is_err());
+    }
+
+    // --- logistic_performance_runtime ---
+
+    #[test]
+    fn logistic_runtime_same_data_passes() {
+        let report = model_perf_logistic_regression_analysis(&log_true(), &log_pred(), 0.5).unwrap();
+        let string_map: HashMap<String, f32> =
+            report.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        let result = logistic_performance_runtime(
+            string_map.clone(),
+            string_map,
+            &[CM::Accuracy, CM::LogLoss],
+            Some(1e6),
+        ).unwrap();
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn logistic_runtime_missing_key_errors() {
+        let mut map = HashMap::new();
+        map.insert("NotAMetric".to_string(), 0.5_f32);
+        assert!(logistic_performance_runtime(map.clone(), map, &[CM::Accuracy], None).is_err());
+    }
+
+    // --- regression_performance_runtime ---
+
+    #[test]
+    fn regression_runtime_same_data_passes() {
+        let report = model_perf_regression_analysis(&reg_true(), &reg_pred()).unwrap();
+        let string_map: HashMap<String, f32> =
+            report.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        let result = regression_performance_runtime(
+            string_map.clone(),
+            string_map,
+            &[LRM::RootMeanSquaredError, LRM::MeanAbsoluteError],
+            Some(1e6),
+        ).unwrap();
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn regression_runtime_missing_key_errors() {
+        let mut map = HashMap::new();
+        map.insert("NotAMetric".to_string(), 0.5_f32);
+        assert!(regression_performance_runtime(map.clone(), map, &[LRM::RootMeanSquaredError], None).is_err());
+    }
+}
