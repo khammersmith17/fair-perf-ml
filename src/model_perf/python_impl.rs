@@ -1,7 +1,7 @@
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
     /// Python interface into the core logic.
-    use super::{
+    use super::super::{
         classification_performance_runtime, logistic_performance_runtime,
         model_perf_binary_classification_analysis, model_perf_logistic_regression_analysis,
         model_perf_regression_analysis, regression_performance_runtime, ModelPerformanceError,

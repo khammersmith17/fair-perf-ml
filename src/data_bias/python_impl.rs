@@ -1,7 +1,6 @@
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
-    use super::data_bias_runtime_check;
-    use crate::data_bias::{core::pre_training_bias, PreTraining};
+    use crate::data_bias::{core::pre_training_bias, data_bias_runtime_check, PreTraining};
     use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict, PyDictResult};
     use crate::errors::{BiasError, InvalidMetricError};
     use crate::metrics::{DataBiasMetric, DataBiasMetricVec};
@@ -76,9 +75,9 @@ pub(crate) mod py_api {
     // labels, into enum metric labels to be used here internally.
     fn convert_db_analysis(
         report: HashMap<String, f32>,
-    ) -> Result<super::DataBiasAnalysisReport, InvalidMetricError> {
+    ) -> Result<DataBiasAnalysisReport, InvalidMetricError> {
         let mut invalid_metrics: Vec<String> = Vec::new();
-        let mut res_map: super::DataBiasAnalysisReport = HashMap::with_capacity(7);
+        let mut res_map: DataBiasAnalysisReport = HashMap::with_capacity(7);
 
         for (metric_str, value) in report.into_iter() {
             if let Ok(m) = DataBiasMetric::try_from(metric_str.as_ref()) {
