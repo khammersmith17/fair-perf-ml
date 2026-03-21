@@ -17,7 +17,7 @@ use pyo3::prelude::*;
 #[pymodule]
 #[pyo3(name = "_fair_perf_ml")]
 fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    use data_bias::py_api::{
+    use data_bias::python_impl::py_api::{
         py_data_bias_analyzer, py_data_bias_partial_check, py_data_bias_runtime_check,
     };
 
@@ -31,7 +31,7 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         py_model_bias_analyzer, py_model_bias_partial_check, py_model_bias_runtime_check,
     };
 
-    use model_perf::py_api::{
+    use model_perf::python_impl::py_api::{
         py_model_perf_class_rt_full, py_model_perf_class_rt_partial, py_model_perf_classification,
         py_model_perf_lin_reg_rt_full, py_model_perf_lin_reg_rt_partial,
         py_model_perf_log_reg_rt_full, py_model_perf_log_reg_rt_partial,
