@@ -3,6 +3,8 @@ use super::{
     distribution::QuantileType,
 };
 use crate::errors::DriftError;
+use std::fs::File;
+use std::io::{self, Read, Seek};
 use std::num::NonZeroUsize;
 /*
 * The goal with this module is to allow for a smooth transition between drift windows.
@@ -38,7 +40,18 @@ use std::num::NonZeroUsize;
 *
 * the current bucket is represented by head.
 * */
-struct WindowBucketContainer {
+
+enum WindowBuffer {
+    Memory(InMemoryWindowBuffer),
+    Disk(DiskWindowBuffer),
+}
+
+struct DiskWindowBuffer {
+    window_buffer: File,
+    live_window: Vec<f64>,
+}
+
+struct InMemoryWindowBuffer {
     window_buffer: Vec<f64>, // contiguous allocation of all the windows
     epoch_offset: usize,     // the "index" of the current epoch
     curr_epoch_sat: usize,   // the current saturation of the current epoch
@@ -48,11 +61,11 @@ struct WindowBucketContainer {
 
 struct ConsumedWindow(bool);
 
-impl WindowBucketContainer {
-    fn new(epoch_size: usize, num_bins: usize, num_windows: usize) -> WindowBucketContainer {
+impl InMemoryWindowBuffer {
+    fn new(epoch_size: usize, num_bins: usize, num_windows: usize) -> InMemoryWindowBuffer {
         let window_buffer = vec![0_f64; num_windows * num_bins];
 
-        WindowBucketContainer {
+        InMemoryWindowBuffer {
             window_buffer,
             epoch_offset: 0,
             curr_epoch_sat: 0,
@@ -121,7 +134,7 @@ pub struct WindowedDataConfig {
 
 pub struct WindowedContinuousDirft {
     global_bins: Vec<f64>,
-    windowed_buckets: WindowBucketContainer,
+    windowed_buckets: InMemoryWindowBuffer,
     baseline_bins: BaselineContinuousBins,
 }
 
