@@ -5,14 +5,16 @@ when ground truth feedback loop is slow.
 """
 
 from __future__ import annotations
+from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Union, Iterable, Optional, Protocol, Dict, List
+from typing import Iterable, Optional, Protocol, List
 import numpy as np
 from numpy.typing import NDArray
 from .._fair_perf_ml import (
     PyContinuousDataDrift,
     PyCategoricalDataDrift,
 )
+from .._internal import FloatingPointDataSlice
 
 
 class QuantileType(str, Enum):
@@ -34,9 +36,6 @@ type QuantileConfig = QuantileType | str | None
 
 def _map_drift_metric_type(m: DataDriftMetric) -> str:
     return str(m)
-
-
-FloatingPointDataSlice = Union[Iterable[float], NDArray]
 
 
 class StringBound(Protocol):
@@ -76,7 +75,38 @@ def _cast_to_string_iterable(arr: Iterable[StringBound]) -> Iterable[str]:
     return list(map(lambda x: str(x), arr))
 
 
-class ContinuousDataDrift:
+class DataDriftDiscreteBase[T](ABC):
+    """
+    Abtract class to define the streaming data drift api contract.
+    More for correctness constraint rather than utility here.
+    """
+
+    @abstractmethod
+    def reset_baseline(self, new_baseline: list[T]): ...
+
+    @abstractmethod
+    def compute_drift(
+        self, runtime_data: list[T], drift_metric: DataDriftMetric
+    ) -> float: ...
+
+    @abstractmethod
+    def compute_drift_multiple_criteria(
+        self, runtime_data: list[T], drift_metrics: List[DataDriftMetric]
+    ) -> list[float]: ...
+
+    @property
+    @abstractmethod
+    def total_samples(self) -> int: ...
+
+    @property
+    @abstractmethod
+    def num_bins(self) -> int: ...
+
+    @abstractmethod
+    def export_baseline(self) -> list[float]: ...
+
+
+class ContinuousDataDrift(DataDriftDiscreteBase):
     """
     Detects distributional drift in continuous (floating-point) features between
     a fixed baseline dataset and a runtime dataset.
@@ -179,7 +209,7 @@ class ContinuousDataDrift:
             typed_data, list(map(_map_drift_metric_type, drift_metrics))
         )
 
-    def export_baseline(self) -> List[float]:
+    def export_baseline(self) -> list[float]:
         """
         Export the baseline as a normalized probability distribution.
 
@@ -197,7 +227,7 @@ class ContinuousDataDrift:
         return self._inner.num_bins
 
 
-class CategoricalDataDrift:
+class CategoricalDataDrift(DataDriftDiscreteBase):
     """
     Detects distributional drift in categorical features between a fixed baseline
     dataset and a runtime dataset.
@@ -292,7 +322,7 @@ class CategoricalDataDrift:
             typed_data, list(map(_map_drift_metric_type, drift_metrics))
         )
 
-    def export_baseline(self) -> Dict[str, float]:
+    def export_baseline(self) -> list[float]:
         """
         Export the baseline as a normalized label frequency distribution.
 

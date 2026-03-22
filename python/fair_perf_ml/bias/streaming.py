@@ -1,13 +1,28 @@
 from __future__ import annotations
 from enum import Enum
-from typing import Union, Iterable, TypeVar, Generic, Dict, Protocol, Self
+from typing import Iterable, TypeVar, Generic, Protocol, Self
+
+import numpy as np
 from .._fair_perf_ml import PyDataBiasStreaming, PyModelBiasStreaming
-from ..models import DriftReport
+from ..models import (
+    ModelBiasDriftMetric,
+    DataBiasDriftMetric,
+    DriftReport,
+    PerformanceSnapshot,
+    DriftSnapshot,
+)
 
 
 class BiasSegmentationType(str, Enum):
-    LABEL = "Label"
-    THRESHOLD = "Threshold"
+    Label = "Label"
+    Threshold = "Threshold"
+
+
+class BiasSegmentationThresholdType(str, Enum):
+    GreaterThan = "GreaterThan"
+    GreaterThanEqaulTo = "GreaterThanEqaulTo"
+    LessThan = "LessThan"
+    LessThanEqaulTo = "LessThanEqaulTo"
 
 
 class SegementationValueBounds(Protocol):
@@ -27,29 +42,85 @@ P = TypeVar("P", bound=SegementationValueBounds)
 
 
 class BiasSegmentationCriteria(Generic[P]):
-    __slots__ = ["_value", "_seg_type"]
+    __slots__ = ["_value", "_seg_type", "_thres_type"]
 
-    def __init__(self, value: P, seg_type: Union[BiasSegmentationType, str]):
-        if isinstance(seg_type, str):
+    def __init__(
+        self,
+        value: P,
+        segmentation_type: BiasSegmentationType | str,
+        threshold_type: BiasSegmentationThresholdType | str | None = None,
+    ):
+        if isinstance(segmentation_type, str):
             try:
-                seg_type = BiasSegmentationType(seg_type)
+                segmentation_type = BiasSegmentationType(segmentation_type)
             except ValueError as exc:
-                raise ValueError("Invalid segmentation type") from exc
+                raise ValueError("Invalid segmentation_type") from exc
+
+        if (
+            segmentation_type == BiasSegmentationType.Threshold
+            and threshold_type is None
+        ):
+            raise ValueError(
+                "threshold_type is required when using segmentation_type BiasSegmentationType.Threshold"
+            )
+
+        if isinstance(threshold_type, str):
+            try:
+                threshold_type = BiasSegmentationThresholdType(threshold_type)
+            except ValueError as exc:
+                raise ValueError("Invalid threshold_type") from exc
 
         self._value = value
-        self._seg_type = seg_type
+        self._seg_type = segmentation_type
+        self._thres_type = threshold_type
 
-    def label(self, value: P) -> int:
+    def _label(self, value: P) -> int:
         """
         Assign a binary value to the value based on the internally defined
         segmentation logic.
         """
-        if self._seg_type == BiasSegmentationType.LABEL:
-            is_pos = value == self._value
-        else:
-            is_pos = value >= self._value
+        if self._seg_type == BiasSegmentationType.Label:
+            return int(value == self._value)
 
-        return int(is_pos)
+        match self._thres_type:
+            case BiasSegmentationThresholdType.GreaterThanEqaulTo:
+                return int(value >= self._value)
+            case BiasSegmentationThresholdType.GreaterThan:
+                return int(value >= self._value and value != self._value)
+            case BiasSegmentationThresholdType.LessThanEqaulTo:
+                return int(not value <= self._value or value == self._value)
+            case BiasSegmentationThresholdType.LessThan:
+                return int(not value >= self._value)
+            case _:
+                raise RuntimeError("State is invalid, please file an issue")
+
+    def _label_batch(self, values: Iterable[P]) -> list[int]:
+        """
+        Batch labels. Using numpy to hopefully get some vectorization on these ops.
+        """
+        arr = np.array(values)
+        if self._seg_type == BiasSegmentationType.Label:
+            return (arr == self._value).astype(np.int8).tolist()
+
+        match self._thres_type:
+            case BiasSegmentationThresholdType.GreaterThanEqaulTo:
+                return (arr >= self._value).astype(np.int8).tolist()
+            case BiasSegmentationThresholdType.GreaterThan:
+                return (
+                    ((arr >= self._value) & (arr != self._value))
+                    .astype(np.int8)
+                    .tolist()
+                )
+            case BiasSegmentationThresholdType.LessThanEqaulTo:
+                return (
+                    ((~(arr <= self._value)) | (arr == self._value))
+                    .astype(np.int8)
+                    .tolist()
+                )
+            case BiasSegmentationThresholdType.LessThan:
+                return (~(arr >= self._value)).astype(np.int8).tolist()
+            case _:
+                raise RuntimeError("State is invalid, please file an issue")
 
 
 class DataBiasStreaming(Generic[F, G]):
@@ -64,8 +135,8 @@ class DataBiasStreaming(Generic[F, G]):
     ):
         self._f_seg_criteria = feature_segment_criteria
         self._gt_seg_criteria = ground_truth_segment_criteria
-        labeled_feats = list(map(self._f_seg_criteria.label, feature_data))
-        labeled_gt = list(map(self._gt_seg_criteria.label, ground_truth_data))
+        labeled_feats = self._f_seg_criteria._label_batch(feature_data)
+        labeled_gt = self._gt_seg_criteria._label_batch(ground_truth_data)
         self._inner: PyDataBiasStreaming = PyDataBiasStreaming(
             labeled_feats, labeled_gt
         )
@@ -81,12 +152,12 @@ class DataBiasStreaming(Generic[F, G]):
             None
         """
         self._inner.push(
-            self._f_seg_criteria.label(feature_value),
-            self._gt_seg_criteria.label(ground_truth_value),
+            self._f_seg_criteria._label(feature_value),
+            self._gt_seg_criteria._label(ground_truth_value),
         )
 
     def push_batch(
-        self, feautre_data: Iterable[F], ground_truth_data: Iterable[G]
+        self, feature_data: Iterable[F], ground_truth_data: Iterable[G]
     ) -> None:
         """
         Push a single feature and ground truth example into the stream. Types should be
@@ -99,8 +170,8 @@ class DataBiasStreaming(Generic[F, G]):
             None
         """
 
-        labeled_feats = list(map(self._f_seg_criteria.label, feautre_data))
-        labeled_gt = list(map(self._gt_seg_criteria.label, ground_truth_data))
+        labeled_feats = self._f_seg_criteria._label_batch(feature_data)
+        labeled_gt = self._gt_seg_criteria._label_batch(ground_truth_data)
 
         self._inner.push_batch(labeled_feats, labeled_gt)
 
@@ -116,8 +187,8 @@ class DataBiasStreaming(Generic[F, G]):
         returns:
             None
         """
-        labeled_feats = list(map(self._f_seg_criteria.label, feautre_data))
-        labeled_gt = list(map(self._gt_seg_criteria.label, ground_truth_data))
+        labeled_feats = list(map(self._f_seg_criteria._label, feautre_data))
+        labeled_gt = list(map(self._gt_seg_criteria._label, ground_truth_data))
         self._inner.reset_baseline(labeled_feats, labeled_gt)
 
     def reset_baseline_and_segmentation_criteria(
@@ -138,8 +209,8 @@ class DataBiasStreaming(Generic[F, G]):
         """
         self._f_seg_criteria = updated_feature_segmentation
         self._gt_seg_criteria = updated_ground_truth_segmentation
-        labeled_feats = list(map(self._f_seg_criteria.label, feautre_data))
-        labeled_gt = list(map(self._gt_seg_criteria.label, ground_truth_data))
+        labeled_feats = list(map(self._f_seg_criteria._label, feautre_data))
+        labeled_gt = list(map(self._gt_seg_criteria._label, ground_truth_data))
         self._inner.reset_baseline(labeled_feats, labeled_gt)
 
     def flush(self) -> None:
@@ -148,22 +219,31 @@ class DataBiasStreaming(Generic[F, G]):
         """
         self._inner.flush()
 
-    def performance_snapshot(self) -> Dict[str, float]:
+    def performance_snapshot(self) -> PerformanceSnapshot:
         """
         Generate a performance snapshot, irrespective of the baseline data state.
         An exception will be thrown if no runtime data has been pushed into the stream.
         """
-        report: Dict[str, float] = self._inner.performance_snapshot()
+        report: dict[str, float] = self._inner.performance_snapshot()
         return report
 
-    def drift_snapshot(self) -> DriftReport:
+    def drift_snapshot(self) -> DriftSnapshot:
         """
         Generate a drift report, detailing the drift from the baseline state observed
         in the runtime data stream.
         An exception will be thrown if no runtime data has been pushed into the stream.
         """
-        report: DriftReport = self._inner.drift_report()
-        return report
+        return self._inner.drift_snapshot()
+
+    def drift_report(self, drift_threshold: float | None = 0.10) -> DriftReport:
+        return self._inner.drift_report(drift_threshold)
+
+    def drift_report_partial_metrics(
+        self,
+        drift_metrics: list[DataBiasDriftMetric],
+        drift_threshold: float | None = 0.10,
+    ) -> DriftReport:
+        return self._inner.drift_report_partial_metrics(drift_metrics, drift_threshold)
 
 
 class ModelBiasStreaming(Generic[F, P, G]):
@@ -182,9 +262,9 @@ class ModelBiasStreaming(Generic[F, P, G]):
         self._p_seg_criteria = prediction_segment_criteria
         self._gt_seg_criteria = ground_truth_segment_criteria
 
-        labeled_feats = list(map(self._f_seg_criteria.label, feature_data))
-        labeled_gt = list(map(self._gt_seg_criteria.label, ground_truth_data))
-        labeled_preds = list(map(self._p_seg_criteria.label, prediction_data))
+        labeled_feats = self._f_seg_criteria._label_batch(feature_data)
+        labeled_gt = self._gt_seg_criteria._label_batch(ground_truth_data)
+        labeled_preds = self._p_seg_criteria._label_batch(prediction_data)
         self._inner: PyModelBiasStreaming = PyModelBiasStreaming(
             labeled_feats, labeled_preds, labeled_gt
         )
@@ -202,9 +282,9 @@ class ModelBiasStreaming(Generic[F, P, G]):
             None
         """
         self._inner.push(
-            self._f_seg_criteria.label(feature),
-            self._p_seg_criteria.label(prediction),
-            self._gt_seg_criteria.label(ground_truth),
+            self._f_seg_criteria._label(feature),
+            self._p_seg_criteria._label(prediction),
+            self._gt_seg_criteria._label(ground_truth),
         )
 
     def push_batch(
@@ -226,11 +306,11 @@ class ModelBiasStreaming(Generic[F, P, G]):
         returns:
             None
         """
-        labeled_feats = list(map(self._f_seg_criteria.label, feature_data))
-        labeled_gt = list(map(self._gt_seg_criteria.label, ground_truth_data))
-        labeled_preds = list(map(self._p_seg_criteria.label, prediction_data))
+        labeled_feats = self._f_seg_criteria._label_batch(feature_data)
+        labeled_gt = self._gt_seg_criteria._label_batch(ground_truth_data)
+        labeled_preds = self._p_seg_criteria._label_batch(prediction_data)
 
-        self._inner.push(
+        self._inner.push_batch(
             labeled_feats,
             labeled_preds,
             labeled_gt,
@@ -253,9 +333,9 @@ class ModelBiasStreaming(Generic[F, P, G]):
         returns:
             None
         """
-        labeled_feats = list(map(self._f_seg_criteria.label, feature_data))
-        labeled_gt = list(map(self._gt_seg_criteria.label, ground_truth_data))
-        labeled_preds = list(map(self._p_seg_criteria.label, prediction_data))
+        labeled_feats = list(map(self._f_seg_criteria._label, feature_data))
+        labeled_gt = list(map(self._gt_seg_criteria._label, ground_truth_data))
+        labeled_preds = list(map(self._p_seg_criteria._label, prediction_data))
         self._inner.reset_baseline(labeled_feats, labeled_preds, labeled_gt)
 
     def reset_baseline_and_segmentation_criteria(
@@ -284,9 +364,9 @@ class ModelBiasStreaming(Generic[F, P, G]):
         self._gt_seg_criteria = ground_truth_segment_criteria
         self._p_seg_criteria = prediction_segment_criteria
 
-        labeled_feats = list(map(self._f_seg_criteria.label, feature_data))
-        labeled_gt = list(map(self._gt_seg_criteria.label, ground_truth_data))
-        labeled_preds = list(map(self._p_seg_criteria.label, prediction_data))
+        labeled_feats = list(map(self._f_seg_criteria._label, feature_data))
+        labeled_gt = list(map(self._gt_seg_criteria._label, ground_truth_data))
+        labeled_preds = list(map(self._p_seg_criteria._label, prediction_data))
         self._inner.reset_baseline(labeled_feats, labeled_preds, labeled_gt)
 
     def flush(self) -> None:
@@ -295,19 +375,28 @@ class ModelBiasStreaming(Generic[F, P, G]):
         """
         self._inner.flush()
 
-    def performance_snapshot(self) -> Dict[str, float]:
+    def performance_snapshot(self) -> PerformanceSnapshot:
         """
         Generate a performance snapshot of runtime state, irrespective of the baseline state.
         An exception will be thrown if no runtime data has been pushed into the stream.
         """
-        report: Dict[str, float] = self._inner.performance_snapshot()
+        report: dict[str, float] = self._inner.performance_snapshot()
         return report
 
-    def drift_snapshot(self) -> DriftReport:
+    def drift_snapshot(self) -> DriftSnapshot:
         """
         Generate a drift report, detailing the drift from the baseline state observed
         in the runtime data stream.
         An exception will be thrown if no runtime data has been pushed into the stream.
         """
-        report: DriftReport = self._inner.drift_snapshot()
-        return report
+        return self._inner.drift_snapshot()
+
+    def drift_report(self, drift_threshold: float | None = 0.10) -> DriftReport:
+        return self._inner.drift_report(drift_threshold)
+
+    def drift_report_partial_metrics(
+        self,
+        drift_metrics: list[ModelBiasDriftMetric],
+        drift_threshold: float | None = 0.10,
+    ) -> DriftReport:
+        return self._inner.drift_report_partial_metrics(drift_metrics, drift_threshold)

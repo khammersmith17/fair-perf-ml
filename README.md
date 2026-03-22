@@ -278,7 +278,7 @@ The json schema for the Data Bias evaluations will look as such:
     'JsDivergence': float,
     'LpNorm': float,
     'TotalVarationDistance': float,
-    'KolmorogvSmirnov': float
+    'KolmogorovSmirnov': float
 }
 ```
 

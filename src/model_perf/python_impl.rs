@@ -3,8 +3,9 @@ pub(crate) mod py_api {
     /// Python interface into the core logic.
     use super::super::{
         classification_performance_runtime, logistic_performance_runtime,
-        model_perf_binary_classification_analysis, model_perf_logistic_regression_analysis,
-        model_perf_regression_analysis, regression_performance_runtime, ModelPerformanceError,
+        model_perf_binary_classification_analysis, model_perf_linear_regression_analysis,
+        model_perf_logistic_regression_analysis, regression_performance_runtime,
+        ModelPerformanceError,
     };
     use crate::data_handler::py_types_handler::{determine_type, report_to_py_dict, PassedType};
     use crate::metrics::{
@@ -186,7 +187,7 @@ pub(crate) mod py_api {
 
     #[pyfunction]
     #[pyo3(signature = (y_pred_src, y_true_src))]
-    pub fn py_model_perf_regression<'py>(
+    pub fn py_model_perf_linear_regression<'py>(
         py: Python<'py>,
         y_pred_src: &Bound<'_, PyUntypedArray>,
         y_true_src: &Bound<'_, PyUntypedArray>,
@@ -194,7 +195,7 @@ pub(crate) mod py_api {
         let Ok((y_true, y_pred)) = validate_and_cast_regression(py, y_true_src, y_pred_src) else {
             return Err(PyValueError::new_err("Invalid types passed"));
         };
-        let report = match model_perf_regression_analysis(&y_true, &y_pred) {
+        let report = match model_perf_linear_regression_analysis(&y_true, &y_pred) {
             Ok(r) => r,
             Err(e) => return Err(e.into()),
         };

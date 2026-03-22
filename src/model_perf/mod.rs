@@ -82,7 +82,7 @@ where
     Ok(report.generate_report())
 }
 
-pub fn model_perf_regression_analysis<T>(
+pub fn model_perf_linear_regression_analysis<T>(
     y_true: &[T],
     y_pred: &[T],
 ) -> Result<LinearRegressionAnalysisReport, ModelPerformanceError>
@@ -157,19 +157,19 @@ mod test_discrete_model_perf_utilities {
 
     #[test]
     fn regression_analysis_returns_eight_metrics() {
-        let report = model_perf_regression_analysis(&reg_true(), &reg_pred()).unwrap();
+        let report = model_perf_linear_regression_analysis(&reg_true(), &reg_pred()).unwrap();
         assert_eq!(report.len(), 8);
     }
 
     #[test]
     fn regression_analysis_length_mismatch_errors() {
-        assert!(model_perf_regression_analysis(&[1.0_f32, 2.0], &[1.0_f32]).is_err());
+        assert!(model_perf_linear_regression_analysis(&[1.0_f32, 2.0], &[1.0_f32]).is_err());
     }
 
     #[test]
     fn regression_analysis_empty_errors() {
         let empty: &[f32] = &[];
-        assert!(model_perf_regression_analysis(empty, empty).is_err());
+        assert!(model_perf_linear_regression_analysis(empty, empty).is_err());
     }
 
     // --- model_perf_logistic_regression_analysis ---
@@ -247,7 +247,7 @@ mod test_discrete_model_perf_utilities {
 
     #[test]
     fn regression_runtime_same_data_passes() {
-        let report = model_perf_regression_analysis(&reg_true(), &reg_pred()).unwrap();
+        let report = model_perf_linear_regression_analysis(&reg_true(), &reg_pred()).unwrap();
         let string_map: HashMap<String, f32> = report
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))

@@ -27,13 +27,13 @@ class DataDriftStreamingBase[T, R](ABC):
     """
 
     @abstractmethod
-    def reset_baseline(self, new_baseline: T): ...
+    def reset_baseline(self, new_baseline: list[T]): ...
 
     @abstractmethod
     def update_stream(self, example: T): ...
 
     @abstractmethod
-    def update_stream_batch(self, runtime_data: T): ...
+    def update_stream_batch(self, runtime_data: list[T]): ...
 
     @abstractmethod
     def compute_drift(self, drift_metric: DataDriftMetric) -> float: ...
@@ -49,7 +49,7 @@ class DataDriftStreamingBase[T, R](ABC):
 
     @property
     @abstractmethod
-    def n_bins(self) -> int: ...
+    def num_bins(self) -> int: ...
 
     @abstractmethod
     def export_snapshot(self) -> R: ...
@@ -101,7 +101,7 @@ class StreamingContinuousDataDriftFlush(DataDriftStreamingBase):
         return self._inner.total_samples
 
     @property
-    def n_bins(self) -> int:
+    def num_bins(self) -> int:
         return self._inner.n_bins
 
     def export_snapshot(self) -> dict[str, list[float]]:
@@ -159,7 +159,7 @@ class StreamingContinuousDataDriftDecay(DataDriftStreamingBase):
         return self._inner.total_samples
 
     @property
-    def n_bins(self) -> int:
+    def num_bins(self) -> int:
         return self._inner.n_bins
 
     def export_snapshot(self) -> dict[str, list[float]]:

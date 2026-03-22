@@ -69,8 +69,8 @@ pub enum DataBiasRuntimeError {
     JsDivergence,
     #[error("TotalVariationDistance not present")]
     TotalVariationDistance,
-    #[error("KolmorogvSmirnov not present")]
-    KolmorogvSmirnov,
+    #[error("KolmogorovSmirnov not present")]
+    KolmogorovSmirnov,
     #[error("LpNorm not present")]
     LpNorm,
 }

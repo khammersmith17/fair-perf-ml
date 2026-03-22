@@ -211,7 +211,7 @@ pub enum DataBiasMetric {
     JsDivergence,
     LpNorm,
     TotalVariationDistance,
-    KolmorogvSmirnov,
+    KolmogorovSmirnov,
 }
 
 impl std::fmt::Display for DataBiasMetric {
@@ -223,7 +223,7 @@ impl std::fmt::Display for DataBiasMetric {
             Self::JsDivergence => write!(f, "JsDivergence"),
             Self::LpNorm => write!(f, "LpNorm"),
             Self::TotalVariationDistance => write!(f, "TotalVariationDistance"),
-            Self::KolmorogvSmirnov => write!(f, "KolmorogvSmirnov"),
+            Self::KolmogorovSmirnov => write!(f, "KolmogorovSmirnov"),
         }
     }
 }
@@ -235,7 +235,7 @@ pub const FULL_DATA_BIAS_METRICS: [DataBiasMetric; 7] = [
     DataBiasMetric::JsDivergence,
     DataBiasMetric::LpNorm,
     DataBiasMetric::TotalVariationDistance,
-    DataBiasMetric::KolmorogvSmirnov,
+    DataBiasMetric::KolmogorovSmirnov,
 ];
 
 impl TryFrom<&str> for DataBiasMetric {
@@ -248,7 +248,7 @@ impl TryFrom<&str> for DataBiasMetric {
             "JsDivergence" => Ok(Self::JsDivergence),
             "LpNorm" => Ok(Self::LpNorm),
             "TotalVariationDistance" => Ok(Self::TotalVariationDistance),
-            "KolmorogvSmirnov" => Ok(Self::KolmorogvSmirnov),
+            "KolmogorovSmirnov" => Ok(Self::KolmogorovSmirnov),
             _ => Err(()),
         }
     }

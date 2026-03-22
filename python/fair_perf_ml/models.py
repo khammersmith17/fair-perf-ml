@@ -1,11 +1,15 @@
 from enum import Enum
-from typing import Union, TypedDict, Dict, TypeAlias
+from typing import TypedDict, TypeAlias
 from pydantic import BaseModel, ConfigDict
 
 
 class DriftReport(TypedDict):
     passed: bool
-    failed_report: Dict[str, float]
+    failed_report: dict[str, float]
+
+
+type PerformanceSnapshot = dict[str, float]
+type DriftSnapshot = dict[str, float]
 
 
 class ModelType(str, Enum):
@@ -21,7 +25,7 @@ class DataBiasMetric(str, Enum):
     JsDivergence = "JsDivergence"
     LpNorm = "LpNorm"
     TotalVariationDistance = "TotalVariationDistance"
-    KolmorogvSmirnov = "KolmorogvSmirnov"
+    KolmogorovSmirnov = "KolmogorovSmirnov"
 
 
 class ModelBiasMetric(str, Enum):
@@ -63,13 +67,9 @@ class LinearRegressionEvaluationMetric(str, Enum):
     MeanAbsolutePercentageError = "MeanAbsolutePercentageError"
 
 
-ModelPerformanceMetric: TypeAlias = Union[
-    LinearRegressionEvaluationMetric, ClassificationEvaluationMetric
-]
-
-MachineLearningMetric: TypeAlias = Union[
-    ModelBiasMetric, DataBiasMetric, ModelPerformanceMetric
-]
+ModelPerformanceMetric: TypeAlias = (
+    LinearRegressionEvaluationMetric | ClassificationEvaluationMetric
+)
 
 
 class ModelBiasBaseline(BaseModel):
@@ -100,7 +100,7 @@ class DataBiasBaseline(BaseModel):
     JsDivergence: float
     LpNorm: float
     TotalVarationDistance: float
-    KolmorogvSmirnov: float
+    KolmogorovSmirnov: float
 
 
 # some models for conistent formatting on metric objects
@@ -136,9 +136,21 @@ class BinaryClassificationReport(BaseModel):
     F1Score: float
 
 
-class ModelPerformance(BaseModel):
+class ModelPerformanceReport(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, use_enum_values=True)
-    modelType: ModelType
-    performanceData: Union[
-        LinearRegressionReport, LogisticRegressionReport, BinaryClassificationReport
-    ]
+    model_type: ModelType
+    performance_data: (
+        LinearRegressionReport | LogisticRegressionReport | BinaryClassificationReport
+    )
+
+
+type DataBiasDriftMetric = DataBiasMetric | str
+type ModelBiasDriftMetric = ModelBiasMetric | str
+type ClassificationDriftMetric = ClassificationEvaluationMetric | str
+type LinearRegressionDriftMetric = LinearRegressionEvaluationMetric | str
+type ModelPerformanceDriftMetric = ModelPerformanceMetric | str
+
+
+MachineLearningMetric: TypeAlias = (
+    ModelBiasMetric | DataBiasMetric | ModelPerformanceDriftMetric
+)

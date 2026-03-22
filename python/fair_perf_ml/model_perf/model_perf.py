@@ -1,20 +1,27 @@
-from .._fair_perf_ml.py_model_perf import (
-    py_model_performance_regression as model_performance_regression,
-    py_model_performance_classification as model_performance_classification,
-    py_model_performance_logisitic_regression as model_performance_logisitic_regression,
-    py_model_performance_runtime_entry_full as model_performance_runtime_entry_full,
-    py_model_performance_runtime_entry_partial as model_performance_runtime_entry_partial,
+from typing import NamedTuple
+from numpy.typing import NDArray
+from pydantic import ValidationError
+from .._fair_perf_ml import (
+    py_model_perf_classification,
+    py_model_perf_logistic_regression,
+    py_model_perf_linear_regression,
+    py_model_perf_class_rt_full,
+    py_model_perf_class_rt_partial,
+    py_model_perf_lin_reg_rt_full,
+    py_model_perf_lin_reg_rt_partial,
+    py_model_perf_log_reg_rt_full,
+    py_model_perf_log_reg_rt_partial,
 )
 from ..models import (
+    DriftReport,
     ModelType,
-    ModelPerformance,
+    MachineLearningMetric,
+    ModelPerformanceReport,
     LinearRegressionReport,
     LogisticRegressionReport,
     BinaryClassificationReport,
 )
 from .._internal import check_and_convert_type
-from numpy.typing import NDArray
-from typing import Union, List, Optional
 
 
 class DifferentModelTypes(Exception):
@@ -30,9 +37,40 @@ class InvalidMetricsBody(Exception):
     """
 
 
+class CleanedRuntimeInput(NamedTuple):
+    model_type: ModelType
+    runtime: dict[str, float]
+    baseline: dict[str, float]
+
+
+def _serialize_runtime_input(
+    runtime: ModelPerformanceReport | dict, baseline: ModelPerformanceReport | dict
+) -> CleanedRuntimeInput:
+    if isinstance(runtime, dict):
+        try:
+            runtime = ModelPerformanceReport(**runtime)
+        except ValidationError as exc:
+            raise InvalidMetricsBody("Invalid data passed for runtime report") from exc
+
+    if isinstance(baseline, dict):
+        try:
+            baseline = ModelPerformanceReport(**baseline)
+        except ValidationError as exc:
+            raise InvalidMetricsBody("Invalid data passed for baseline report") from exc
+
+    if runtime.model_type != baseline.model_type:
+        raise DifferentModelTypes("Model type mismatch")
+
+    return CleanedRuntimeInput(
+        model_type=runtime.model_type,
+        runtime=runtime.performance_data.model_dump(),
+        baseline=baseline.performance_data.model_dump(),
+    )
+
+
 def linear_regression_analysis(
-    y_true: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
-    y_pred: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
+    y_true: NDArray | list[int | float],  # pyright: ignore
+    y_pred: NDArray | list[int | float],  # pyright: ignore
 ) -> dict:
     """
     Analysis for a linear regression model type.
@@ -46,17 +84,17 @@ def linear_regression_analysis(
 
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
-    res: dict = model_performance_regression(y_true=y_true, y_pred=y_pred)
-    return ModelPerformance(
-        modelType=ModelType.LinearRegression,
-        performanceData=LinearRegressionReport(**res),
+    res: dict = py_model_perf_linear_regression(y_true, y_pred)
+    return ModelPerformanceReport(
+        model_type=ModelType.LinearRegression,
+        performance_data=LinearRegressionReport(**res),
     ).model_dump()
 
 
 def logistic_regression_analysis(
-    y_true: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
-    y_pred: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
-    decision_threshold: Optional[float] = 0.5,
+    y_true: NDArray | list[int | float],  # pyright: ignore
+    y_pred: NDArray | list[int | float],  # pyright: ignore
+    decision_threshold: float | None = 0.5,
 ) -> dict:
     """
     Analysis for a logistic regression model type.
@@ -70,18 +108,16 @@ def logistic_regression_analysis(
     """
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
-    res: dict = model_performance_logisitic_regression(
-        y_true=y_true, y_pred=y_pred, decision_threshold=decision_threshold
-    )
-    return ModelPerformance(
-        modelType=ModelType.LogisticRegression,
-        performanceData=LogisticRegressionReport(**res),
+    res: dict = py_model_perf_logistic_regression(y_true, y_pred, decision_threshold)
+    return ModelPerformanceReport(
+        model_type=ModelType.LogisticRegression,
+        performance_data=LogisticRegressionReport(**res),
     ).model_dump()
 
 
 def binary_classification_analysis(
-    y_true: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
-    y_pred: Union[NDArray, List[Union[int, float]]],  # pyright: ignore
+    y_true: NDArray | list[int | float],  # pyright: ignore
+    y_pred: NDArray | list[int | float],  # pyright: ignore
 ) -> dict:
     """
     Analysis for a classification model type.
@@ -94,16 +130,18 @@ def binary_classification_analysis(
     """
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
-    res: dict = model_performance_classification(y_true=y_true, y_pred=y_pred)
-    return ModelPerformance(
-        modelType=ModelType.BinaryClassification,
-        performanceData=BinaryClassificationReport(**res),
+    res: dict = py_model_perf_classification(y_true, y_pred)
+    return ModelPerformanceReport(
+        model_type=ModelType.BinaryClassification,
+        performance_data=BinaryClassificationReport(**res),
     ).model_dump()
 
 
 def runtime_check_full(
-    latest: dict, baseline: dict, threshold: Optional[float] = 0.10
-) -> dict:
+    latest: ModelPerformanceReport | dict,
+    baseline: ModelPerformanceReport | dict,
+    threshold: float = 0.10,
+) -> DriftReport:
     """
     Method to perform a full runtime performance monitoring job.
     args:
@@ -113,25 +151,17 @@ def runtime_check_full(
     returns:
         dict - output analysis
     """
-    model_type = baseline.get("modelType")
-    if model_type != latest.get("modelType"):
-        raise DifferentModelTypes("Models types do not match")
-    latest_perf = latest.get("performanceData")
-    baseline_perf = baseline.get("performanceData")
-    if any([model_type is None, latest_perf is None, baseline_perf is None]):
-        raise InvalidMetricsBody("Invalid metrics body")
-    perf: dict = model_performance_runtime_entry_full(
-        model_type=model_type,
-        latest=latest_perf,
-        baseline=baseline_perf,
-        threshold=threshold,
-    )
-    return perf
+    cleaned_args = _serialize_runtime_input(latest, baseline)
+
+    return _dispatch_runtime_check(cleaned_args, None, threshold)
 
 
 def partial_runtime_check(
-    latest: dict, baseline: dict, metrics: List[str], threshold: Optional[float] = 0.10
-) -> dict:
+    latest: ModelPerformanceReport | dict,
+    baseline: ModelPerformanceReport | dict,
+    metrics: list[str],
+    threshold: float = 0.10,
+) -> DriftReport:
     """
     Method to perform a runtime performance monitoring job on only selected metrics.
     args:
@@ -141,16 +171,41 @@ def partial_runtime_check(
     returns:
         dict - output analysis
     """
-    model_type = baseline.get("modelType")
-    latest_perf = latest.get("performanceData")
-    baseline_perf = baseline.get("performanceData")
-    if any([model_type is None, latest_perf is None, baseline_perf is None]):
-        raise InvalidMetricsBody("Invalid metrics body")
-    perf: dict = model_performance_runtime_entry_partial(
-        model_type=model_type,
-        latest=latest_perf,
-        baseline=baseline_perf,
-        evaluation_metrics=metrics,
-        threshold=threshold,
-    )
-    return perf
+    cleaned_args = _serialize_runtime_input(latest, baseline)
+    return _dispatch_runtime_check(cleaned_args, metrics, threshold)
+
+
+def _dispatch_runtime_check(
+    cleaned_args: CleanedRuntimeInput,
+    metrics: list[MachineLearningMetric] | None,
+    threshold: float,
+) -> DriftReport:
+
+    match (cleaned_args.model_type, metrics):
+        case (ModelType.BinaryClassification, None):
+            return py_model_perf_class_rt_full(
+                cleaned_args.baseline, cleaned_args.runtime, threshold
+            )
+        case (ModelType.LinearRegression, None):
+            return py_model_perf_lin_reg_rt_full(
+                cleaned_args.baseline, cleaned_args.runtime, threshold
+            )
+        case (ModelType.LogisticRegression, None):
+
+            return py_model_perf_log_reg_rt_full(
+                cleaned_args.baseline, cleaned_args.runtime, threshold
+            )
+        case (ModelType.BinaryClassification, list()):
+            return py_model_perf_class_rt_partial(
+                cleaned_args.baseline, cleaned_args.runtime, metrics, threshold
+            )
+        case (ModelType.LinearRegression, list()):
+            return py_model_perf_lin_reg_rt_partial(
+                cleaned_args.baseline, cleaned_args.runtime, metrics, threshold
+            )
+        case (ModelType.LogisticRegression, list()):
+            return py_model_perf_log_reg_rt_partial(
+                cleaned_args.baseline, cleaned_args.runtime, metrics, threshold
+            )
+        case _:
+            raise RuntimeError("Invalid state please file an issue")

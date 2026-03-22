@@ -34,8 +34,8 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     use model_perf::python_impl::py_api::{
         py_model_perf_class_rt_full, py_model_perf_class_rt_partial, py_model_perf_classification,
         py_model_perf_lin_reg_rt_full, py_model_perf_lin_reg_rt_partial,
-        py_model_perf_log_reg_rt_full, py_model_perf_log_reg_rt_partial,
-        py_model_perf_logistic_regression, py_model_perf_regression,
+        py_model_perf_linear_regression, py_model_perf_log_reg_rt_full,
+        py_model_perf_log_reg_rt_partial, py_model_perf_logistic_regression,
     };
 
     use data_bias::streaming::py_api::PyDataBiasStreaming;
@@ -50,7 +50,7 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_data_bias_partial_check, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_bias_runtime_check, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_bias_partial_check, m)?)?;
-    m.add_function(wrap_pyfunction!(py_model_perf_regression, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_perf_linear_regression, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_perf_class_rt_full, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_perf_class_rt_partial, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_perf_classification, m)?)?;

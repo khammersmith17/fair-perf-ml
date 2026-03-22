@@ -69,7 +69,7 @@ def test_db_numpy(bl_df, runtime_test) -> bool:
         "JsDivergence": 0.002021726220846176,
         "LpNorm": 0.23192767798900604,
         "TotalVarationDistance": 0.039049260318279266,
-        "KolmorogvSmirnov": 0.039049260318279266,
+        "KolmogorovSmirnov": 0.039049260318279266,
     }
 
     db_runtime = data_bias.perform_analysis(
@@ -82,7 +82,7 @@ def test_db_numpy(bl_df, runtime_test) -> bool:
         "JsDivergence": 0.0016257409006357193,
         "LpNorm": 0.11823293566703796,
         "TotalVarationDistance": 0.026097401976585388,
-        "KolmorogvSmirnov": 0.026097401976585388,
+        "KolmogorovSmirnov": 0.026097401976585388,
     }
 
     runtime_check = data_bias.runtime_comparison(db_bl, db_runtime, 0.15)
@@ -108,7 +108,7 @@ def test_db_numpy_partial(bl_df, runtime_test) -> bool:
         "JsDivergence": 0.002021726220846176,
         "LpNorm": 0.23192767798900604,
         "TotalVarationDistance": 0.039049260318279266,
-        "KolmorogvSmirnov": 0.039049260318279266,
+        "KolmogorovSmirnov": 0.039049260318279266,
     }
 
     db_runtime = data_bias.perform_analysis(
@@ -122,7 +122,7 @@ def test_db_numpy_partial(bl_df, runtime_test) -> bool:
         "JsDivergence": 0.0016257409006357193,
         "LpNorm": 0.11823293566703796,
         "TotalVarationDistance": 0.026097401976585388,
-        "KolmorogvSmirnov": 0.026097401976585388,
+        "KolmogorovSmirnov": 0.026097401976585388,
     }
 
     runtime_check = data_bias.partial_runtime_comparison(
@@ -158,7 +158,7 @@ def test_db_list(bl_df, runtime_test) -> bool:
         "JsDivergence": 0.002021726220846176,
         "LpNorm": 0.23192767798900604,
         "TotalVarationDistance": 0.039049260318279266,
-        "KolmorogvSmirnov": 0.039049260318279266,
+        "KolmogorovSmirnov": 0.039049260318279266,
     }
 
     db_runtime = data_bias.perform_analysis(
@@ -171,7 +171,7 @@ def test_db_list(bl_df, runtime_test) -> bool:
         "JsDivergence": 0.0016257409006357193,
         "LpNorm": 0.11823293566703796,
         "TotalVarationDistance": 0.026097401976585388,
-        "KolmorogvSmirnov": 0.026097401976585388,
+        "KolmogorovSmirnov": 0.026097401976585388,
     }
 
     runtime_check = data_bias.runtime_comparison(db_bl, db_runtime, 0.15)

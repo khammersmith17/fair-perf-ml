@@ -345,7 +345,7 @@ mod data_bias_streaming_tests {
             (M::JsDivergence, base.js),
             (M::LpNorm, base.lpnorm),
             (M::TotalVariationDistance, base.tvd),
-            (M::KolmorogvSmirnov, base.ks),
+            (M::KolmogorovSmirnov, base.ks),
         ]
         .into_iter()
         .collect();
@@ -366,7 +366,7 @@ mod data_bias_streaming_tests {
             (M::JsDivergence, 0_f32),
             (M::LpNorm, 0_f32),
             (M::TotalVariationDistance, 0_f32),
-            (M::KolmorogvSmirnov, 0_f32),
+            (M::KolmogorovSmirnov, 0_f32),
         ]
         .into_iter()
         .collect();

@@ -18,7 +18,7 @@ pub fn pre_training_bias(data: PreTraining) -> ModelPerfResult<DataBiasAnalysisR
         M::TotalVariationDistance,
         stats::total_variation_distance(&data)?,
     );
-    result.insert(M::KolmorogvSmirnov, stats::kolmogorov_smirnov(&data)?);
+    result.insert(M::KolmogorovSmirnov, stats::kolmogorov_smirnov(&data)?);
 
     Ok(result)
 }
@@ -97,7 +97,7 @@ mod db_core {
         result.insert(M::JsDivergence, js);
         result.insert(M::LpNorm, lp_norm);
         result.insert(M::TotalVariationDistance, tvd);
-        result.insert(M::KolmorogvSmirnov, ks);
+        result.insert(M::KolmogorovSmirnov, ks);
 
         let pre_training = PreTraining::new_from_segmentation(
             &feature_data,

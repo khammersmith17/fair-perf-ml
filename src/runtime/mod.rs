@@ -77,9 +77,9 @@ impl TryFrom<HashMap<String, f32>> for DataBiasRuntime {
             Some(val) => *val,
             None => return Err(DataBiasRuntimeError::TotalVariationDistance),
         };
-        let ks = match data.get("KolmorogvSmirnov") {
+        let ks = match data.get("KolmogorovSmirnov") {
             Some(val) => *val,
-            None => return Err(DataBiasRuntimeError::KolmorogvSmirnov),
+            None => return Err(DataBiasRuntimeError::KolmogorovSmirnov),
         };
 
         Ok(DataBiasRuntime {
@@ -122,9 +122,9 @@ impl TryFrom<DataBiasAnalysisReport> for DataBiasRuntime {
             Some(val) => *val,
             None => return Err(DataBiasRuntimeError::TotalVariationDistance),
         };
-        let ks = match data.get(&D::KolmorogvSmirnov) {
+        let ks = match data.get(&D::KolmogorovSmirnov) {
             Some(val) => *val,
-            None => return Err(DataBiasRuntimeError::KolmorogvSmirnov),
+            None => return Err(DataBiasRuntimeError::KolmogorovSmirnov),
         };
 
         Ok(DataBiasRuntime {
@@ -188,9 +188,9 @@ impl DataBiasRuntime {
                         );
                     }
                 }
-                DataBiasMetric::KolmorogvSmirnov => {
+                DataBiasMetric::KolmogorovSmirnov => {
                     if self.ks > baseline.ks * (1_f32 + threshold) {
-                        result.insert(DataBiasMetric::KolmorogvSmirnov, self.ks - baseline.ks);
+                        result.insert(DataBiasMetric::KolmogorovSmirnov, self.ks - baseline.ks);
                     }
                 }
             }
@@ -226,7 +226,7 @@ impl DataBiasRuntime {
             (self.tvd - baseline.tvd).abs() / baseline.tvd.abs().max(eps),
         );
         result.insert(
-            DataBiasMetric::KolmorogvSmirnov,
+            DataBiasMetric::KolmogorovSmirnov,
             (self.ks - baseline.ks).abs() / baseline.ks.abs().max(eps),
         );
 
@@ -241,7 +241,7 @@ impl DataBiasRuntime {
         result.insert(DataBiasMetric::JsDivergence, self.js);
         result.insert(DataBiasMetric::LpNorm, self.lpnorm);
         result.insert(DataBiasMetric::TotalVariationDistance, self.tvd);
-        result.insert(DataBiasMetric::KolmorogvSmirnov, self.ks);
+        result.insert(DataBiasMetric::KolmogorovSmirnov, self.ks);
         result
     }
 }
@@ -1403,7 +1403,7 @@ mod runtime_container_tests {
         map.insert("LpNorm".to_string(), 0.5_f32);
         // intentional typos matching the TryFrom impl
         map.insert("TotalVarationDistance".to_string(), 0.6_f32);
-        map.insert("KolmorogvSmirnov".to_string(), 0.7_f32);
+        map.insert("KolmogorovSmirnov".to_string(), 0.7_f32);
 
         let rt = DataBiasRuntime::try_from(map).unwrap();
         assert_eq!(rt.ci, 0.1_f32);
@@ -1870,7 +1870,7 @@ mod runtime_coverage_tests {
         assert!(report.contains_key(&D::JsDivergence));
         assert!(report.contains_key(&D::LpNorm));
         assert!(report.contains_key(&D::TotalVariationDistance));
-        assert!(report.contains_key(&D::KolmorogvSmirnov));
+        assert!(report.contains_key(&D::KolmogorovSmirnov));
     }
 
     #[test]
@@ -1933,8 +1933,8 @@ mod runtime_coverage_tests {
     fn data_bias_runtime_check_ks_flagged() {
         let mut rt = baseline_02();
         rt.ks = 0.5;
-        let result = rt.runtime_check(baseline_02(), 0.1, &[D::KolmorogvSmirnov]);
-        assert!(result.contains_key(&D::KolmorogvSmirnov));
+        let result = rt.runtime_check(baseline_02(), 0.1, &[D::KolmogorovSmirnov]);
+        assert!(result.contains_key(&D::KolmogorovSmirnov));
     }
 
     #[test]

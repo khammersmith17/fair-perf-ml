@@ -358,7 +358,7 @@ mod data_bias_containers {
         result.insert(M::JsDivergence, js);
         result.insert(M::LpNorm, lp_norm);
         result.insert(M::TotalVariationDistance, tvd);
-        result.insert(M::KolmorogvSmirnov, ks);
+        result.insert(M::KolmogorovSmirnov, ks);
 
         let test = data_bias_analyzer(
             BiasDataPayload::new_from_criteria(
