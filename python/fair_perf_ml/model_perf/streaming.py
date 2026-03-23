@@ -11,23 +11,18 @@ there is a model update, or data drifts, without needing to pull down the servic
 """
 
 from abc import ABC, abstractmethod
-from typing import Protocol, Self
 from collections.abc import Iterable
-from .._fair_perf_ml import (
-    PyBinaryClassificationStreaming,
-    PyLinearRegressionStreaming,
-    PyLogisticRegressionStreaming,
-)
+from typing import Protocol, Self
+
 import numpy as np
-from ..models import (
-    DriftReport,
-    PerformanceSnapshot,
-    DriftSnapshot,
-    ModelPerformanceDriftMetric,
-    ClassificationDriftMetric,
-    LinearRegressionDriftMetric,
-)
+
+from .._fair_perf_ml import (PyBinaryClassificationStreaming,
+                             PyLinearRegressionStreaming,
+                             PyLogisticRegressionStreaming)
 from .._internal import cast_floating_point_slice
+from ..models import (ClassificationDriftMetric, DriftReport, DriftSnapshot,
+                      LinearRegressionDriftMetric, ModelPerformanceDriftMetric,
+                      PerformanceSnapshot)
 
 
 class LabelBound(Protocol):

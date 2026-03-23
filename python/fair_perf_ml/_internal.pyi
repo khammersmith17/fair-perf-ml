@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from typing import TypeAlias
+
 from numpy.typing import NDArray
 
 FloatingPointDataSlice: TypeAlias = Iterable[float] | list[float] | NDArray

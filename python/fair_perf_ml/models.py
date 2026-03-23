@@ -1,5 +1,6 @@
 from enum import Enum
-from typing import TypedDict, TypeAlias
+from typing import TypeAlias, TypedDict
+
 from pydantic import BaseModel, ConfigDict
 
 

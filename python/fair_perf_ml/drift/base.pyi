@@ -1,7 +1,8 @@
-from enum import Enum
 from abc import ABC
-from typing import Protocol
 from collections.abc import Iterable
+from enum import Enum
+from typing import Protocol
+
 from .._internal import FloatingPointDataSlice
 
 class QuantileType(str, Enum):

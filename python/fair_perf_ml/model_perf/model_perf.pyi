@@ -1,9 +1,7 @@
 from numpy.typing import NDArray
-from ..models import (
-    DriftReport,
-    ModelPerformanceReport,
-    ModelPerformanceDriftMetric,
-)
+
+from ..models import (DriftReport, ModelPerformanceDriftMetric,
+                      ModelPerformanceReport)
 
 class DifferentModelTypes(Exception): ...
 class InvalidMetricsBody(Exception): ...

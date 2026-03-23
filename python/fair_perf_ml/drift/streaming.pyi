@@ -1,6 +1,8 @@
 from abc import ABC
 from collections.abc import Iterable
-from .base import StringBound, DataDriftMetric, QuantileConfig, FloatingPointDataSlice
+
+from .base import (DataDriftMetric, FloatingPointDataSlice, QuantileConfig,
+                   StringBound)
 
 class DataDriftStreamingBase[T, R](ABC):
     def reset_baseline(self, new_baseline: list[T]) -> None: ...

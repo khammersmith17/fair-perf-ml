@@ -5,15 +5,15 @@ when ground truth feedback loop is slow.
 """
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Iterable, Optional, Protocol, List
+from typing import Iterable, List, Optional, Protocol
+
 import numpy as np
 from numpy.typing import NDArray
-from .._fair_perf_ml import (
-    PyContinuousDataDrift,
-    PyCategoricalDataDrift,
-)
+
+from .._fair_perf_ml import PyCategoricalDataDrift, PyContinuousDataDrift
 from .._internal import FloatingPointDataSlice
 
 

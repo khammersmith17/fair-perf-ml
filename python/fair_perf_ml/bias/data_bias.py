@@ -1,11 +1,12 @@
-from .._fair_perf_ml import (
-    py_data_bias_analyzer as data_bias_analyzer,
-    py_data_bias_runtime_check as data_bias_runtime_check,
-    py_data_bias_partial_check as data_bias_partial_check,
-)
 from numpy.typing import NDArray
+
+from .._fair_perf_ml import py_data_bias_analyzer as data_bias_analyzer
+from .._fair_perf_ml import \
+    py_data_bias_partial_check as data_bias_partial_check
+from .._fair_perf_ml import \
+    py_data_bias_runtime_check as data_bias_runtime_check
 from .._internal import check_and_convert_type
-from ..models import DriftReport, DataBiasDriftMetric
+from ..models import DataBiasDriftMetric, DriftReport
 
 
 def perform_analysis(

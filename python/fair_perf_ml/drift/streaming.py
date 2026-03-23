@@ -1,23 +1,15 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Iterable, Optional, List
-from .._fair_perf_ml import (
-    PyStreamingContinuousDataDriftDecay,
-    PyStreamingCategoricalDataDriftDecay,
-    PyStreamingContinuousDataDriftFlush,
-    PyStreamingCategoricalDataDriftFlush,
-)
-from .base import (
-    StringBound,
-    DataDriftMetric,
-    QuantileType,
-    QuantileConfig,
-    _map_drift_metric_type,
-    QuantileType,
-    FloatingPointDataSlice,
-    _cast_to_numpy_float_arr,
-    _cast_to_string_iterable,
-)
+from typing import Iterable, List, Optional
+
+from .._fair_perf_ml import (PyStreamingCategoricalDataDriftDecay,
+                             PyStreamingCategoricalDataDriftFlush,
+                             PyStreamingContinuousDataDriftDecay,
+                             PyStreamingContinuousDataDriftFlush)
+from .base import (DataDriftMetric, FloatingPointDataSlice, QuantileConfig,
+                   QuantileType, StringBound, _cast_to_numpy_float_arr,
+                   _cast_to_string_iterable, _map_drift_metric_type)
 
 
 class DataDriftStreamingBase[T, R](ABC):

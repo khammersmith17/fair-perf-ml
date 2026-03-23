@@ -1,4 +1,5 @@
 from numpy.typing import NDArray
+
 from ..models import DriftReport, ModelBiasDriftMetric
 
 def perform_analysis(

@@ -1,5 +1,6 @@
 from numpy.typing import NDArray
-from ..models import DriftReport, DataBiasDriftMetric
+
+from ..models import DataBiasDriftMetric, DriftReport
 
 def perform_analysis(
     feature: list[str | float | int] | NDArray,

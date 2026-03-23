@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from typing import TypeAlias
+
 import numpy as np
 from numpy.typing import NDArray
 

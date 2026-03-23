@@ -1,27 +1,21 @@
 from typing import NamedTuple
+
 from numpy.typing import NDArray
 from pydantic import ValidationError
-from .._fair_perf_ml import (
-    py_model_perf_classification,
-    py_model_perf_logistic_regression,
-    py_model_perf_linear_regression,
-    py_model_perf_class_rt_full,
-    py_model_perf_class_rt_partial,
-    py_model_perf_lin_reg_rt_full,
-    py_model_perf_lin_reg_rt_partial,
-    py_model_perf_log_reg_rt_full,
-    py_model_perf_log_reg_rt_partial,
-)
-from ..models import (
-    DriftReport,
-    ModelType,
-    MachineLearningMetric,
-    ModelPerformanceReport,
-    LinearRegressionReport,
-    LogisticRegressionReport,
-    BinaryClassificationReport,
-)
+
+from .._fair_perf_ml import (py_model_perf_class_rt_full,
+                             py_model_perf_class_rt_partial,
+                             py_model_perf_classification,
+                             py_model_perf_lin_reg_rt_full,
+                             py_model_perf_lin_reg_rt_partial,
+                             py_model_perf_linear_regression,
+                             py_model_perf_log_reg_rt_full,
+                             py_model_perf_log_reg_rt_partial,
+                             py_model_perf_logistic_regression)
 from .._internal import check_and_convert_type
+from ..models import (BinaryClassificationReport, DriftReport,
+                      LinearRegressionReport, LogisticRegressionReport,
+                      MachineLearningMetric, ModelPerformanceReport, ModelType)
 
 
 class DifferentModelTypes(Exception):

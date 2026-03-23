@@ -1,7 +1,9 @@
-from enum import Enum
-from typing import TypeVar, Generic, Protocol, Self
 from collections.abc import Iterable
-from ..models import DriftReport, DataBiasDriftMetric, ModelBiasDriftMetric, PerformanceSnapshot, DriftSnapshot
+from enum import Enum
+from typing import Generic, Protocol, Self, TypeVar
+
+from ..models import (DataBiasDriftMetric, DriftReport, DriftSnapshot,
+                      ModelBiasDriftMetric, PerformanceSnapshot)
 
 class BiasSegmentationType(str, Enum):
     Label: str

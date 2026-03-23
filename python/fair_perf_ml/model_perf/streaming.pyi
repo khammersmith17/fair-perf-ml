@@ -1,14 +1,10 @@
 from abc import ABC
-from typing import Protocol, Self
 from collections.abc import Iterable
-from ..models import (
-    DriftReport,
-    PerformanceSnapshot,
-    DriftSnapshot,
-    ModelPerformanceDriftMetric,
-    ClassificationDriftMetric,
-    LinearRegressionDriftMetric,
-)
+from typing import Protocol, Self
+
+from ..models import (ClassificationDriftMetric, DriftReport, DriftSnapshot,
+                      LinearRegressionDriftMetric, ModelPerformanceDriftMetric,
+                      PerformanceSnapshot)
 
 class LabelBound(Protocol):
     def __eq__(self, other: Self, /) -> bool: ...

@@ -1,16 +1,13 @@
 from __future__ import annotations
+
 from enum import Enum
-from typing import Iterable, TypeVar, Generic, Protocol, Self
+from typing import Generic, Iterable, Protocol, Self, TypeVar
 
 import numpy as np
+
 from .._fair_perf_ml import PyDataBiasStreaming, PyModelBiasStreaming
-from ..models import (
-    ModelBiasDriftMetric,
-    DataBiasDriftMetric,
-    DriftReport,
-    PerformanceSnapshot,
-    DriftSnapshot,
-)
+from ..models import (DataBiasDriftMetric, DriftReport, DriftSnapshot,
+                      ModelBiasDriftMetric, PerformanceSnapshot)
 
 
 class BiasSegmentationType(str, Enum):
