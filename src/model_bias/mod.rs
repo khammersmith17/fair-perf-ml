@@ -334,7 +334,7 @@ mod model_bias_components {
     fn symmetric_data() -> (Vec<i32>, Vec<i32>, Vec<i32>) {
         let feat = vec![1, 1, 1, 1, 0, 0, 0, 0];
         let pred = vec![1, 1, 0, 0, 1, 1, 0, 0];
-        let gt   = vec![1, 0, 1, 0, 1, 0, 1, 0];
+        let gt = vec![1, 0, 1, 0, 1, 0, 1, 0];
         (feat, pred, gt)
     }
 
@@ -364,7 +364,11 @@ mod model_bias_components {
 
     #[test]
     fn post_training_distribution_cond_acceptance_errors_when_no_gt_positives() {
-        let d = PostTrainingDistribution { len: 5, positive_gt: 0, positive_pred: 3 };
+        let d = PostTrainingDistribution {
+            len: 5,
+            positive_gt: 0,
+            positive_pred: 3,
+        };
         assert!(d.cond_acceptance().is_err());
     }
 
@@ -377,13 +381,21 @@ mod model_bias_components {
     #[test]
     fn post_training_distribution_conditional_rejection_errors_when_all_predicted_positive() {
         // d = len - pos_pred = 0 when all predicted positive
-        let d = PostTrainingDistribution { len: 4, positive_gt: 2, positive_pred: 4 };
+        let d = PostTrainingDistribution {
+            len: 4,
+            positive_gt: 2,
+            positive_pred: 4,
+        };
         assert!(d.conditional_rejection().is_err());
     }
 
     #[test]
     fn post_training_distribution_clear_resets() {
-        let mut d = PostTrainingDistribution { len: 5, positive_gt: 3, positive_pred: 2 };
+        let mut d = PostTrainingDistribution {
+            len: 5,
+            positive_gt: 3,
+            positive_pred: 2,
+        };
         d.clear();
         assert_eq!(d, PostTrainingDistribution::default());
     }
@@ -397,11 +409,26 @@ mod model_bias_components {
         let pred_seg = seg();
         let gt_seg = seg();
         let mut pt = PostTraining::default();
-        pt.accumulate_batch(&feat, &feat_seg, &pred, &pred_seg, &gt, &gt_seg).unwrap();
+        pt.accumulate_batch(&feat, &feat_seg, &pred, &pred_seg, &gt, &gt_seg)
+            .unwrap();
 
         // Each facet has 4 samples, 2 positive predictions, 2 positive ground truths.
-        assert_eq!(pt.dist_a, PostTrainingDistribution { len: 4, positive_pred: 2, positive_gt: 2 });
-        assert_eq!(pt.dist_d, PostTrainingDistribution { len: 4, positive_pred: 2, positive_gt: 2 });
+        assert_eq!(
+            pt.dist_a,
+            PostTrainingDistribution {
+                len: 4,
+                positive_pred: 2,
+                positive_gt: 2
+            }
+        );
+        assert_eq!(
+            pt.dist_d,
+            PostTrainingDistribution {
+                len: 4,
+                positive_pred: 2,
+                positive_gt: 2
+            }
+        );
     }
 
     #[test]
@@ -410,7 +437,16 @@ mod model_bias_components {
         let pred_seg = seg();
         let gt_seg = seg();
         let mut pt = PostTraining::default();
-        assert!(pt.accumulate_batch(&[1_i32, 0], &feat_seg, &[1_i32], &pred_seg, &[1_i32], &gt_seg).is_err());
+        assert!(pt
+            .accumulate_batch(
+                &[1_i32, 0],
+                &feat_seg,
+                &[1_i32],
+                &pred_seg,
+                &[1_i32],
+                &gt_seg
+            )
+            .is_err());
     }
 
     #[test]
@@ -419,7 +455,9 @@ mod model_bias_components {
         let pred_seg = seg();
         let gt_seg = seg();
         let mut pt = PostTraining::default();
-        assert!(pt.accumulate_batch(&[], &feat_seg, &[], &pred_seg, &[], &gt_seg).is_err());
+        assert!(pt
+            .accumulate_batch(&[], &feat_seg, &[], &pred_seg, &[], &gt_seg)
+            .is_err());
     }
 
     // --- PostTraining::clear ---
@@ -431,7 +469,8 @@ mod model_bias_components {
         let pred_seg = seg();
         let gt_seg = seg();
         let mut pt = PostTraining::default();
-        pt.accumulate_batch(&feat, &feat_seg, &pred, &pred_seg, &gt, &gt_seg).unwrap();
+        pt.accumulate_batch(&feat, &feat_seg, &pred, &pred_seg, &gt, &gt_seg)
+            .unwrap();
         pt.clear();
         assert_eq!(pt.dist_a, PostTrainingDistribution::default());
         assert_eq!(pt.dist_d, PostTrainingDistribution::default());
@@ -442,25 +481,29 @@ mod model_bias_components {
     #[test]
     fn post_training_new_from_seg_criteria_happy_path() {
         let (feat, pred, gt) = symmetric_data();
-        let pt = PostTraining::new_from_segmentation_criteria(
-            &feat, &seg(), &pred, &seg(), &gt, &seg(),
-        ).unwrap();
+        let pt =
+            PostTraining::new_from_segmentation_criteria(&feat, &seg(), &pred, &seg(), &gt, &seg())
+                .unwrap();
         assert_eq!(pt.dist_a.len + pt.dist_d.len, 8);
     }
 
     #[test]
     fn post_training_new_from_seg_criteria_mismatched_lengths_errors() {
         assert!(PostTraining::new_from_segmentation_criteria(
-            &[1_i32, 0], &seg(), &[1_i32], &seg(), &[1_i32], &seg(),
-        ).is_err());
+            &[1_i32, 0],
+            &seg(),
+            &[1_i32],
+            &seg(),
+            &[1_i32],
+            &seg(),
+        )
+        .is_err());
     }
 
     #[test]
     fn post_training_new_from_seg_criteria_empty_errors() {
         let s = BiasSegmentationCriteria::new(0_i32, BiasSegmentationType::Label);
-        assert!(PostTraining::new_from_segmentation_criteria(
-            &[], &s, &[], &s, &[], &s,
-        ).is_err());
+        assert!(PostTraining::new_from_segmentation_criteria(&[], &s, &[], &s, &[], &s,).is_err());
     }
 
     // --- BucketGeneralizedEntropy ---
@@ -511,7 +554,8 @@ mod model_bias_components {
             BiasDataPayload::new_from_criteria(&feat, seg()),
             BiasDataPayload::new_from_criteria(&pred, seg()),
             BiasDataPayload::new_from_criteria(&gt, seg()),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(report.len(), 12);
     }
 
@@ -520,12 +564,13 @@ mod model_bias_components {
         use crate::data_handler::BiasDataPayload;
         let feat = vec![1_i32, 0, 1];
         let pred = vec![1_i32, 0];
-        let gt   = vec![1_i32, 0, 1];
+        let gt = vec![1_i32, 0, 1];
         assert!(model_bias_analyzer(
             BiasDataPayload::new_from_criteria(&feat, seg()),
             BiasDataPayload::new_from_criteria(&pred, seg()),
             BiasDataPayload::new_from_criteria(&gt, seg()),
-        ).is_err());
+        )
+        .is_err());
     }
 
     // --- model_bias_runtime_check / partial ---
@@ -536,7 +581,8 @@ mod model_bias_components {
             full_model_bias_report(0.5),
             full_model_bias_report(0.5),
             0.1,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(result.passed);
     }
 
@@ -558,10 +604,13 @@ mod model_bias_components {
             current,
             0.1,
             &[M::DifferenceInPositivePredictedLabels],
-        ).unwrap();
+        )
+        .unwrap();
         assert!(!result.passed);
         let failed = result.failed_report.unwrap();
-        assert!(failed.iter().any(|f| f.metric == M::DifferenceInPositivePredictedLabels));
+        assert!(failed
+            .iter()
+            .any(|f| f.metric == M::DifferenceInPositivePredictedLabels));
     }
 
     #[test]

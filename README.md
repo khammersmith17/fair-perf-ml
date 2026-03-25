@@ -23,6 +23,8 @@ The goal of this package is to offer that kind of ML observability at no cost, a
 
 A newer goal of this package is to make an attempt at introducing utilities that can close the gap between how ML observability is done and how traditional system style observability is done. The gap is typically in the time it takes to get feedback, and how it is done. ML observability is often implement as batch data jobs on some cron cadence. It does not feel as smooth or as elegant as system observability, and the feedback time is tied to the cadence of the cron schedule. Version v0.2.0 introduces streaming types, that can accumulate data and create a smoother, real time observability cadence, more to come on this in future versions. The streaming types in v0.2.0 can be (hoepfully) easily composed to create a long running service. The internal representation in Rust has a very minimal memory footprint, so many different datasets can be used in a single process with relatively low resource constraint.
 
+Other changes in v0.2.0 to exisiting logic is to refactor internal logic for performance and clean up the Python surface to have better annotations for static analysis.
+
 The logic is written in Rust, with a python interface to let users pass in some different types (ie not only numpy arrays but also python lists, if for whatever reason someones likes to use python lists instead of numpy arrays), and an easy to use interface. The performance penalty there is minimal and makes use quite a bit easier. I generally feel that users do not need to pay someone a lot of money for services that do not require it.
 
 This package would not be possbile without the great work done by the contributors of PYO3, that work is wonderdul.

@@ -138,11 +138,12 @@ class BinaryClassificationReport(BaseModel):
 
 
 class ModelPerformanceReport(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, use_enum_values=True)
     model_type: ModelType
     performance_data: (
         LinearRegressionReport | LogisticRegressionReport | BinaryClassificationReport
     )
+
+    model_config = ConfigDict(extra="forbid", strict=True, use_enum_values=True)
 
 
 type DataBiasDriftMetric = DataBiasMetric | str

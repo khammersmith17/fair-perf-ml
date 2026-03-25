@@ -271,8 +271,7 @@ mod tests {
 
     #[test]
     fn invalid_metric_error_model_bias_display_includes_metric_names() {
-        let err =
-            InvalidMetricError::ModelBiasMetricError(vec!["unknown_metric".to_string()]);
+        let err = InvalidMetricError::ModelBiasMetricError(vec!["unknown_metric".to_string()]);
         assert!(err.to_string().contains("unknown_metric"));
     }
 

@@ -3,19 +3,27 @@ from typing import NamedTuple
 from numpy.typing import NDArray
 from pydantic import ValidationError
 
-from .._fair_perf_ml import (py_model_perf_class_rt_full,
-                             py_model_perf_class_rt_partial,
-                             py_model_perf_classification,
-                             py_model_perf_lin_reg_rt_full,
-                             py_model_perf_lin_reg_rt_partial,
-                             py_model_perf_linear_regression,
-                             py_model_perf_log_reg_rt_full,
-                             py_model_perf_log_reg_rt_partial,
-                             py_model_perf_logistic_regression)
+from .._fair_perf_ml import (
+    py_model_perf_class_rt_full,
+    py_model_perf_class_rt_partial,
+    py_model_perf_classification,
+    py_model_perf_lin_reg_rt_full,
+    py_model_perf_lin_reg_rt_partial,
+    py_model_perf_linear_regression,
+    py_model_perf_log_reg_rt_full,
+    py_model_perf_log_reg_rt_partial,
+    py_model_perf_logistic_regression,
+)
 from .._internal import check_and_convert_type
-from ..models import (BinaryClassificationReport, DriftReport,
-                      LinearRegressionReport, LogisticRegressionReport,
-                      MachineLearningMetric, ModelPerformanceReport, ModelType)
+from ..models import (
+    BinaryClassificationReport,
+    DriftReport,
+    LinearRegressionReport,
+    LogisticRegressionReport,
+    MachineLearningMetric,
+    ModelPerformanceReport,
+    ModelType,
+)
 
 
 class DifferentModelTypes(Exception):
@@ -79,10 +87,7 @@ def linear_regression_analysis(
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
     res: dict = py_model_perf_linear_regression(y_true, y_pred)
-    return ModelPerformanceReport(
-        model_type=ModelType.LinearRegression,
-        performance_data=LinearRegressionReport(**res),
-    ).model_dump()
+    return {"model_type": ModelType.LinearRegression, "performance_data": res}
 
 
 def logistic_regression_analysis(
@@ -103,10 +108,8 @@ def logistic_regression_analysis(
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
     res: dict = py_model_perf_logistic_regression(y_true, y_pred, decision_threshold)
-    return ModelPerformanceReport(
-        model_type=ModelType.LogisticRegression,
-        performance_data=LogisticRegressionReport(**res),
-    ).model_dump()
+
+    return {"model_type": ModelType.LogisticRegression, "performance_data": res}
 
 
 def binary_classification_analysis(
@@ -125,10 +128,8 @@ def binary_classification_analysis(
     y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
     y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
     res: dict = py_model_perf_classification(y_true, y_pred)
-    return ModelPerformanceReport(
-        model_type=ModelType.BinaryClassification,
-        performance_data=BinaryClassificationReport(**res),
-    ).model_dump()
+
+    return {"model_type": ModelType.BinaryClassification, "performance_data": res}
 
 
 def runtime_check_full(

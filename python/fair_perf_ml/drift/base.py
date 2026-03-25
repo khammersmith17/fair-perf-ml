@@ -13,7 +13,12 @@ from typing import Iterable, List, Optional, Protocol
 import numpy as np
 from numpy.typing import NDArray
 
-from .._fair_perf_ml import PyCategoricalDataDrift, PyContinuousDataDrift
+from .._fair_perf_ml import (
+    PyCategoricalDataDrift,
+    PyContinuousDataDrift,
+    py_compute_drift_categorical_distribtuion,
+    py_compute_drift_continuous_distribtuion,
+)
 from .._internal import FloatingPointDataSlice
 
 
@@ -73,6 +78,29 @@ def _cast_to_string_iterable(arr: Iterable[StringBound]) -> Iterable[str]:
     Iterable of something that can be casted to a string to a Iterable[str].
     """
     return list(map(lambda x: str(x), arr))
+
+
+def compute_drift_categorical_distributions(
+    baseline_distribution: List[StringBound],
+    candidate_distribution: List[StringBound],
+    drift_metrics: list[DataDriftMetric],
+) -> list[float]:
+    return py_compute_drift_continuous_distribtuion(
+        _cast_to_string_iterable(baseline_distribution),
+        _cast_to_string_iterable(candidate_distribution),
+        drift_metrics,
+    )
+
+
+def compute_drift_continuous_distribution(
+    baseline_distribution: FloatingPointDataSlice,
+    candidate_distribution: FloatingPointDataSlice,
+    drift_metrics: list[DataDriftMetric],
+    quantile_type: QuantileConfig,
+) -> list[float]:
+    return py_compute_drift_continuous_distribtuion(
+        baseline_distribution, candidate_distribution, drift_metrics, quantile_type
+    )
 
 
 class DataDriftDiscreteBase[T](ABC):

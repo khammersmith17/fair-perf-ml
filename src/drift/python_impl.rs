@@ -9,6 +9,7 @@ pub(crate) mod py_api {
 
     use crate::{
         drift::{
+            compute_drift_categorical_distribution, compute_drift_continuous_distribution,
             data_drift::{
                 CategoricalDataDrift, ContinuousDataDrift, DecayModeMark, FlushModeMark,
                 StreamingCategoricalDataDrift, StreamingContinuousDataDrift,
@@ -18,6 +19,55 @@ pub(crate) mod py_api {
         },
         errors::DriftError,
     };
+
+    fn coerce_quantile_type(
+        q_type_opt: Option<String>,
+    ) -> Result<Option<QuantileType>, DriftError> {
+        if let Some(q_type) = q_type_opt {
+            Ok(Some(QuantileType::try_from(q_type.as_str())?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[pyfunction]
+    pub(crate) fn py_compute_drift_continuous_distribtuion<'py>(
+        baseline: PyReadonlyArray1<'py, f64>,
+        candidate: PyReadonlyArray1<'py, f64>,
+        drift_metrics: Vec<String>,
+        quantile_type: Option<String>,
+    ) -> PyResult<Vec<f64>> {
+        let bl_slice = baseline.as_slice()?;
+        let candidate_slice = candidate.as_slice()?;
+        let mut drift_m = Vec::with_capacity(drift_metrics.len());
+        for m in drift_metrics.iter() {
+            drift_m.push(DataDriftType::try_from(m.as_str())?);
+        }
+
+        let q_type = coerce_quantile_type(quantile_type)?;
+        Ok(compute_drift_continuous_distribution(
+            bl_slice,
+            candidate_slice,
+            &drift_m,
+            q_type,
+        )?)
+    }
+
+    #[pyfunction]
+    pub(crate) fn py_compute_drift_categorical_distribtuion<'py>(
+        baseline: Vec<String>,
+        candidate: Vec<String>,
+        drift_metrics: Vec<String>,
+    ) -> PyResult<Vec<f64>> {
+        let mut drift_m = Vec::with_capacity(drift_metrics.len());
+        for m in drift_metrics.iter() {
+            drift_m.push(DataDriftType::try_from(m.as_str())?);
+        }
+
+        Ok(compute_drift_categorical_distribution(
+            &baseline, &candidate, &drift_m,
+        )?)
+    }
 
     /// Batch continuous data drift detector. Computes drift metrics between a fixed
     /// baseline histogram and a runtime data slice on each call.
@@ -46,11 +96,7 @@ pub(crate) mod py_api {
             baseline_data: PyReadonlyArray1<'py, f64>,
             quantile_type_str: Option<String>,
         ) -> PyResult<PyContinuousDataDrift> {
-            let quantile_type = if let Some(q_type) = quantile_type_str {
-                Some(QuantileType::try_from(q_type.as_str())?)
-            } else {
-                None
-            };
+            let quantile_type = coerce_quantile_type(quantile_type_str)?;
             let bl_slice = baseline_data.as_slice()?;
             let inner = ContinuousDataDrift::new_from_baseline(quantile_type, bl_slice)?;
             Ok(Self { inner })

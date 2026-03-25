@@ -22,6 +22,7 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     };
 
     use drift::python_impl::py_api::{
+        py_compute_drift_categorical_distribtuion, py_compute_drift_continuous_distribtuion,
         PyCategoricalDataDrift, PyContinuousDataDrift, PyStreamingCategoricalDataDriftDecay,
         PyStreamingCategoricalDataDriftFlush, PyStreamingContinuousDataDriftDecay,
         PyStreamingContinuousDataDriftFlush,
@@ -59,6 +60,14 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_model_perf_lin_reg_rt_full, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_perf_lin_reg_rt_partial, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_perf_log_reg_rt_full, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        py_compute_drift_categorical_distribtuion,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        py_compute_drift_continuous_distribtuion,
+        m
+    )?)?;
 
     m.add_class::<PyCategoricalDataDrift>()?;
     m.add_class::<PyContinuousDataDrift>()?;

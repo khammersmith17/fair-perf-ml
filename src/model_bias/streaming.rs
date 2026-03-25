@@ -514,10 +514,10 @@ mod model_bias_strming_tests {
     fn make_stream() -> StreamingModelBias<usize, usize, usize> {
         let feat = vec![1_usize, 1, 1, 1, 0, 0, 0, 0];
         let pred = vec![1_usize, 1, 0, 0, 1, 1, 0, 0];
-        let gt   = vec![1_usize, 0, 1, 0, 1, 0, 1, 0];
+        let gt = vec![1_usize, 0, 1, 0, 1, 0, 1, 0];
         let feat_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
         let pred_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
-        let gt_seg   = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let gt_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
         StreamingModelBias::new(&feat, feat_seg, &pred, pred_seg, &gt, gt_seg).unwrap()
     }
 
@@ -567,11 +567,14 @@ mod model_bias_strming_tests {
     fn new_errors_when_slices_have_mismatched_lengths() {
         let feat_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
         let pred_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
-        let gt_seg   = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
+        let gt_seg = BiasSegmentationCriteria::new(1_usize, BiasSegmentationType::Label);
         let result = StreamingModelBias::new(
-            &[1_usize, 0], feat_seg,
-            &[1_usize],    pred_seg,
-            &[1_usize, 0], gt_seg,
+            &[1_usize, 0],
+            feat_seg,
+            &[1_usize],
+            pred_seg,
+            &[1_usize, 0],
+            gt_seg,
         );
         assert!(result.is_err());
     }
