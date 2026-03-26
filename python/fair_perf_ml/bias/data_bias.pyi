@@ -2,11 +2,11 @@ from numpy.typing import NDArray
 
 from ..models import DataBiasDriftMetric, DriftReport
 
-def perform_analysis(
-    feature: list[str | float | int] | NDArray,
-    ground_truth: list[str | float | int] | NDArray,
-    feature_label_or_threshold: str | float | int,
-    ground_truth_label_or_threshold: str | float | int,
+def perform_analysis[F, G](
+    feature: list[F] | NDArray,
+    ground_truth: list[G] | NDArray,
+    feature_label_or_threshold: F,
+    ground_truth_label_or_threshold: G,
 ) -> dict[str, float]: ...
 
 def runtime_comparison(

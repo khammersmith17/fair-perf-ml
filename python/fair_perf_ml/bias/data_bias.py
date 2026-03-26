@@ -1,19 +1,21 @@
+from __future__ import annotations
+from typing import cast
 from numpy.typing import NDArray
 
-from .._fair_perf_ml import py_data_bias_analyzer as data_bias_analyzer
-from .._fair_perf_ml import \
-    py_data_bias_partial_check as data_bias_partial_check
-from .._fair_perf_ml import \
-    py_data_bias_runtime_check as data_bias_runtime_check
+from .._fair_perf_ml import py_data_bias_analyzer
+from .._fair_perf_ml import py_data_bias_partial_check
+from .._fair_perf_ml import py_data_bias_runtime_check
 from .._internal import check_and_convert_type
 from ..models import DataBiasDriftMetric, DriftReport
 
 
-def perform_analysis(
-    feature: list[str | float | int] | NDArray,  # pyright: ignore
-    ground_truth: list[str | float | int] | NDArray,  # pyright: ignore
-    feature_label_or_threshold: str | float | int,
-    ground_truth_label_or_threshold: str | float | int,
+def perform_analysis[
+    F, G
+](
+    feature: list[F] | NDArray,
+    ground_truth: list[G] | NDArray,
+    feature_label_or_threshold: F,
+    ground_truth_label_or_threshold: G,
 ) -> dict[str, float]:
     """
     interface into rust class
@@ -28,10 +30,10 @@ def perform_analysis(
     """
     # want to pass numpy arrays to rust
     # type resolution in rust mod depends on numpy arrays
-    feature: NDArray = check_and_convert_type(feature)
-    ground_truth: NDArray = check_and_convert_type(ground_truth)
+    feature = cast(NDArray, check_and_convert_type(feature))
+    ground_truth = cast(NDArray, check_and_convert_type(ground_truth))
 
-    res: dict[str, float] = data_bias_analyzer(
+    res: dict[str, float] = py_data_bias_analyzer(
         feature_array=feature,
         ground_truth_array=ground_truth,
         feature_label_or_threshold=feature_label_or_threshold,
@@ -45,7 +47,7 @@ def perform_analysis(
 def runtime_comparison(
     baseline: dict[str, float],
     latest: dict[str, float],
-    threshold: float | None = 0.10,
+    threshold: float = 0.10,
 ) -> DriftReport:
     """
     Compare the current runtime analysis result to the baseline to determine the model
@@ -58,10 +60,8 @@ def runtime_comparison(
     Returns:
         dict - the drift report, detailing the metrics that have drifted and to what degree.
     """
-    res: DriftReport = (
-        data_bias_runtime_check(baseline=baseline, latest=latest, threshold=threshold)
-        if threshold
-        else data_bias_runtime_check(baseline=baseline, latest=latest)
+    res: DriftReport = py_data_bias_runtime_check(
+        baseline=baseline, latest=latest, threshold=threshold
     )
     return res
 
@@ -70,7 +70,7 @@ def partial_runtime_comparison(
     baseline: dict[str, float],
     latest: dict[str, float],
     metrics: list[DataBiasDriftMetric],
-    threshold: float | None = 0.10,
+    threshold: float = 0.10,
 ) -> DriftReport:
     """
     Performs the same drift comparison as the above method, but allows the user to narrow the
@@ -84,7 +84,7 @@ def partial_runtime_comparison(
     Returns:
         dict
     """
-    res: DriftReport = data_bias_partial_check(
+    res: DriftReport = py_data_bias_partial_check(
         baseline=baseline, latest=latest, metrics=metrics, threshold=threshold
     )
     # for nicer formatting on the return

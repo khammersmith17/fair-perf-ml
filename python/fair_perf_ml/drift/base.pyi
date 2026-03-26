@@ -23,6 +23,19 @@ class StringBound(Protocol):
     def __str__(self) -> str: ...
 
 class DataDriftParameterValidationError(Exception): ...
+def compute_drift_continuous_distribution(
+    baseline_distribution: FloatingPointDataSlice,
+    candidate_distribution: FloatingPointDataSlice,
+    drift_metrics: list[DataDriftMetric],
+    quantile_type: QuantileType
+) -> list[float]: ...
+
+
+def compute_drift_categorical_distribution(
+    baseline_distribution: list[StringBound],
+    candidate_distribution: list[StringBound],
+    drift_metrics: list[DataDriftMetric],
+) -> list[float]: ...
 
 class DataDriftDiscreteBase[T](ABC):
     def reset_baseline(self, new_baseline: list[T]) -> None: ...

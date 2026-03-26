@@ -80,7 +80,7 @@ def _cast_to_string_iterable(arr: Iterable[StringBound]) -> Iterable[str]:
     return list(map(lambda x: str(x), arr))
 
 
-def compute_drift_categorical_distributions(
+def compute_drift_categorical_distribution(
     baseline_distribution: List[StringBound],
     candidate_distribution: List[StringBound],
     drift_metrics: list[DataDriftMetric],

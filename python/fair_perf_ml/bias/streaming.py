@@ -6,8 +6,13 @@ from typing import Generic, Iterable, Protocol, Self, TypeVar
 import numpy as np
 
 from .._fair_perf_ml import PyDataBiasStreaming, PyModelBiasStreaming
-from ..models import (DataBiasDriftMetric, DriftReport, DriftSnapshot,
-                      ModelBiasDriftMetric, PerformanceSnapshot)
+from ..models import (
+    DataBiasDriftMetric,
+    DriftReport,
+    DriftSnapshot,
+    ModelBiasDriftMetric,
+    PerformanceSnapshot,
+)
 
 
 class BiasSegmentationType(str, Enum):

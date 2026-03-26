@@ -1,21 +1,23 @@
+from __future__ import annotations
+from typing import cast
 from numpy.typing import NDArray
 
-from .._fair_perf_ml import py_model_bias_analyzer as model_bias_analyzer
-from .._fair_perf_ml import \
-    py_model_bias_partial_check as model_bias_partial_check
-from .._fair_perf_ml import \
-    py_model_bias_runtime_check as model_bias_runtime_check
+from .._fair_perf_ml import py_model_bias_analyzer
+from .._fair_perf_ml import py_model_bias_partial_check
+from .._fair_perf_ml import py_model_bias_runtime_check
 from .._internal import check_and_convert_type
 from ..models import DriftReport, ModelBiasDriftMetric
 
 
-def perform_analysis(
-    feature: list[str | float | int] | NDArray,  # pyright: ignore
-    ground_truth: list[str | float | int] | NDArray,  # pyright: ignore
-    predictions: list[str | float | int] | NDArray,  # pyright: ignore
-    feature_label_or_threshold: str | float | int,
-    ground_truth_label_or_threshold: str | float | int,
-    prediction_label_or_threshold: str | float | int,
+def perform_model_bias_analysis[
+    F, G, P
+](
+    feature: list[F] | NDArray,
+    ground_truth: list[G] | NDArray,
+    predictions: list[P] | NDArray,
+    feature_label_or_threshold: F,
+    ground_truth_label_or_threshold: G,
+    prediction_label_or_threshold: P,
 ) -> dict[str, float]:
     """
     Performs model bias analysis on the data passed. The arrays passed with the feature,
@@ -32,11 +34,11 @@ def perform_analysis(
         ground_truth_label_or_threshold: str | float | int -> segmenation parameter for ground truth
         prediction_label_or_threshold: str | float | int -> segmenation parameter for predictions
     """
-    feature: NDArray = check_and_convert_type(feature)
-    ground_truth: NDArray = check_and_convert_type(ground_truth)
-    predictions: NDArray = check_and_convert_type(predictions)
+    feature = cast(NDArray, check_and_convert_type(feature))
+    ground_truth = cast(NDArray, check_and_convert_type(ground_truth))
+    predictions = cast(NDArray, check_and_convert_type(predictions))
 
-    res: dict[str, float] = model_bias_analyzer(
+    res: dict[str, float] = py_model_bias_analyzer(
         feature_array=feature,
         ground_truth_array=ground_truth,
         prediction_array=predictions,
@@ -48,7 +50,7 @@ def perform_analysis(
     return res
 
 
-def runtime_comparison(
+def model_bias_runtime_comparison(
     baseline: dict, comparison: dict, threshold: float | None = 0.10
 ) -> DriftReport:
     """
@@ -62,14 +64,14 @@ def runtime_comparison(
     Returns:
         dict
     """
-    res: DriftReport = model_bias_runtime_check(
+    res: DriftReport = py_model_bias_runtime_check(
         baseline=baseline, latest=comparison, threshold=threshold
     )
 
     return res
 
 
-def partial_runtime_comparison(
+def model_bias_partial_runtime_comparison(
     baseline: dict,
     comparison: dict,
     metrics: list[ModelBiasDriftMetric],
@@ -86,7 +88,7 @@ def partial_runtime_comparison(
     Returns:
         dict
     """
-    res: DriftReport = model_bias_partial_check(
+    res: DriftReport = py_model_bias_partial_check(
         baseline=baseline,
         latest=comparison,
         metrics=metrics,

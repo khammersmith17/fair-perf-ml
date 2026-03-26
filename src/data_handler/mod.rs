@@ -6,10 +6,25 @@ pub(crate) mod py_types_handler {
     use numpy::{PyArrayDescrMethods, PyUntypedArray};
     use pyo3::exceptions::PyTypeError;
     use pyo3::prelude::*;
-    use pyo3::types::{PyDict, PyDictMethods, PyFloat, PyInt, PyString};
+    use pyo3::types::{PyBool, PyDict, PyDictMethods, PyFloat, PyInt, PyString};
     use std::collections::HashMap;
+    use std::env;
+    use std::sync::OnceLock;
 
     pub type PyDictResult<'py> = PyResult<Bound<'py, PyDict>>;
+
+    const DEFAULT_DISTRIBUTION_TYPE_HEURISTIC: f32 = 0.05;
+    const CARDINALITY_MIN: usize = 3;
+    static DISTRIBUTION_TYPE_HEURISTIC: OnceLock<f32> = OnceLock::new();
+
+    fn get_dist_type_heuristic() -> f32 {
+        *(DISTRIBUTION_TYPE_HEURISTIC.get_or_init(|| {
+            env::var("FAIR_PERF_DISTRIBUTION_HEURISTIC")
+                .ok()
+                .and_then(|v| v.parse::<f32>().ok())
+                .unwrap_or(DEFAULT_DISTRIBUTION_TYPE_HEURISTIC)
+        }))
+    }
 
     // Coerce analysis/runtime report into Python Dictionary
     pub(crate) fn report_to_py_dict<'py, T>(
@@ -71,6 +86,7 @@ pub(crate) mod py_types_handler {
         Float,
         Integer,
         String,
+        Bool,
     }
 
     /// Utility to extract the type from a PyUntypedArray to work with the dyanmic typed semantics
@@ -83,14 +99,30 @@ pub(crate) mod py_types_handler {
         if element_type.is_equiv_to(&dtype::<f64>(py)) | element_type.is_equiv_to(&dtype::<f32>(py))
         {
             PassedType::Float
-        } else if element_type.is_equiv_to(&dtype::<i32>(py))
-            | element_type.is_equiv_to(&dtype::<i64>(py))
+        } else if element_type.is_equiv_to(&dtype::<i8>(py))
             | element_type.is_equiv_to(&dtype::<i16>(py))
+            | element_type.is_equiv_to(&dtype::<i32>(py))
+            | element_type.is_equiv_to(&dtype::<i64>(py))
+            | element_type.is_equiv_to(&dtype::<u8>(py))
+            | element_type.is_equiv_to(&dtype::<u16>(py))
+            | element_type.is_equiv_to(&dtype::<u32>(py))
+            | element_type.is_equiv_to(&dtype::<u64>(py))
         {
             PassedType::Integer
+        } else if element_type.is_equiv_to(&dtype::<bool>(py)) {
+            PassedType::Bool
         } else {
             PassedType::String
         }
+    }
+
+    fn is_discrete_dist(cardinality: usize, n: usize) -> bool {
+        if cardinality <= CARDINALITY_MIN {
+            return true;
+        }
+        let thres = get_dist_type_heuristic();
+        let ratio: f32 = cardinality as f32 / n as f32;
+        ratio <= thres
     }
 
     fn copy_into_rust_type<'py, T: Clone + FromPyObject<'py>>(
@@ -154,6 +186,18 @@ pub(crate) mod py_types_handler {
         // owned rust container. Given that these come from numpy arrays, the type in the array
         // should be uniform.
         let labeled_array: Vec<i16> = match pred_type {
+            PassedType::Bool => {
+                let data_vec: Vec<bool> = copy_into_rust_type(array)?;
+                let label = if label.is_instance_of::<PyBool>() {
+                    label.extract::<bool>()?
+                } else if label.is_instance_of::<PyInt>() {
+                    label.extract::<i64>()? == 1
+                } else {
+                    return Err(generate_type_err());
+                };
+
+                apply_label_discrete(&data_vec, &label)
+            }
             PassedType::String => {
                 let data_vec: Vec<String> = copy_into_rust_type(array)?;
                 if !label.is_instance_of::<PyString>() {
@@ -178,7 +222,7 @@ pub(crate) mod py_types_handler {
                 let f = Box::new(|v: &f64| OrderedFloat(*v));
                 let num_unique = resolve_num_unique_values(&data_vec, &f);
 
-                if num_unique == 2 {
+                if is_discrete_dist(num_unique, data_vec.len()) {
                     apply_label_discrete(&data_vec, &data_label)
                 } else {
                     apply_label_continuous(&data_vec, &data_label)
@@ -198,8 +242,7 @@ pub(crate) mod py_types_handler {
 
                 let f = Box::new(|v: &i64| OrderedFloat(*v as f64));
                 let num_unique = resolve_num_unique_values(&data_vec, &f);
-
-                if num_unique == 2 {
+                if is_discrete_dist(num_unique, data_vec.len()) {
                     apply_label_discrete(&data_vec, &data_label)
                 } else {
                     apply_label_continuous(&data_vec, &data_label)
@@ -364,7 +407,7 @@ pub enum BiasSegmentationType {
 ///
 /// This intentionally does not implement Clone, to avoid narrowing the scope of possible types that
 /// can be used.
-/// This type is cheap enough to reconstuct when needed
+/// This type is cheap enough to reconstruct when needed
 #[derive(Debug)]
 pub struct BiasSegmentationCriteria<T>
 where

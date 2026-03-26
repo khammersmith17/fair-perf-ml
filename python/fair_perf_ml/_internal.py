@@ -1,3 +1,4 @@
+from __future__ import annotations
 from collections.abc import Iterable
 from typing import TypeAlias
 
@@ -13,6 +14,7 @@ class InvalidBaseline(Exception):
 
 
 FloatingPointDataSlice: TypeAlias = Iterable[float] | list[float] | NDArray
+UniformTypeDataSlice: TypeAlias = Iterable[int | float | str] | NDArray
 
 
 def cast_floating_point_slice(arr: FloatingPointDataSlice) -> NDArray:
@@ -25,9 +27,7 @@ def cast_floating_point_slice(arr: FloatingPointDataSlice) -> NDArray:
     return arr
 
 
-def check_and_convert_type(
-    arr: list[str | float | int] | NDArray | Iterable[float],
-) -> NDArray:
+def check_and_convert_type[T](arr: list[T] | NDArray | Iterable[T]) -> NDArray:
     """
     Coerece container type into numpy array as the Rust function expects a
     numpy array.
@@ -39,14 +39,14 @@ def check_and_convert_type(
     return _convert_obj_type(arr)  # pyright: ignore
 
 
-def _is_numpy(arr: list[str | float | int] | NDArray | Iterable[float]) -> bool:
+def _is_numpy[T](arr: list[T] | NDArray | Iterable[T]) -> bool:
     """
     Utility to check to see if a container is a numpy array.
     """
     return isinstance(arr, np.ndarray)
 
 
-def _is_uniform_type(arr: list[str | float | int]) -> bool:
+def _is_uniform_type[T](arr: list[T]) -> bool:
     """
     Validate that all items in a python list are of the same type.
     """
