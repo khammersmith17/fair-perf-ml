@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 
 from fair_perf_ml._internal import FloatingPointDataSlice
-from fair_perf_ml.models import DriftSnapshot
 
 from .._fair_perf_ml import (PyStreamingCategoricalDataDriftDecay,
                              PyStreamingCategoricalDataDriftFlush,

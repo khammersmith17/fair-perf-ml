@@ -64,7 +64,7 @@ class StreamingContinuousDataDriftDecay(DataDriftStreamingBase[float, dict[str, 
     def export_snapshot(self) -> dict[str, list[float]]: ...
     def export_baseline(self) -> dict: ...
 
-class StreamingCategoricalDataDriftFlush(DataDriftStreamingBase[str, dict[str, float]]):
+class StreamingCategoricalDataDriftFlush(DataDriftStreamingBase[StringBound, dict[str, float]]):
     def __init__(
         self,
         baseline_dataset: Iterable[StringBound],
@@ -87,7 +87,7 @@ class StreamingCategoricalDataDriftFlush(DataDriftStreamingBase[str, dict[str, f
     def flush(self) -> None: ...
     def last_flush(self) -> int: ...
 
-class StreamingCategoricalDataDriftDecay(DataDriftStreamingBase[str, dict[str, float]]):
+class StreamingCategoricalDataDriftDecay(DataDriftStreamingBase[StringBound, dict[str, float]]):
     def __init__(
         self,
         baseline_dataset: Iterable[StringBound],
