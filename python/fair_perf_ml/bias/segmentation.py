@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from enum import Enum
-from typing import Any, NamedTuple, Protocol, Self
+from typing import Any, NamedTuple, Protocol, Self, cast
 
 import numpy as np
 from fair_perf_ml._internal import _extract_sequence_type
@@ -116,7 +116,7 @@ class LabeledBiasSegmentation[T: SegmentationValueBounds](BiasSegmentationProtoc
     equality types.
     """
 
-    __slots__ = ["_value"]
+    __slots__ = "_value"
 
     def __init__(
         self,
@@ -130,7 +130,7 @@ class LabeledBiasSegmentation[T: SegmentationValueBounds](BiasSegmentationProtoc
     def _label(self, value: T) -> int:
         return int(value == self._value)
 
-    def _label_batch(self, values: Iterable[T]) -> list[int]:
+    def _label_batch(self, values: Sequence[T]) -> list[int]:
         arr = np.array(values)
         return (arr == self._value).astype(np.int8).tolist()
 
@@ -169,7 +169,7 @@ class ThresholdBiasSegmentation[T: SegmentationValueBounds](BiasSegmentationProt
             case BiasSegmentationThresholdType.GreaterThan:
                 return int(value >= self._value and value != self._value)
             case BiasSegmentationThresholdType.LessThanEqualTo:
-                return int(not value <= self._value or value == self._value)
+                return int((not value >= self._value) or value == self._value)
             case BiasSegmentationThresholdType.LessThan:
                 return int(not value >= self._value)
             case _:
@@ -188,7 +188,7 @@ class ThresholdBiasSegmentation[T: SegmentationValueBounds](BiasSegmentationProt
                 )
             case BiasSegmentationThresholdType.LessThanEqualTo:
                 return (
-                    ((~(arr <= self._value)) | (arr == self._value))
+                    ((~(arr >= self._value)) | (arr == self._value))
                     .astype(np.int8)
                     .tolist()
                 )
@@ -245,9 +245,9 @@ def bias_segmentation_criteria_factory(
         case BiasSegmentationType.Label:
             return LabeledBiasSegmentation(value)
         case BiasSegmentationType.Threshold:
-            assert (
-                segmentation_threshold_type is not None
-            ), "Internal bug, please file an issue"
+            segmentation_threshold_type = cast(
+                BiasSegmentationThresholdType, segmentation_threshold_type
+            )
             return ThresholdBiasSegmentation(value, segmentation_threshold_type)
         case _:
             raise ValueError(

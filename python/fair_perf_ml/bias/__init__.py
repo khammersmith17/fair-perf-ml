@@ -1,8 +1,16 @@
-from .streaming import (
-    ModelBiasStreaming,
-    DataBiasStreaming,
-    BiasSegmentationCriteria,
-    BiasSegmentationType,
-    BiasSegmentationThresholdType,
+from .segmentation import (BiasDataPayload, BiasPayloadTypeException,
+                           BiasSegmentationThresholdType, BiasSegmentationType,
+                           InvalidBiasSegmentationConfig,
+                           LabeledBiasSegmentation, ThresholdBiasSegmentation,
+                           bias_segmentation_criteria_factory)
+
+__all__ = (
+    "BiasPayloadTypeException",
+    "BiasSegmentationThresholdType",
+    "BiasSegmentationType",
+    "InvalidBiasSegmentationConfig",
+    "LabeledBiasSegmentation",
+    "ThresholdBiasSegmentation",
+    "bias_segmentation_criteria_factory",
+    "BiasDataPayload",
 )
-from .model_bias import perform_analysis, runtime_comparison, partial_runtime_comparison

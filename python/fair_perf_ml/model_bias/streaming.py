@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from fair_perf_ml.bias.segmentation import (BiasSegmentationProtocol,
+                                            SegmentationValueBounds)
+
 from .._fair_perf_ml import PyModelBiasStreaming
 from ..models import (DriftReport, DriftSnapshot, ModelBiasDriftMetric,
                       PerformanceSnapshot)
-from ..segmentation import BiasSegmentationProtocol, SegmentationValueBounds
 
 
 class ModelBiasStreaming[
     F: SegmentationValueBounds, G: SegmentationValueBounds, P: SegmentationValueBounds
 ]:
-    __slots__ = ["_inner", "_f_seg_criteria", "_p_seg_criteria", "_gt_seg_criteria"]
+    __slots__ = ("_inner", "_f_seg_criteria", "_p_seg_criteria", "_gt_seg_criteria")
 
     def __init__(
         self,
@@ -97,9 +99,9 @@ class ModelBiasStreaming[
         returns:
             None
         """
-        labeled_feats = list(map(self._f_seg_criteria._label, feature_data))
-        labeled_gt = list(map(self._gt_seg_criteria._label, ground_truth_data))
-        labeled_preds = list(map(self._p_seg_criteria._label, prediction_data))
+        labeled_feats = self._f_seg_criteria._label_batch(feature_data)
+        labeled_gt = self._gt_seg_criteria._label_batch(ground_truth_data)
+        labeled_preds = self._p_seg_criteria._label_batch(prediction_data)
         self._inner.reset_baseline(labeled_feats, labeled_preds, labeled_gt)
 
     def reset_baseline_and_segmentation_criteria(
@@ -128,9 +130,9 @@ class ModelBiasStreaming[
         self._gt_seg_criteria = ground_truth_segment_criteria
         self._p_seg_criteria = prediction_segment_criteria
 
-        labeled_feats = list(map(self._f_seg_criteria._label, feature_data))
-        labeled_gt = list(map(self._gt_seg_criteria._label, ground_truth_data))
-        labeled_preds = list(map(self._p_seg_criteria._label, prediction_data))
+        labeled_feats = self._f_seg_criteria._label_batch(feature_data)
+        labeled_gt = self._gt_seg_criteria._label_batch(ground_truth_data)
+        labeled_preds = self._p_seg_criteria._label_batch(prediction_data)
         self._inner.reset_baseline(labeled_feats, labeled_preds, labeled_gt)
 
     def flush(self) -> None:

@@ -82,7 +82,7 @@ class BinaryClassificationStreaming[T: LabelBound](LabeledStreamingBase[T]):
     Labels are applied in Python before being accumulated in the monitor.
     """
 
-    __slots__ = ["_inner", "_label"]
+    __slots__ = ("_inner", "_label")
 
     def __init__(
         self,
@@ -226,7 +226,7 @@ class LinearRegressionStreaming(ModelPerfStreamingBase[float]):
     baseline at any point via snapshots or drift reports.
     """
 
-    __slots__ = ["_inner"]
+    __slots__ = "_inner"
 
     def __init__(self, y_true: Sequence[float], y_pred: Sequence[float]):
         """
@@ -334,7 +334,7 @@ class LogisticRegressionStreaming(ModelPerfStreamingBase[float]):
     is applied to predicted probabilities to produce binary labels.
     """
 
-    __slots__ = ["_inner"]
+    __slots__ = "_inner"
 
     def __init__(
         self,

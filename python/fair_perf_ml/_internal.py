@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -16,7 +16,7 @@ class InvalidBaseline(Exception):
 
 class NonUniformTypeException(Exception):
     """
-    Exception to be thrown when user passes in an Iterable
+    Exception to be thrown when user passes in an Sequence
     that is not of uniform type
     """
 
@@ -30,8 +30,8 @@ class NonUniformTypeException(Exception):
 
 class EmptyDatasetException(Exception):
     """
-    Exception to be thrown when user passes in an Iterable
-    that is not of uniform type
+    Exception to be thrown when user passes in an Sequence
+    that empty
     """
 
     _default_message = "Empty datasets are not supported"
@@ -47,7 +47,7 @@ UniformTypeDataSlice: TypeAlias = Sequence[int | float | str] | NDArray
 
 
 def cast_floating_point_slice(arr: FloatingPointDataSlice) -> NDArray:
-    if isinstance(arr, list) or isinstance(arr, Sequence):
+    if isinstance(arr, Sequence):
         arr = check_and_convert_type(arr)
 
     if not np.issubdtype(arr.dtype, np.floating):
@@ -56,16 +56,19 @@ def cast_floating_point_slice(arr: FloatingPointDataSlice) -> NDArray:
     return arr
 
 
-def check_and_convert_type[T](arr: list[T] | NDArray | Sequence[T]) -> NDArray:
+def check_and_convert_type[T](arr: NDArray | Sequence[T]) -> NDArray:
     """
     Coerece container type into numpy array as the Rust function expects a
     numpy array.
     """
     if _is_numpy(arr):
-        return arr  # pyright: ignore
-    if not _is_uniform_type(arr):  # pyright: ignore
+
+        return cast(NDArray, arr)
+
+    arr = cast(Sequence[T], arr)
+    if not _is_uniform_type(cast(Sequence[T], arr)):
         raise NonUniformTypeException
-    return _convert_obj_type(arr)  # pyright: ignore
+    return _convert_obj_type(arr)
 
 
 def _is_numpy[T](arr: list[T] | NDArray | Sequence[T]) -> bool:
@@ -79,9 +82,6 @@ def _extract_sequence_type(arr: Sequence[Any]) -> type:
     if not _is_uniform_type(arr):
         raise NonUniformTypeException
 
-    if len(arr) == 0:
-        raise EmptyDatasetException
-
     return type(arr[0])
 
 
@@ -92,10 +92,10 @@ def _is_uniform_type(arr: Sequence[Any]) -> bool:
     if len(arr) == 0:
         raise EmptyDatasetException
     T = type(arr[0])
-    return all([True if isinstance(item, T) else False for item in arr])
+    return all((isinstance(item, T) for item in arr))
 
 
-def _convert_obj_type(arr: list[str | float | int]) -> NDArray:
+def _convert_obj_type(arr: Sequence[Any]) -> NDArray:
     """
     Coerce to numpy array
     """

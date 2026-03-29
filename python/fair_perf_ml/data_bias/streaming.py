@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from fair_perf_ml.bias.segmentation import (BiasSegmentationProtocol,
+                                            SegmentationValueBounds)
+
 from .._fair_perf_ml import PyDataBiasStreaming
 from ..models import (DataBiasDriftMetric, DriftReport, DriftSnapshot,
                       PerformanceSnapshot)
-from ..segmentation import BiasSegmentationProtocol, SegmentationValueBounds
 
 
 class DataBiasStreaming[F: SegmentationValueBounds, G: SegmentationValueBounds]:
@@ -61,7 +63,7 @@ class DataBiasStreaming[F: SegmentationValueBounds, G: SegmentationValueBounds]:
         self._inner.push_batch(labeled_feats, labeled_gt)
 
     def reset_baseline(
-        self, feautre_data: Sequence[F], ground_truth_data: Sequence[G]
+        self, feature_data: Sequence[F], ground_truth_data: Sequence[G]
     ) -> None:
         """
         Reset the baseline state. The same segmentation criteria that was defined on
@@ -72,15 +74,15 @@ class DataBiasStreaming[F: SegmentationValueBounds, G: SegmentationValueBounds]:
         returns:
             None
         """
-        labeled_feats = list(map(self._f_seg_criteria._label, feautre_data))
-        labeled_gt = list(map(self._gt_seg_criteria._label, ground_truth_data))
+        labeled_feats = self._f_seg_criteria._label_batch(feature_data)
+        labeled_gt = self._gt_seg_criteria._label_batch(ground_truth_data)
         self._inner.reset_baseline(labeled_feats, labeled_gt)
 
     def reset_baseline_and_segmentation_criteria(
         self,
         updated_feature_segmentation: BiasSegmentationProtocol[F],
         updated_ground_truth_segmentation: BiasSegmentationProtocol[G],
-        feautre_data: Sequence[F],
+        feature_data: Sequence[F],
         ground_truth_data: Sequence[G],
     ) -> None:
         """
@@ -94,8 +96,8 @@ class DataBiasStreaming[F: SegmentationValueBounds, G: SegmentationValueBounds]:
         """
         self._f_seg_criteria = updated_feature_segmentation
         self._gt_seg_criteria = updated_ground_truth_segmentation
-        labeled_feats = list(map(self._f_seg_criteria._label, feautre_data))
-        labeled_gt = list(map(self._gt_seg_criteria._label, ground_truth_data))
+        labeled_feats = self._f_seg_criteria._label_batch(feature_data)
+        labeled_gt = self._gt_seg_criteria._label_batch(ground_truth_data)
         self._inner.reset_baseline(labeled_feats, labeled_gt)
 
     def flush(self) -> None:

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Iterable, List, Optional
+from collections.abc import Sequence
+
+from fair_perf_ml._internal import FloatingPointDataSlice
+from fair_perf_ml.models import DriftSnapshot
 
 from .._fair_perf_ml import (PyStreamingCategoricalDataDriftDecay,
                              PyStreamingCategoricalDataDriftFlush,
                              PyStreamingContinuousDataDriftDecay,
                              PyStreamingContinuousDataDriftFlush)
-from .base import (DataDriftMetric, FloatingPointDataSlice, QuantileConfig,
-                   QuantileType, StringBound, _cast_to_numpy_float_arr,
-                   _cast_to_string_iterable, _map_drift_metric_type)
+from .base import (DataDriftMetric, QuantileConfig, QuantileType, StringBound,
+                   _cast_to_numpy_float_arr, _cast_to_string_iterable,
+                   _map_drift_metric_type)
 
 
 class DataDriftStreamingBase[T, R](ABC):
@@ -32,8 +35,8 @@ class DataDriftStreamingBase[T, R](ABC):
 
     @abstractmethod
     def compute_drift_multiple_criteria(
-        self, drift_metrics: List[DataDriftMetric]
-    ) -> List[float]: ...
+        self, drift_metrics: list[DataDriftMetric]
+    ) -> list[float]: ...
 
     @property
     @abstractmethod
@@ -50,15 +53,17 @@ class DataDriftStreamingBase[T, R](ABC):
     def export_baseline(self) -> dict: ...
 
 
-class StreamingContinuousDataDriftFlush(DataDriftStreamingBase):
-    __slots__ = ["_inner"]
+class StreamingContinuousDataDriftFlush(
+    DataDriftStreamingBase[float, dict[str, list[float]]]
+):
+    __slots__ = "_inner"
 
     def __init__(
         self,
         baseline_dataset: FloatingPointDataSlice,
         quantile_type: QuantileConfig,
-        flush_rate: Optional[int],
-        flush_cadence: Optional[int],
+        flush_rate: int | None = None,
+        flush_cadence: int | None = None,
     ):
         baseline_dataset = _cast_to_numpy_float_arr(baseline_dataset)
         if isinstance(quantile_type, QuantileType):
@@ -82,8 +87,8 @@ class StreamingContinuousDataDriftFlush(DataDriftStreamingBase):
         return self._inner.compute_drift(_map_drift_metric_type(drift_metric))
 
     def compute_drift_multiple_criteria(
-        self, drift_metrics: List[DataDriftMetric]
-    ) -> List[float]:
+        self, drift_metrics: list[DataDriftMetric]
+    ) -> list[float]:
         return self._inner.compute_drift_multiple_criteria(
             list(map(_map_drift_metric_type, drift_metrics))
         )
@@ -109,14 +114,16 @@ class StreamingContinuousDataDriftFlush(DataDriftStreamingBase):
         return self._inner.last_flush
 
 
-class StreamingContinuousDataDriftDecay(DataDriftStreamingBase):
-    __slots__ = ["_inner"]
+class StreamingContinuousDataDriftDecay(
+    DataDriftStreamingBase[float, dict[str, list[float]]]
+):
+    __slots__ = "_inner"
 
     def __init__(
         self,
         baseline_dataset: FloatingPointDataSlice,
         quantile_type: QuantileConfig,
-        decay_half_life: Optional[int],
+        decay_half_life: int | None = None,
     ):
         baseline_dataset = _cast_to_numpy_float_arr(baseline_dataset)
         if isinstance(quantile_type, QuantileType):
@@ -140,8 +147,8 @@ class StreamingContinuousDataDriftDecay(DataDriftStreamingBase):
         return self._inner.compute_drift(_map_drift_metric_type(drift_metric))
 
     def compute_drift_multiple_criteria(
-        self, drift_metrics: List[DataDriftMetric]
-    ) -> List[float]:
+        self, drift_metrics: list[DataDriftMetric]
+    ) -> list[float]:
         return self._inner.compute_drift_multiple_criteria(
             list(map(_map_drift_metric_type, drift_metrics))
         )
@@ -161,28 +168,30 @@ class StreamingContinuousDataDriftDecay(DataDriftStreamingBase):
         return self._inner.export_baseline()
 
 
-class StreamingCategoricalDataDriftFlush(DataDriftStreamingBase):
-    __slots__ = ["_inner"]
+class StreamingCategoricalDataDriftFlush(
+    DataDriftStreamingBase[StringBound, dict[str, float]]
+):
+    __slots__ = "_inner"
 
     def __init__(
         self,
-        baseline_dataset: Iterable[StringBound],
-        flush_rate: Optional[int],
-        flush_cadence: Optional[int],
+        baseline_dataset: Sequence[StringBound],
+        flush_rate: int | None = None,
+        flush_cadence: int | None = None,
     ):
         typed_data = _cast_to_string_iterable(baseline_dataset)
         self._inner = PyStreamingCategoricalDataDriftFlush(
             typed_data, flush_rate, flush_cadence
         )
 
-    def reset_baseline(self, new_baseline: Iterable[StringBound]):
+    def reset_baseline(self, new_baseline: Sequence[StringBound]):
         typed_data = _cast_to_string_iterable(new_baseline)
         self._inner.reset_baseline(typed_data)
 
     def update_stream(self, example: StringBound):
         self._inner.update_stream(str(example))
 
-    def update_stream_batch(self, runtime_data: Iterable[StringBound]):
+    def update_stream_batch(self, runtime_data: Sequence[StringBound]):
         typed_data = _cast_to_string_iterable(runtime_data)
         self._inner.update_stream_batch(typed_data)
 
@@ -190,8 +199,8 @@ class StreamingCategoricalDataDriftFlush(DataDriftStreamingBase):
         return self._inner.compute_drift(_map_drift_metric_type(drift_metric))
 
     def compute_drift_multiple_criteria(
-        self, drift_metrics: List[DataDriftMetric]
-    ) -> List[float]:
+        self, drift_metrics: list[DataDriftMetric]
+    ) -> list[float]:
         return self._inner.compute_drift_multiple_criteria(
             list(map(_map_drift_metric_type, drift_metrics))
         )
@@ -201,7 +210,7 @@ class StreamingCategoricalDataDriftFlush(DataDriftStreamingBase):
         return self._inner.total_samples
 
     @property
-    def n_bins(self) -> int:
+    def num_bins(self) -> int:
         return self._inner.n_bins
 
     def export_snapshot(self) -> dict[str, float]:
@@ -217,21 +226,23 @@ class StreamingCategoricalDataDriftFlush(DataDriftStreamingBase):
         return self._inner.last_flush
 
 
-class StreamingCategoricalDataDriftDecay(DataDriftStreamingBase):
-    __slots__ = ["_inner"]
+class StreamingCategoricalDataDriftDecay(
+    DataDriftStreamingBase[StringBound, dict[str, float]]
+):
+    __slots__ = "_inner"
 
-    def __init__(self, baseline_dataset: Iterable[StringBound], decay_half_life: int):
+    def __init__(self, baseline_dataset: Sequence[StringBound], decay_half_life: int):
         typed_data = _cast_to_string_iterable(baseline_dataset)
         self._inner = PyStreamingCategoricalDataDriftDecay(typed_data, decay_half_life)
 
-    def reset_baseline(self, new_baseline: Iterable[StringBound]):
+    def reset_baseline(self, new_baseline: Sequence[StringBound]):
         typed_data = _cast_to_string_iterable(new_baseline)
         self._inner.reset_baseline(typed_data)
 
     def update_stream(self, example: StringBound):
         self._inner.update_stream(str(example))
 
-    def update_stream_batch(self, runtime_data: Iterable[StringBound]):
+    def update_stream_batch(self, runtime_data: Sequence[StringBound]):
         typed_data = _cast_to_string_iterable(runtime_data)
         self._inner.update_stream_batch(typed_data)
 
@@ -239,8 +250,8 @@ class StreamingCategoricalDataDriftDecay(DataDriftStreamingBase):
         return self._inner.compute_drift(_map_drift_metric_type(drift_metric))
 
     def compute_drift_multiple_criteria(
-        self, drift_metrics: List[DataDriftMetric]
-    ) -> List[float]:
+        self, drift_metrics: list[DataDriftMetric]
+    ) -> list[float]:
         return self._inner.compute_drift_multiple_criteria(
             list(map(_map_drift_metric_type, drift_metrics))
         )
@@ -250,7 +261,7 @@ class StreamingCategoricalDataDriftDecay(DataDriftStreamingBase):
         return self._inner.total_samples
 
     @property
-    def n_bins(self) -> int:
+    def num_bins(self) -> int:
         return self._inner.n_bins
 
     def export_snapshot(self) -> dict[str, float]:

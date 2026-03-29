@@ -7,24 +7,22 @@ when ground truth feedback loop is slow.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from enum import Enum
-from typing import Iterable, List, Optional, Protocol
+from typing import Protocol
 
 import numpy as np
 from numpy.typing import NDArray
 
-from .._fair_perf_ml import (
-    PyCategoricalDataDrift,
-    PyContinuousDataDrift,
-    py_compute_drift_categorical_distribtuion,
-    py_compute_drift_continuous_distribtuion,
-)
+from .._fair_perf_ml import (PyCategoricalDataDrift, PyContinuousDataDrift,
+                             py_compute_drift_categorical_distribtuion,
+                             py_compute_drift_continuous_distribtuion)
 from .._internal import FloatingPointDataSlice
 
 
 class QuantileType(str, Enum):
     FreedmanDiaconis = "FreedmanDiaconis"
-    Scott = "Scott "
+    Scott = "Scott"
     Sturges = "Sturges"
 
 
@@ -69,23 +67,22 @@ def _cast_to_numpy_float_arr(arr: FloatingPointDataSlice) -> NDArray:
             raise DataDriftParameterValidationError(
                 "Data in iterable must be castable to float"
             )
-    assert isinstance(arr, np.ndarray)
     return arr
 
 
-def _cast_to_string_iterable(arr: Iterable[StringBound]) -> Iterable[str]:
+def _cast_to_string_iterable(arr: Sequence[StringBound]) -> Sequence[str]:
     """
     Iterable of something that can be casted to a string to a Iterable[str].
     """
-    return list(map(lambda x: str(x), arr))
+    return list(map(str, arr))
 
 
 def compute_drift_categorical_distribution(
-    baseline_distribution: List[StringBound],
-    candidate_distribution: List[StringBound],
+    baseline_distribution: list[StringBound],
+    candidate_distribution: list[StringBound],
     drift_metrics: list[DataDriftMetric],
 ) -> list[float]:
-    return py_compute_drift_continuous_distribtuion(
+    return py_compute_drift_categorical_distribtuion(
         _cast_to_string_iterable(baseline_distribution),
         _cast_to_string_iterable(candidate_distribution),
         drift_metrics,
@@ -119,12 +116,8 @@ class DataDriftDiscreteBase[T](ABC):
 
     @abstractmethod
     def compute_drift_multiple_criteria(
-        self, runtime_data: list[T], drift_metrics: List[DataDriftMetric]
+        self, runtime_data: list[T], drift_metrics: list[DataDriftMetric]
     ) -> list[float]: ...
-
-    @property
-    @abstractmethod
-    def total_samples(self) -> int: ...
 
     @property
     @abstractmethod
@@ -134,7 +127,7 @@ class DataDriftDiscreteBase[T](ABC):
     def export_baseline(self) -> list[float]: ...
 
 
-class ContinuousDataDrift(DataDriftDiscreteBase):
+class ContinuousDataDrift(DataDriftDiscreteBase[float]):
     """
     Detects distributional drift in continuous (floating-point) features between
     a fixed baseline dataset and a runtime dataset.
@@ -156,12 +149,12 @@ class ContinuousDataDrift(DataDriftDiscreteBase):
            the same quantile rule.
     """
 
-    __slots__ = ["_inner"]
+    __slots__ = "_inner"
 
     def __init__(
         self,
         baseline_data: FloatingPointDataSlice,
-        quantile_type: Optional[str] = None,
+        quantile_type: str | None = None,
     ):
         """
         Initialize with a baseline dataset.
@@ -218,8 +211,8 @@ class ContinuousDataDrift(DataDriftDiscreteBase):
     def compute_drift_multiple_criteria(
         self,
         runtime_data: FloatingPointDataSlice,
-        drift_metrics: List[DataDriftMetric],
-    ) -> List[float]:
+        drift_metrics: list[DataDriftMetric],
+    ) -> list[float]:
         """
         Compute multiple drift scores against ``runtime_data`` in a single pass.
 
@@ -255,7 +248,7 @@ class ContinuousDataDrift(DataDriftDiscreteBase):
         return self._inner.num_bins
 
 
-class CategoricalDataDrift(DataDriftDiscreteBase):
+class CategoricalDataDrift(DataDriftDiscreteBase[str]):
     """
     Detects distributional drift in categorical features between a fixed baseline
     dataset and a runtime dataset.
@@ -281,9 +274,9 @@ class CategoricalDataDrift(DataDriftDiscreteBase):
            bucketing is performed on string representations.
     """
 
-    __slots__ = ["_inner"]
+    __slots__ = "_inner"
 
-    def __init__(self, baseline_data: Iterable[StringBound]):
+    def __init__(self, baseline_data: Sequence[StringBound]):
         """
         Initialize with a baseline dataset.
 
@@ -294,7 +287,7 @@ class CategoricalDataDrift(DataDriftDiscreteBase):
         typed_data = _cast_to_string_iterable(baseline_data)
         self._inner = PyCategoricalDataDrift(typed_data)
 
-    def reset_baseline(self, new_baseline: Iterable[StringBound]):
+    def reset_baseline(self, new_baseline: Sequence[StringBound]):
         """
         Replace the baseline with a new dataset, recomputing the label distribution.
 
@@ -306,7 +299,7 @@ class CategoricalDataDrift(DataDriftDiscreteBase):
         self._inner.reset_baseline(typed_data)
 
     def compute_drift(
-        self, runtime_data: Iterable[StringBound], drift_metric: DataDriftMetric
+        self, runtime_data: Sequence[StringBound], drift_metric: DataDriftMetric
     ) -> float:
         """
         Compute a single drift score between ``runtime_data`` and the baseline.
@@ -330,9 +323,9 @@ class CategoricalDataDrift(DataDriftDiscreteBase):
 
     def compute_drift_multiple_criteria(
         self,
-        runtime_data: Iterable[StringBound],
-        drift_metrics: List[DataDriftMetric],
-    ) -> List[float]:
+        runtime_data: Sequence[StringBound],
+        drift_metrics: list[DataDriftMetric],
+    ) -> list[float]:
         """
         Compute multiple drift scores against ``runtime_data`` in a single pass.
 

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import TypeAlias, TypedDict
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 class DriftReport(TypedDict):
     passed: bool
@@ -81,7 +81,7 @@ class DataBiasBaseline(BaseModel):
     KlDivergence: float
     JsDivergence: float
     LpNorm: float
-    TotalVarationDistance: float
+    TotalVariationDistance: float
     KolmogorovSmirnov: float
 
 class LinearRegressionReport(BaseModel):

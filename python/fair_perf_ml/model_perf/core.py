@@ -1,29 +1,21 @@
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 from numpy.typing import NDArray
 from pydantic import ValidationError
 
-from .._fair_perf_ml import (
-    py_model_perf_class_rt_full,
-    py_model_perf_class_rt_partial,
-    py_model_perf_classification,
-    py_model_perf_lin_reg_rt_full,
-    py_model_perf_lin_reg_rt_partial,
-    py_model_perf_linear_regression,
-    py_model_perf_log_reg_rt_full,
-    py_model_perf_log_reg_rt_partial,
-    py_model_perf_logistic_regression,
-)
-from .._internal import check_and_convert_type
-from ..models import (
-    BinaryClassificationReport,
-    DriftReport,
-    LinearRegressionReport,
-    LogisticRegressionReport,
-    MachineLearningMetric,
-    ModelPerformanceReport,
-    ModelType,
-)
+from .._fair_perf_ml import (py_model_perf_class_rt_full,
+                             py_model_perf_class_rt_partial,
+                             py_model_perf_classification,
+                             py_model_perf_lin_reg_rt_full,
+                             py_model_perf_lin_reg_rt_partial,
+                             py_model_perf_linear_regression,
+                             py_model_perf_log_reg_rt_full,
+                             py_model_perf_log_reg_rt_partial,
+                             py_model_perf_logistic_regression)
+from .._internal import FloatingPointDataSlice, check_and_convert_type
+from ..models import (BinaryClassificationReport, DriftReport,
+                      LinearRegressionReport, LogisticRegressionReport,
+                      MachineLearningMetric, ModelPerformanceReport, ModelType)
 
 
 class DifferentModelTypes(Exception):
@@ -71,9 +63,9 @@ def _serialize_runtime_input(
 
 
 def linear_regression_analysis(
-    y_true: NDArray | list[int | float],  # pyright: ignore
-    y_pred: NDArray | list[int | float],  # pyright: ignore
-) -> dict:
+    y_true: FloatingPointDataSlice,
+    y_pred: FloatingPointDataSlice,
+) -> ModelPerformanceReport:
     """
     Analysis for a linear regression model type.
     Will apply labels in accordance with the given threshold
@@ -84,17 +76,19 @@ def linear_regression_analysis(
         dict: analysis output
     """
 
-    y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
-    y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
-    res: dict = py_model_perf_linear_regression(y_true, y_pred)
-    return {"model_type": ModelType.LinearRegression, "performance_data": res}
+    y_true = cast(NDArray, check_and_convert_type(y_true))
+    y_pred = cast(NDArray, check_and_convert_type(y_pred))
+    res: LinearRegressionReport = py_model_perf_linear_regression(y_true, y_pred)
+    return ModelPerformanceReport(
+        model_type=ModelType("LinearRegression"), performance_data=res
+    )
 
 
 def logistic_regression_analysis(
-    y_true: NDArray | list[int | float],  # pyright: ignore
-    y_pred: NDArray | list[int | float],  # pyright: ignore
+    y_true: FloatingPointDataSlice,
+    y_pred: FloatingPointDataSlice,
     decision_threshold: float | None = 0.5,
-) -> dict:
+) -> ModelPerformanceReport:
     """
     Analysis for a logistic regression model type.
     Will apply labels in accordance with the given threshold
@@ -105,17 +99,21 @@ def logistic_regression_analysis(
     returns:
         dict: analysis output
     """
-    y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
-    y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
-    res: dict = py_model_perf_logistic_regression(y_true, y_pred, decision_threshold)
+    y_true = cast(NDArray, check_and_convert_type(y_true))
+    y_pred = cast(NDArray, check_and_convert_type(y_pred))
+    res: LogisticRegressionReport = py_model_perf_logistic_regression(
+        y_true, y_pred, decision_threshold
+    )
 
-    return {"model_type": ModelType.LogisticRegression, "performance_data": res}
+    return ModelPerformanceReport(
+        model_type=ModelType("LogisticRegression"), performance_data=res
+    )
 
 
 def binary_classification_analysis(
-    y_true: NDArray | list[int | float],  # pyright: ignore
-    y_pred: NDArray | list[int | float],  # pyright: ignore
-) -> dict:
+    y_true: FloatingPointDataSlice,
+    y_pred: FloatingPointDataSlice,
+) -> ModelPerformanceReport:
     """
     Analysis for a classification model type.
     Will apply labels in accordance with the given threshold
@@ -125,11 +123,13 @@ def binary_classification_analysis(
     returns:
         dict: analysis output
     """
-    y_true: NDArray = check_and_convert_type(y_true)  # pyright: ignore
-    y_pred: NDArray = check_and_convert_type(y_pred)  # pyright: ignore
-    res: dict = py_model_perf_classification(y_true, y_pred)
+    y_true = cast(NDArray, check_and_convert_type(y_true))
+    y_pred = cast(NDArray, check_and_convert_type(y_pred))
+    res: BinaryClassificationReport = py_model_perf_classification(y_true, y_pred)
 
-    return {"model_type": ModelType.BinaryClassification, "performance_data": res}
+    return ModelPerformanceReport(
+        model_type=ModelType("BinaryClassification"), performance_data=res
+    )
 
 
 def runtime_check_full(
@@ -154,7 +154,7 @@ def runtime_check_full(
 def partial_runtime_check(
     latest: ModelPerformanceReport | dict,
     baseline: ModelPerformanceReport | dict,
-    metrics: list[str],
+    metrics: list[MachineLearningMetric],
     threshold: float = 0.10,
 ) -> DriftReport:
     """

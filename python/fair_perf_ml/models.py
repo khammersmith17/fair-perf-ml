@@ -143,7 +143,11 @@ class ModelPerformanceReport(BaseModel):
         LinearRegressionReport | LogisticRegressionReport | BinaryClassificationReport
     )
 
-    model_config = ConfigDict(extra="forbid", strict=True, use_enum_values=True)
+    model_config = ConfigDict(extra="forbid")
+
+    def model_dump(self, **kwargs) -> dict:
+        kwargs.setdefault("mode", "json")
+        return super().model_dump(**kwargs)
 
 
 type DataBiasDriftMetric = DataBiasMetric | str
