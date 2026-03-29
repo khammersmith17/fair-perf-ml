@@ -62,7 +62,6 @@ ModelPerformanceMetric: TypeAlias = LinearRegressionEvaluationMetric | Classific
 MachineLearningMetric: TypeAlias = ModelBiasMetric | DataBiasMetric | ModelPerformanceDriftMetric
 
 class ModelBiasBaseline(BaseModel):
-    model_config: ConfigDict
     DifferenceInPositivePredictedLabels: float
     DisparateImpact: float
     AccuracyDifference: float
@@ -77,7 +76,6 @@ class ModelBiasBaseline(BaseModel):
     GeneralizedEntropy: float
 
 class DataBiasBaseline(BaseModel):
-    model_config: ConfigDict
     ClassImbalance: float
     DifferenceInProportionOfLabels: float
     KlDivergence: float
@@ -116,7 +114,6 @@ class BinaryClassificationReport(BaseModel):
     F1Score: float
 
 class ModelPerformanceReport(BaseModel):
-    model_config: ConfigDict
     model_type: ModelType
     performance_data: LinearRegressionReport | LogisticRegressionReport | BinaryClassificationReport
 
@@ -125,3 +122,7 @@ type ModelBiasDriftMetric = ModelBiasMetric | str
 type ClassificationDriftMetric = ClassificationEvaluationMetric | str
 type LinearRegressionDriftMetric = LinearRegressionEvaluationMetric | str
 type ModelPerformanceDriftMetric = ModelPerformanceMetric | str
+
+type AnalysisReport = dict[str, float]
+
+

@@ -1,6 +1,8 @@
-use crate::errors::{ModelPerfResult, ModelPerformanceError};
+use crate::errors::{BiasError, ModelPerfResult, ModelPerformanceError};
 #[cfg(feature = "python")]
 pub(crate) mod py_types_handler {
+    use super::{BiasSegmentationCriteria, BiasSegmentationType, SegmentationThresholdType};
+    use crate::errors::BiasError;
     use numpy::dtype;
     use numpy::PyUntypedArrayMethods;
     use numpy::{PyArrayDescrMethods, PyUntypedArray};
@@ -39,6 +41,41 @@ pub(crate) mod py_types_handler {
             let _ = dict.set_item(key.to_string(), val);
         }
         dict
+    }
+
+    /*
+     * construct a labeled dataset from explicit segementation criteria
+     * passed across from Python.
+     *  valid variants (threshold, label, threshold type):
+     *   None, Some, None -> read data into string, label application
+     *   Some, None, Some -> read data into float, threshold application
+     *
+     *   other variants are invalid
+     * */
+    pub(crate) fn label_python_bias_explicit_seg<'py>(
+        data: &Bound<'py, PyUntypedArray>,
+        seg_threshold: Option<f64>,
+        seg_label: Option<String>,
+        threshold_type: Option<String>,
+    ) -> Result<Vec<i16>, BiasError> {
+        match (seg_threshold, seg_label, threshold_type) {
+            (Some(thres), None, Some(ttype_str)) => {
+                let Ok(copied_data) = copy_into_rust_type::<f64>(data) else {
+                    return Err(BiasError::BiasConfigError);
+                };
+                let ttype = SegmentationThresholdType::try_from(ttype_str.as_str())?;
+                let seg_crit =
+                    BiasSegmentationCriteria::new(thres, BiasSegmentationType::Threshold(ttype));
+                Ok(seg_crit.generate_labeled_array(&copied_data))
+            }
+            (None, Some(label), None) => {
+                let Ok(copied_data) = copy_into_rust_type::<String>(data) else {
+                    return Err(BiasError::BiasConfigError);
+                };
+                Ok(apply_label_discrete(&copied_data, &label))
+            }
+            _ => Err(BiasError::BiasConfigError),
+        }
     }
 
     /// The purpose of this type is to be able to use floating point values to create a HashSet.
@@ -381,6 +418,19 @@ pub enum SegmentationThresholdType {
     GreaterThanEqualTo,
     LessThan,
     LessThanEqualTo,
+}
+
+impl TryFrom<&str> for SegmentationThresholdType {
+    type Error = BiasError;
+    fn try_from(val: &str) -> Result<Self, Self::Error> {
+        match val {
+            "GreaterThan" => Ok(Self::GreaterThan),
+            "GreaterThanEqualTo" => Ok(Self::GreaterThanEqualTo),
+            "LessThan" => Ok(Self::LessThan),
+            "LessThanEqualTo" => Ok(Self::LessThanEqualTo),
+            _ => Err(Self::Error::BiasConfigError),
+        }
+    }
 }
 /// Enum to differentiate between an array that is going to be segmented by label versus by a
 /// threshold. Dicrete data should be segmented by a label and continuous data should be segmented

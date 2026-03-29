@@ -1,6 +1,8 @@
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
-    use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict};
+    use crate::data_handler::py_types_handler::{
+        apply_label, label_python_bias_explicit_seg, report_to_py_dict, PyDictResult,
+    };
     use crate::metrics::{ModelBiasMetric, ModelBiasMetricVec, FULL_MODEL_BIAS_METRICS};
     use crate::model_bias::core::post_training_bias;
     use crate::model_bias::DiscretePostTraining;
@@ -15,6 +17,65 @@ pub(crate) mod py_api {
     use std::collections::HashMap;
 
     #[pyfunction]
+    #[pyo3(signature = (
+        feature_array,
+        feat_segmentation_threshold,
+        feat_segmentation_label,
+        feat_threshold_type,
+        ground_truth_array,
+        gt_segmentation_threshold,
+        gt_segmentation_label,
+        gt_threshold_type,
+        prediction_array,
+        pred_segmentation_threshold,
+        pred_segmentation_label,
+        pred_threshold_type
+    ))]
+    pub fn py_model_bias_analyzer_explicit_seg<'py>(
+        py: Python<'py>,
+        feature_array: &Bound<'py, PyUntypedArray>,
+        feat_segmentation_threshold: Option<f64>,
+        feat_segmentation_label: Option<String>,
+        feat_threshold_type: Option<String>,
+        ground_truth_array: &Bound<'py, PyUntypedArray>,
+        gt_segmentation_threshold: Option<f64>,
+        gt_segmentation_label: Option<String>,
+        gt_threshold_type: Option<String>,
+        prediction_array: &Bound<'py, PyUntypedArray>,
+        pred_segmentation_threshold: Option<f64>,
+        pred_segmentation_label: Option<String>,
+        pred_threshold_type: Option<String>,
+    ) -> PyDictResult<'py> {
+        let labeled_feat = label_python_bias_explicit_seg(
+            feature_array,
+            feat_segmentation_threshold,
+            feat_segmentation_label,
+            feat_threshold_type,
+        )?;
+
+        let labeled_gt = label_python_bias_explicit_seg(
+            ground_truth_array,
+            gt_segmentation_threshold,
+            gt_segmentation_label,
+            gt_threshold_type,
+        )?;
+
+        let labeled_pred = label_python_bias_explicit_seg(
+            prediction_array,
+            pred_segmentation_threshold,
+            pred_segmentation_label,
+            pred_threshold_type,
+        )?;
+
+        let post_training_data =
+            DiscretePostTraining::new(&labeled_feat, &labeled_pred, &labeled_gt)?;
+        let analysis_res = post_training_bias(&post_training_data);
+
+        let py_dict = report_to_py_dict(py, analysis_res?);
+        Ok(py_dict)
+    }
+
+    #[pyfunction]
     #[pyo3(signature = (baseline, latest, metrics, threshold=0.10))]
     pub fn py_model_bias_partial_check<'py>(
         py: Python<'py>,
@@ -22,7 +83,7 @@ pub(crate) mod py_api {
         latest: HashMap<String, f32>,
         metrics: Vec<String>,
         threshold: f32,
-    ) -> PyResult<Bound<'py, PyDict>> {
+    ) -> PyDictResult<'py> {
         let metrics = ModelBiasMetricVec::try_from(metrics.as_slice())?;
         let current = ModelBiasRuntime::try_from(latest)?;
         let baseline = ModelBiasRuntime::try_from(baseline)?;
@@ -44,7 +105,7 @@ pub(crate) mod py_api {
         baseline: HashMap<String, f32>,
         latest: HashMap<String, f32>,
         threshold: f32,
-    ) -> PyResult<Bound<'py, PyDict>> {
+    ) -> PyDictResult<'py> {
         let current = ModelBiasRuntime::try_from(latest)?;
         let baseline = ModelBiasRuntime::try_from(baseline)?;
 

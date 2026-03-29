@@ -11,9 +11,9 @@ class BiasSegmentationType(str, Enum):
 
 class BiasSegmentationThresholdType(str, Enum):
     GreaterThan: str
-    GreaterThanEqaulTo: str
+    GreaterThanEqualTo: str
     LessThan: str
-    LessThanEqaulTo: str
+    LessThanEqualTo: str
 
 class SegementationValueBounds(Protocol):
     def __eq__(self, other: object) -> bool: ...

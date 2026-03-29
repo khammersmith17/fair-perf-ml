@@ -11,7 +11,7 @@ there is a model update, or data drifts, without needing to pull down the servic
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Sequence
 from typing import Protocol, Self
 
 import numpy as np
@@ -41,13 +41,13 @@ class ModelPerfStreamingBase[T](ABC):
     """
 
     @abstractmethod
-    def reset_baseline(self, y_true: Iterable[T], y_pred: Iterable[T]) -> None: ...
+    def reset_baseline(self, y_true: Sequence[T], y_pred: Sequence[T]) -> None: ...
 
     @abstractmethod
     def update_stream(self, y_true: T, y_pred: T) -> None: ...
 
     @abstractmethod
-    def update_stream_batch(self, y_true: Iterable[T], y_pred: Iterable[T]) -> None: ...
+    def update_stream_batch(self, y_true: Sequence[T], y_pred: Sequence[T]) -> None: ...
 
     @abstractmethod
     def flush(self) -> None: ...
@@ -87,15 +87,15 @@ class BinaryClassificationStreaming[T: LabelBound](LabeledStreamingBase[T]):
     def __init__(
         self,
         label: T,
-        y_true: Iterable[T],
-        y_pred: Iterable[T],
+        y_true: Sequence[T],
+        y_pred: Sequence[T],
     ):
         """
         Initialises the monitor with a positive class label and a baseline dataset.
         args:
             label: T - the positive class label
-            y_true: Iterable[T] - baseline ground truth values
-            y_pred: Iterable[T] - baseline prediction values
+            y_true: Sequence[T] - baseline ground truth values
+            y_pred: Sequence[T] - baseline prediction values
         """
         self._label = label
         labeled_y_true = self._apply_label_batch(y_true)
@@ -106,7 +106,7 @@ class BinaryClassificationStreaming[T: LabelBound](LabeledStreamingBase[T]):
     def _apply_label(self, value: T) -> int:
         return int(value == self._label)
 
-    def _apply_label_batch(self, value_slice: Iterable[T]) -> list[int]:
+    def _apply_label_batch(self, value_slice: Sequence[T]) -> list[int]:
         arr = np.array(value_slice)
         return (arr == self._label).astype(np.int8).tolist()
 
@@ -121,12 +121,12 @@ class BinaryClassificationStreaming[T: LabelBound](LabeledStreamingBase[T]):
         pred_label = int(self._label == y_pred)
         self._inner.push(true_label, pred_label)
 
-    def update_stream_batch(self, y_true: Iterable[T], y_pred: Iterable[T]) -> None:
+    def update_stream_batch(self, y_true: Sequence[T], y_pred: Sequence[T]) -> None:
         """
         Accumulate a batch of ground truth and prediction examples into the stream.
         args:
-            y_true: Iterable[T] - ground truth values
-            y_pred: Iterable[T] - prediction values
+            y_true: Sequence[T] - ground truth values
+            y_pred: Sequence[T] - prediction values
         """
         labeled_y_true = self._apply_label_batch(y_true)
         labeled_y_pred = self._apply_label_batch(y_pred)
@@ -138,13 +138,13 @@ class BinaryClassificationStreaming[T: LabelBound](LabeledStreamingBase[T]):
         """
         self._inner.flush()
 
-    def reset_baseline(self, y_true: Iterable[T], y_pred: Iterable[T]) -> None:
+    def reset_baseline(self, y_true: Sequence[T], y_pred: Sequence[T]) -> None:
         """
         Replace the baseline with a new dataset. The positive label is unchanged.
         To change the label at the same time use reset_baseline_and_label.
         args:
-            y_true: Iterable[T] - new baseline ground truth values
-            y_pred: Iterable[T] - new baseline prediction values
+            y_true: Sequence[T] - new baseline ground truth values
+            y_pred: Sequence[T] - new baseline prediction values
         """
         labeled_y_true = self._apply_label_batch(y_true)
         labeled_y_pred = self._apply_label_batch(y_pred)
@@ -153,8 +153,8 @@ class BinaryClassificationStreaming[T: LabelBound](LabeledStreamingBase[T]):
     def reset_baseline_and_label(
         self,
         label: T,
-        y_true: Iterable[T],
-        y_pred: Iterable[T],
+        y_true: Sequence[T],
+        y_pred: Sequence[T],
     ) -> None:
         """
         Replace the baseline and the positive class label simultaneously.
@@ -163,8 +163,8 @@ class BinaryClassificationStreaming[T: LabelBound](LabeledStreamingBase[T]):
         the label to be changed.
         args:
             label: T - new positive class label
-            y_true: Iterable[T] - new baseline ground truth values
-            y_pred: Iterable[T] - new baseline prediction values
+            y_true: Sequence[T] - new baseline ground truth values
+            y_pred: Sequence[T] - new baseline prediction values
         """
         self._label = label
         labeled_y_true = self._apply_label_batch(y_true)
@@ -228,12 +228,12 @@ class LinearRegressionStreaming(ModelPerfStreamingBase[float]):
 
     __slots__ = ["_inner"]
 
-    def __init__(self, y_true: Iterable[float], y_pred: Iterable[float]):
+    def __init__(self, y_true: Sequence[float], y_pred: Sequence[float]):
         """
         Initialises the monitor with a baseline dataset.
         args:
-            y_true: Iterable[float] - baseline ground truth values
-            y_pred: Iterable[float] - baseline prediction values
+            y_true: Sequence[float] - baseline ground truth values
+            y_pred: Sequence[float] - baseline prediction values
         """
         self._inner = PyLinearRegressionStreaming(
             cast_floating_point_slice(y_true), cast_floating_point_slice(y_pred)
@@ -249,24 +249,24 @@ class LinearRegressionStreaming(ModelPerfStreamingBase[float]):
         self._inner.push(y_true, y_pred)
 
     def update_stream_batch(
-        self, y_true: Iterable[float], y_pred: Iterable[float]
+        self, y_true: Sequence[float], y_pred: Sequence[float]
     ) -> None:
         """
         Accumulate a batch of ground truth and prediction examples into the stream.
         args:
-            y_true: Iterable[float]
-            y_pred: Iterable[float]
+            y_true: Sequence[float]
+            y_pred: Sequence[float]
         """
         self._inner.push_batch(
             cast_floating_point_slice(y_true), cast_floating_point_slice(y_pred)
         )
 
-    def reset_baseline(self, y_true: Iterable[float], y_pred: Iterable[float]) -> None:
+    def reset_baseline(self, y_true: Sequence[float], y_pred: Sequence[float]) -> None:
         """
         Replace the baseline with a new dataset.
         args:
-            y_true: Iterable[float] - new baseline ground truth values
-            y_pred: Iterable[float] - new baseline prediction values
+            y_true: Sequence[float] - new baseline ground truth values
+            y_pred: Sequence[float] - new baseline prediction values
         """
         self._inner.reset_baseline(
             cast_floating_point_slice(y_true), cast_floating_point_slice(y_pred)
@@ -338,15 +338,15 @@ class LogisticRegressionStreaming(ModelPerfStreamingBase[float]):
 
     def __init__(
         self,
-        y_true: Iterable[float],
-        y_pred: Iterable[float],
+        y_true: Sequence[float],
+        y_pred: Sequence[float],
         threshold: float | None = 0.5,
     ):
         """
         Initialises the monitor with a baseline dataset and a decision threshold.
         args:
-            y_true: Iterable[float] - baseline ground truth values
-            y_pred: Iterable[float] - baseline predicted probabilities
+            y_true: Sequence[float] - baseline ground truth values
+            y_pred: Sequence[float] - baseline predicted probabilities
             threshold: float | None - decision threshold applied to probabilities,
                 defaults to 0.5
         """
@@ -366,14 +366,14 @@ class LogisticRegressionStreaming(ModelPerfStreamingBase[float]):
         self._inner.push(y_true, y_pred)
 
     def update_stream_batch(
-        self, y_true: Iterable[float], y_pred: Iterable[float]
+        self, y_true: Sequence[float], y_pred: Sequence[float]
     ) -> None:
         """
         Accumulate a batch of ground truth values and predicted probabilities
         into the stream.
         args:
-            y_true: Iterable[float]
-            y_pred: Iterable[float] - predicted probabilities
+            y_true: Sequence[float]
+            y_pred: Sequence[float] - predicted probabilities
         """
         self._inner.push_batch(
             cast_floating_point_slice(y_true), cast_floating_point_slice(y_pred)
@@ -385,20 +385,20 @@ class LogisticRegressionStreaming(ModelPerfStreamingBase[float]):
         """
         self._inner.flush()
 
-    def reset_baseline(self, y_true: Iterable[float], y_pred: Iterable[float]) -> None:
+    def reset_baseline(self, y_true: Sequence[float], y_pred: Sequence[float]) -> None:
         """
         Replace the baseline with a new dataset. The decision threshold is unchanged.
         To change the threshold at the same time use reset_baseline_and_decision_threshold.
         args:
-            y_true: Iterable[float] - new baseline ground truth values
-            y_pred: Iterable[float] - new baseline predicted probabilities
+            y_true: Sequence[float] - new baseline ground truth values
+            y_pred: Sequence[float] - new baseline predicted probabilities
         """
         self._inner.reset_baseline(
             cast_floating_point_slice(y_true), cast_floating_point_slice(y_pred)
         )
 
     def reset_baseline_and_decision_threshold(
-        self, y_true: Iterable[float], y_pred: Iterable[float], threshold: float
+        self, y_true: Sequence[float], y_pred: Sequence[float], threshold: float
     ) -> None:
         """
         Replace the baseline and the decision threshold simultaneously. Because
@@ -406,8 +406,8 @@ class LogisticRegressionStreaming(ModelPerfStreamingBase[float]):
         a new baseline dataset is required. This is the only method that allows
         the threshold to be changed.
         args:
-            y_true: Iterable[float] - new baseline ground truth values
-            y_pred: Iterable[float] - new baseline predicted probabilities
+            y_true: Sequence[float] - new baseline ground truth values
+            y_pred: Sequence[float] - new baseline predicted probabilities
             threshold: float - new decision threshold
         """
         self._inner.reset_baseline_and_decision_threshold(

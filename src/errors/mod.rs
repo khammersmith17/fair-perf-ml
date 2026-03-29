@@ -13,6 +13,8 @@ pub enum BiasError {
     AmbiguousSegmentationParameters,
     #[error("All data arrays must have equal length and be at least lenght 1")]
     DataLengthError,
+    #[error("Invalid bias configuration")]
+    BiasConfigError,
 }
 
 impl From<ModelPerformanceError> for BiasError {
@@ -127,6 +129,73 @@ pub enum ModelPerformanceError {
 impl From<BiasError> for ModelPerformanceError {
     fn from(err: BiasError) -> ModelPerformanceError {
         ModelPerformanceError::BiasError(err)
+    }
+}
+
+#[cfg(feature = "python")]
+pub(crate) mod py_errors {
+    use super::*;
+    use pyo3::{exceptions, PyErr};
+
+    impl From<DataBiasRuntimeError> for PyErr {
+        fn from(err: DataBiasRuntimeError) -> PyErr {
+            let err_msg = err.to_string();
+            exceptions::PyValueError::new_err(err_msg)
+        }
+    }
+
+    impl From<ModelBiasRuntimeError> for PyErr {
+        fn from(err: ModelBiasRuntimeError) -> PyErr {
+            let err_msg = err.to_string();
+            exceptions::PyValueError::new_err(err_msg)
+        }
+    }
+
+    impl From<DriftError> for PyErr {
+        fn from(err: DriftError) -> PyErr {
+            let err_message = err.to_string();
+            match err {
+                DriftError::EmptyRuntimeData
+                | DriftError::EmptyBaselineData
+                | DriftError::NaNValueError
+                | DriftError::UnsupportedDriftType
+                | DriftError::UnsupportedConfig
+                | DriftError::UnsupportedOperation => {
+                    exceptions::PyValueError::new_err(err_message)
+                }
+                DriftError::DateTimeError | DriftError::MalformedRuntimeData => {
+                    exceptions::PySystemError::new_err(err_message)
+                }
+            }
+        }
+    }
+
+    impl From<InvalidMetricError> for PyErr {
+        fn from(err: InvalidMetricError) -> PyErr {
+            let err_msg = err.to_string();
+            exceptions::PyValueError::new_err(err_msg)
+        }
+    }
+
+    impl From<BiasError> for PyErr {
+        fn from(err: BiasError) -> PyErr {
+            let err_msg = err.to_string();
+            exceptions::PyValueError::new_err(err_msg)
+        }
+    }
+
+    impl From<ModelPerformanceError> for PyErr {
+        fn from(err: ModelPerformanceError) -> PyErr {
+            use ModelPerformanceError as E;
+            let err_message = err.to_string();
+
+            match err {
+                E::EmptyDataVector | E::DataVectorLengthMismatch | E::InvalidAnalysisReport => {
+                    exceptions::PyValueError::new_err(err_message)
+                }
+                _ => exceptions::PyTypeError::new_err(err_message),
+            }
+        }
     }
 }
 
@@ -333,72 +402,5 @@ mod tests {
             ModelBiasRuntimeError::GeneralizedEntropy.to_string(),
             "GeneralizedEntropy not present"
         );
-    }
-}
-
-#[cfg(feature = "python")]
-pub(crate) mod py_errors {
-    use super::*;
-    use pyo3::{exceptions, PyErr};
-
-    impl From<DataBiasRuntimeError> for PyErr {
-        fn from(err: DataBiasRuntimeError) -> PyErr {
-            let err_msg = err.to_string();
-            exceptions::PyValueError::new_err(err_msg)
-        }
-    }
-
-    impl From<ModelBiasRuntimeError> for PyErr {
-        fn from(err: ModelBiasRuntimeError) -> PyErr {
-            let err_msg = err.to_string();
-            exceptions::PyValueError::new_err(err_msg)
-        }
-    }
-
-    impl From<DriftError> for PyErr {
-        fn from(err: DriftError) -> PyErr {
-            let err_message = err.to_string();
-            match err {
-                DriftError::EmptyRuntimeData
-                | DriftError::EmptyBaselineData
-                | DriftError::NaNValueError
-                | DriftError::UnsupportedDriftType
-                | DriftError::UnsupportedConfig
-                | DriftError::UnsupportedOperation => {
-                    exceptions::PyValueError::new_err(err_message)
-                }
-                DriftError::DateTimeError | DriftError::MalformedRuntimeData => {
-                    exceptions::PySystemError::new_err(err_message)
-                }
-            }
-        }
-    }
-
-    impl From<InvalidMetricError> for PyErr {
-        fn from(err: InvalidMetricError) -> PyErr {
-            let err_msg = err.to_string();
-            exceptions::PyValueError::new_err(err_msg)
-        }
-    }
-
-    impl From<BiasError> for PyErr {
-        fn from(err: BiasError) -> PyErr {
-            let err_msg = err.to_string();
-            exceptions::PyValueError::new_err(err_msg)
-        }
-    }
-
-    impl From<ModelPerformanceError> for PyErr {
-        fn from(err: ModelPerformanceError) -> PyErr {
-            use ModelPerformanceError as E;
-            let err_message = err.to_string();
-
-            match err {
-                E::EmptyDataVector | E::DataVectorLengthMismatch | E::InvalidAnalysisReport => {
-                    exceptions::PyValueError::new_err(err_message)
-                }
-                _ => exceptions::PyTypeError::new_err(err_message),
-            }
-        }
     }
 }

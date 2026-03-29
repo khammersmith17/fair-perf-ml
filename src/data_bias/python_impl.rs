@@ -1,7 +1,9 @@
 #[cfg(feature = "python")]
 pub(crate) mod py_api {
     use crate::data_bias::{core::pre_training_bias, data_bias_runtime_check, PreTraining};
-    use crate::data_handler::py_types_handler::{apply_label, report_to_py_dict, PyDictResult};
+    use crate::data_handler::py_types_handler::{
+        apply_label, label_python_bias_explicit_seg, report_to_py_dict, PyDictResult,
+    };
     use crate::errors::{BiasError, InvalidMetricError};
     use crate::metrics::{DataBiasMetric, DataBiasMetricVec};
     use crate::reporting::{DataBiasAnalysisReport, DriftReport};
@@ -25,13 +27,53 @@ pub(crate) mod py_api {
         py: Python<'py>,
         feature_array: &Bound<'py, PyUntypedArray>,
         ground_truth_array: &Bound<'py, PyUntypedArray>,
-        feature_label_or_threshold: Bound<'py, PyAny>, //fix
-        ground_truth_label_or_threshold: Bound<'py, PyAny>, //fix
+        feature_label_or_threshold: Bound<'py, PyAny>,
+        ground_truth_label_or_threshold: Bound<'py, PyAny>,
     ) -> PyDictResult<'py> {
         let gt = apply_label(py, ground_truth_array, ground_truth_label_or_threshold)?;
         let feats = apply_label(py, feature_array, feature_label_or_threshold)?;
-        let res = data_bias_analysis_core(gt, feats)?;
+        let res = data_bias_analysis_core(feats, gt)?;
 
+        Ok(report_to_py_dict(py, res))
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (
+        feature_array,
+        feat_segmentation_threshold,
+        feat_segmentation_label,
+        feat_threshold_type,
+        ground_truth_array,
+        gt_segmentation_threshold,
+        gt_segmentation_label,
+        gt_threshold_type
+    ))]
+    pub fn py_data_bias_analyzer_explicit_seg<'py>(
+        py: Python<'py>,
+        feature_array: &Bound<'py, PyUntypedArray>,
+        feat_segmentation_threshold: Option<f64>,
+        feat_segmentation_label: Option<String>,
+        feat_threshold_type: Option<String>,
+        ground_truth_array: &Bound<'py, PyUntypedArray>,
+        gt_segmentation_threshold: Option<f64>,
+        gt_segmentation_label: Option<String>,
+        gt_threshold_type: Option<String>,
+    ) -> PyDictResult<'py> {
+        let labeled_feat = label_python_bias_explicit_seg(
+            feature_array,
+            feat_segmentation_threshold,
+            feat_segmentation_label,
+            feat_threshold_type,
+        )?;
+
+        let labeled_gt = label_python_bias_explicit_seg(
+            ground_truth_array,
+            gt_segmentation_threshold,
+            gt_segmentation_label,
+            gt_threshold_type,
+        )?;
+
+        let res = data_bias_analysis_core(labeled_feat, labeled_gt)?;
         Ok(report_to_py_dict(py, res))
     }
 

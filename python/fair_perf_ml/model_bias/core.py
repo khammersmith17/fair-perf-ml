@@ -1,15 +1,60 @@
 from __future__ import annotations
+
 from typing import cast
+
+from fair_perf_ml._internal import check_and_convert_type
+from fair_perf_ml.bias.segmentation import (
+    BiasDataPayload, DiscreteAnalysisSegmentationValueBounds,
+    _construct_explicit_bias_args)
+from fair_perf_ml.models import (AnalysisReport, DriftReport,
+                                 ModelBiasDriftMetric)
 from numpy.typing import NDArray
 
-from .._fair_perf_ml import py_model_bias_analyzer
-from .._fair_perf_ml import py_model_bias_partial_check
-from .._fair_perf_ml import py_model_bias_runtime_check
-from .._internal import check_and_convert_type
-from ..models import DriftReport, ModelBiasDriftMetric
+from .._fair_perf_ml import (py_model_bias_analyzer,
+                             py_model_bias_analyzer_explicit_seg,
+                             py_model_bias_partial_check,
+                             py_model_bias_runtime_check)
 
 
-def perform_model_bias_analysis[
+def model_bias_perform_analysis_explicit_segmentation[
+    F: DiscreteAnalysisSegmentationValueBounds,
+    G: DiscreteAnalysisSegmentationValueBounds,
+    P: DiscreteAnalysisSegmentationValueBounds,
+](
+    feature: BiasDataPayload[F],
+    ground_truth: BiasDataPayload[G],
+    prediction: BiasDataPayload[P],
+) -> AnalysisReport:
+    """
+    Method to provide explicit segmentation criteria for ad hoc data bias analysis.
+
+    args:
+        feature: DataBiasPayload[F]
+        ground_truth: DataBiasPayload[G]
+    returns:
+        AnalysisReport
+    """
+    f_args = _construct_explicit_bias_args(feature)
+    gt_args = _construct_explicit_bias_args(ground_truth)
+    p_args = _construct_explicit_bias_args(prediction)
+
+    return py_model_bias_analyzer_explicit_seg(
+        feature_array=f_args.data,
+        feat_segmentation_threshold=f_args.threshold,
+        feat_segmentation_label=f_args.label,
+        feat_threshold_type=f_args.threshold_type,
+        ground_truth_array=gt_args.data,
+        gt_segmentation_threshold=gt_args.threshold,
+        gt_segmentation_label=gt_args.label,
+        gt_threshold_type=gt_args.threshold_type,
+        prediction_array=p_args.data,
+        pred_segmentation_threshold=p_args.threshold,
+        pred_segmentation_label=p_args.label,
+        pred_threshold_type=p_args.threshold_type,
+    )
+
+
+def model_bias_perform_analysis[
     F, G, P
 ](
     feature: list[F] | NDArray,
@@ -18,27 +63,30 @@ def perform_model_bias_analysis[
     feature_label_or_threshold: F,
     ground_truth_label_or_threshold: G,
     prediction_label_or_threshold: P,
-) -> dict[str, float]:
+) -> AnalysisReport:
     """
     Performs model bias analysis on the data passed. The arrays passed with the feature,
     prediction and ground truth data must all be of the same length. The collection type that
     is passed must be coercable to a numpy array.
+
+    Type in the data container passed must the label or threshold value passed for each
+    criteria type.
     Args:
-        feature: list[str | float | int] | NDArray -> the feature data
+        feature: list[F] | NDArray -> the feature data
             most efficient to pass as numpy array
-        ground_truth: list[str | float | int] | NDArray -> the ground truth data
+        ground_truth: list[G] | NDArray -> the ground truth data
             most efficient to pass as numpy array
-        predictions: list[str | float | int] | NDArray -> the prediction data
+        predictions: list[P] | NDArray -> the prediction data
             most efficient to pass as numpy array
-        feature_label_or_threshold: str | float | int -> segmentation parameter for the feature
-        ground_truth_label_or_threshold: str | float | int -> segmenation parameter for ground truth
-        prediction_label_or_threshold: str | float | int -> segmenation parameter for predictions
+        feature_label_or_threshold: F -> segmentation parameter for the feature
+        ground_truth_label_or_threshold: G -> segmenation parameter for ground truth
+        prediction_label_or_threshold: P -> segmenation parameter for predictions
     """
     feature = cast(NDArray, check_and_convert_type(feature))
     ground_truth = cast(NDArray, check_and_convert_type(ground_truth))
     predictions = cast(NDArray, check_and_convert_type(predictions))
 
-    res: dict[str, float] = py_model_bias_analyzer(
+    return py_model_bias_analyzer(
         feature_array=feature,
         ground_truth_array=ground_truth,
         prediction_array=predictions,
@@ -47,11 +95,9 @@ def perform_model_bias_analysis[
         prediction_label_or_threshold=prediction_label_or_threshold,
     )
 
-    return res
-
 
 def model_bias_runtime_comparison(
-    baseline: dict, comparison: dict, threshold: float | None = 0.10
+    baseline: AnalysisReport, comparison: AnalysisReport, threshold: float | None = 0.10
 ) -> DriftReport:
     """
     Evaluates a runtime analysis report for drift relative to the baseline, on all metrics
@@ -64,16 +110,14 @@ def model_bias_runtime_comparison(
     Returns:
         dict
     """
-    res: DriftReport = py_model_bias_runtime_check(
+    return py_model_bias_runtime_check(
         baseline=baseline, latest=comparison, threshold=threshold
     )
 
-    return res
-
 
 def model_bias_partial_runtime_comparison(
-    baseline: dict,
-    comparison: dict,
+    baseline: AnalysisReport,
+    comparison: AnalysisReport,
     metrics: list[ModelBiasDriftMetric],
     threshold: float | None = None,
 ) -> DriftReport:
@@ -88,11 +132,9 @@ def model_bias_partial_runtime_comparison(
     Returns:
         dict
     """
-    res: DriftReport = py_model_bias_partial_check(
+    return py_model_bias_partial_check(
         baseline=baseline,
         latest=comparison,
         metrics=metrics,
         threshold=threshold,
     )
-
-    return res

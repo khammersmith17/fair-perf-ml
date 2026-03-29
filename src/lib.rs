@@ -18,7 +18,8 @@ use pyo3::prelude::*;
 #[pyo3(name = "_fair_perf_ml")]
 fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     use data_bias::python_impl::py_api::{
-        py_data_bias_analyzer, py_data_bias_partial_check, py_data_bias_runtime_check,
+        py_data_bias_analyzer, py_data_bias_analyzer_explicit_seg, py_data_bias_partial_check,
+        py_data_bias_runtime_check,
     };
 
     use drift::python_impl::py_api::{
@@ -29,7 +30,8 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     };
 
     use model_bias::python_impl::py_api::{
-        py_model_bias_analyzer, py_model_bias_partial_check, py_model_bias_runtime_check,
+        py_model_bias_analyzer, py_model_bias_analyzer_explicit_seg, py_model_bias_partial_check,
+        py_model_bias_runtime_check,
     };
 
     use model_perf::python_impl::py_api::{
@@ -45,12 +47,14 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         PyBinaryClassificationStreaming, PyLinearRegressionStreaming, PyLogisticRegressionStreaming,
     };
 
-    m.add_function(wrap_pyfunction!(py_model_bias_analyzer, m)?)?;
     m.add_function(wrap_pyfunction!(py_data_bias_analyzer, m)?)?;
     m.add_function(wrap_pyfunction!(py_data_bias_runtime_check, m)?)?;
     m.add_function(wrap_pyfunction!(py_data_bias_partial_check, m)?)?;
+    m.add_function(wrap_pyfunction!(py_data_bias_analyzer_explicit_seg, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_bias_analyzer, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_bias_runtime_check, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_bias_partial_check, m)?)?;
+    m.add_function(wrap_pyfunction!(py_model_bias_analyzer_explicit_seg, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_perf_linear_regression, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_perf_class_rt_full, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_perf_class_rt_partial, m)?)?;

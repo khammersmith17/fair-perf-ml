@@ -1,22 +1,57 @@
 from __future__ import annotations
+
 from typing import cast
+
+from fair_perf_ml._internal import check_and_convert_type
+from fair_perf_ml.bias.segmentation import (
+    BiasDataPayload, DiscreteAnalysisSegmentationValueBounds,
+    _construct_explicit_bias_args)
+from fair_perf_ml.models import (AnalysisReport, DataBiasDriftMetric,
+                                 DriftReport)
 from numpy.typing import NDArray
 
-from .._fair_perf_ml import py_data_bias_analyzer
-from .._fair_perf_ml import py_data_bias_partial_check
-from .._fair_perf_ml import py_data_bias_runtime_check
-from .._internal import check_and_convert_type
-from ..models import DataBiasDriftMetric, DriftReport
+from .._fair_perf_ml import (py_data_bias_analyzer,
+                             py_data_bias_analyzer_explicit_seg,
+                             py_data_bias_partial_check,
+                             py_data_bias_runtime_check)
 
 
-def perform_analysis[
+def data_bias_perform_analysis_explicit_segmentation[
+    F: DiscreteAnalysisSegmentationValueBounds,
+    G: DiscreteAnalysisSegmentationValueBounds,
+](feature: BiasDataPayload[F], ground_truth: BiasDataPayload[G]) -> AnalysisReport:
+    """
+    Method to provide explicit segmentation criteria for ad hoc data bias analysis.
+
+    args:
+        feature: DataBiasPayload[F]
+        ground_truth: DataBiasPayload[G]
+    returns:
+        AnalysisReport
+    """
+    f_args = _construct_explicit_bias_args(feature)
+    gt_args = _construct_explicit_bias_args(ground_truth)
+
+    return py_data_bias_analyzer_explicit_seg(
+        feature_array=f_args.data,
+        feat_segmentation_threshold=f_args.threshold,
+        feat_segmentation_label=f_args.label,
+        feat_threshold_type=f_args.threshold_type,
+        ground_truth_array=gt_args.data,
+        gt_segmentation_threshold=gt_args.threshold,
+        gt_segmentation_label=gt_args.label,
+        gt_threshold_type=gt_args.threshold_type,
+    )
+
+
+def data_bias_perform_analysis[
     F, G
 ](
     feature: list[F] | NDArray,
     ground_truth: list[G] | NDArray,
     feature_label_or_threshold: F,
     ground_truth_label_or_threshold: G,
-) -> dict[str, float]:
+) -> AnalysisReport:
     """
     interface into rust class
     makes sure we are passing numpy arrays to the rust function
@@ -33,20 +68,17 @@ def perform_analysis[
     feature = cast(NDArray, check_and_convert_type(feature))
     ground_truth = cast(NDArray, check_and_convert_type(ground_truth))
 
-    res: dict[str, float] = py_data_bias_analyzer(
+    return py_data_bias_analyzer(
         feature_array=feature,
         ground_truth_array=ground_truth,
         feature_label_or_threshold=feature_label_or_threshold,
         ground_truth_label_or_threshold=ground_truth_label_or_threshold,
     )
 
-    # simply for nice formatting
-    return res
 
-
-def runtime_comparison(
-    baseline: dict[str, float],
-    latest: dict[str, float],
+def data_bias_runtime_comparison(
+    baseline: AnalysisReport,
+    latest: AnalysisReport,
     threshold: float = 0.10,
 ) -> DriftReport:
     """
@@ -60,15 +92,14 @@ def runtime_comparison(
     Returns:
         dict - the drift report, detailing the metrics that have drifted and to what degree.
     """
-    res: DriftReport = py_data_bias_runtime_check(
+    return py_data_bias_runtime_check(
         baseline=baseline, latest=latest, threshold=threshold
     )
-    return res
 
 
-def partial_runtime_comparison(
-    baseline: dict[str, float],
-    latest: dict[str, float],
+def data_bias_partial_runtime_comparison(
+    baseline: AnalysisReport,
+    latest: AnalysisReport,
     metrics: list[DataBiasDriftMetric],
     threshold: float = 0.10,
 ) -> DriftReport:
@@ -84,8 +115,6 @@ def partial_runtime_comparison(
     Returns:
         dict
     """
-    res: DriftReport = py_data_bias_partial_check(
+    return py_data_bias_partial_check(
         baseline=baseline, latest=latest, metrics=metrics, threshold=threshold
     )
-    # for nicer formatting on the return
-    return res

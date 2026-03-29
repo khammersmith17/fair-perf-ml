@@ -152,6 +152,8 @@ type ClassificationDriftMetric = ClassificationEvaluationMetric | str
 type LinearRegressionDriftMetric = LinearRegressionEvaluationMetric | str
 type ModelPerformanceDriftMetric = ModelPerformanceMetric | str
 
+type AnalysisReport = dict[str, float]
+
 
 MachineLearningMetric: TypeAlias = (
     ModelBiasMetric | DataBiasMetric | ModelPerformanceDriftMetric
