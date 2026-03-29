@@ -6,9 +6,8 @@ from enum import Enum
 from typing import Any, NamedTuple, Protocol, Self
 
 import numpy as np
+from fair_perf_ml._internal import _extract_sequence_type
 from numpy.typing import NDArray
-
-from ._internal import _extract_sequence_type
 
 
 class BiasPayloadTypeException(Exception):

@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import Enum
-from typing import Any, Protocol, Self
+from typing import Any, NamedTuple, Protocol, Self
+
+from numpy.typing import NDArray
+import numpy as np
 
 
 class BiasPayloadTypeException(Exception): ...
@@ -74,6 +77,12 @@ class ThresholdBiasSegmentation[T: SegmentationValueBounds](BiasSegmentationProt
     def _thres_type(self) -> BiasSegmentationThresholdType: ...
 
 
+def _validate_factory_args(
+    segmentation_type: BiasSegmentationType,
+    segmentation_threshold_type: BiasSegmentationThresholdType | None,
+) -> None: ...
+
+
 def bias_segmentation_criteria_factory(
     value: Any,
     segmentation_type: BiasSegmentationType | str,
@@ -95,3 +104,23 @@ class BiasDataPayload[T: SegmentationValueBounds]:
         segmentation_type: BiasSegmentationType | str,
         segmentation_threshold_type: BiasSegmentationThresholdType | str | None = ...,
     ) -> Self: ...
+
+
+class _ExplicitAnalysisArgs(NamedTuple):
+    data: NDArray[np.float64] | NDArray[np.str_]
+    threshold: float | None
+    label: str | None
+    threshold_type: BiasSegmentationThresholdType | None
+
+
+def _construct_explicit_bias_args[
+    T: DiscreteAnalysisSegmentationValueBounds
+](payload: BiasDataPayload[T]) -> _ExplicitAnalysisArgs: ...
+
+def _cast_sequence_and_label_thres[
+    T: DiscreteAnalysisSegmentationValueBounds
+](payload: BiasDataPayload[T]) -> _ExplicitAnalysisArgs: ...
+
+def _cast_sequence_and_label_label[
+    T: DiscreteAnalysisSegmentationValueBounds
+](payload: BiasDataPayload[T]) -> _ExplicitAnalysisArgs: ...
