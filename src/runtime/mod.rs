@@ -73,7 +73,7 @@ impl TryFrom<HashMap<String, f32>> for DataBiasRuntime {
             Some(val) => *val,
             None => return Err(DataBiasRuntimeError::LpNorm),
         };
-        let tvd = match data.get("TotalVarationDistance") {
+        let tvd = match data.get("TotalVariationDistance") {
             Some(val) => *val,
             None => return Err(DataBiasRuntimeError::TotalVariationDistance),
         };
@@ -158,10 +158,10 @@ impl DataBiasRuntime {
                     }
                 }
                 DataBiasMetric::DifferenceInProportionOfLabels => {
-                    if self.dpl.abs() > baseline.dpl.abs() * (1_f32 + threshold) {
+                    if ((self.dpl - baseline.dpl).abs() / baseline.dpl) > threshold {
                         result.insert(
                             DataBiasMetric::DifferenceInProportionOfLabels,
-                            (self.dpl.abs() - baseline.dpl.abs()).abs(),
+                            (self.dpl - baseline.dpl).abs(),
                         );
                     }
                 }
@@ -1401,8 +1401,7 @@ mod runtime_container_tests {
         map.insert("KlDivergence".to_string(), 0.3_f32);
         map.insert("JsDivergence".to_string(), 0.4_f32);
         map.insert("LpNorm".to_string(), 0.5_f32);
-        // intentional typos matching the TryFrom impl
-        map.insert("TotalVarationDistance".to_string(), 0.6_f32);
+        map.insert("TotalVariationDistance".to_string(), 0.6_f32);
         map.insert("KolmogorovSmirnov".to_string(), 0.7_f32);
 
         let rt = DataBiasRuntime::try_from(map).unwrap();

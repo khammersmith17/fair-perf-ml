@@ -62,7 +62,6 @@ def check_and_convert_type[T](arr: NDArray | Sequence[T]) -> NDArray:
     numpy array.
     """
     if _is_numpy(arr):
-
         return cast(NDArray, arr)
 
     arr = cast(Sequence[T], arr)

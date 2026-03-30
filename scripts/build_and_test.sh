@@ -8,5 +8,4 @@ fi
 
 cd ~/Documents/fair-ml
 maturin develop
-cd tests
-python3 tests.py | tee test_results
+pytest

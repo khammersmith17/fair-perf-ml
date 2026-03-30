@@ -4,9 +4,12 @@ build-backend = "maturin"
 
 [project]
 name = "fair_perf_ml"
-version="0.2.0"
-description = """A package for evalutating machine learning models for pre training and post training bias
-in addition to evaluting the model for performance at training time and runtime."""
+version = "0.2.0"
+description = """
+A package for evalutating machine learning models for pre training and post training bias
+in addition to evaluting the model for performance at training time and runtime. New versions include
+streaming style variants, and data drift functionality.
+"""
 readme = "README.md"
 requires-python = ">=3.11,<=3.14"
 classifiers = [
@@ -22,7 +25,6 @@ dependencies = [
     "pydantic>=2.9.2",
     "numpy>=2.0.0",
 ]
-dynamic = ["version"]
 authors = [
     {name = "Kilian Hammersmith", email = "kilianhammersmith@gmail.com"}
 ]
@@ -30,6 +32,12 @@ maintainers = [
     {name = "Kilian Hammersmith", email = "kilianhammersmith@gmail.com"}
 ]
 keywords = ["machine learning", "bias", "py03", "rust"]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-cov",
+]
 
 [project.urls]
 source = "https://github.com/khammersmith17/fair-perf-ml"
@@ -39,6 +47,9 @@ documentation = "https://github.com/khammersmith17/fair-perf-ml"
 features = ["pyo3/extension-module"]
 python-source = "python"
 module-name = "fair_perf_ml._fair_perf_ml"
+
+[tool.pytest.ini_options]
+pythonpath = ["python"]
 
 [tool.mypy]
 python_version = "3.12"

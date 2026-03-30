@@ -52,7 +52,7 @@ class SegmentationValueBounds(Protocol):
     """
 
     def __eq__(self, other: object) -> bool: ...
-    def __ge__(self, other: Self) -> bool: ...
+    def __ge__(self, __other: Self) -> bool: ...
 
 
 class DiscreteAnalysisSegmentationValueBounds(SegmentationValueBounds, Protocol):
@@ -155,9 +155,13 @@ class ThresholdBiasSegmentation[T: SegmentationValueBounds](BiasSegmentationProt
 
     __slots__ = ("_value", "_threshold_type")
 
-    def __init__(self, value: T, threshold_type: BiasSegmentationThresholdType):
+    def __init__(self, value: T, threshold_type: BiasSegmentationThresholdType | str):
         self._value = value
-        self._threshold_type: BiasSegmentationThresholdType = threshold_type
+        self._threshold_type: BiasSegmentationThresholdType = (
+            threshold_type
+            if isinstance(threshold_type, BiasSegmentationThresholdType)
+            else BiasSegmentationThresholdType(threshold_type)
+        )
 
     def _seg_value_type(self) -> type:
         return type(self._value)
@@ -342,7 +346,7 @@ def _cast_sequence_and_label_label[
         data = np.fromiter(
             (str(v) for v in payload._payload),
             count=len(payload._payload),
-            dtype=str,
+            dtype=object,
         )
     except ValueError as exc:
         raise ValueError(
