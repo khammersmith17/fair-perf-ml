@@ -390,6 +390,118 @@ pub(crate) mod classification_metrics_from_parts {
     }
 }
 
+#[cfg(test)]
+mod test_model_perf_stats_errors {
+    use super::classification_metrics as cm;
+    use super::linear_regression_metric as lrm;
+
+    // --- linear_regression_metric error cases ---
+
+    #[test]
+    fn rmse_mismatch_errors() {
+        assert!(lrm::root_mean_squared_error(&[1.0_f64, 2.0], &[1.0_f64]).is_err());
+    }
+
+    #[test]
+    fn mse_mismatch_errors() {
+        assert!(lrm::mean_squared_error(&[1.0_f64, 2.0], &[1.0_f64]).is_err());
+    }
+
+    #[test]
+    fn mae_mismatch_errors() {
+        assert!(lrm::mean_absolute_error(&[1.0_f64, 2.0], &[1.0_f64]).is_err());
+    }
+
+    #[test]
+    fn r_squared_mismatch_errors() {
+        assert!(lrm::r_squared(&[1.0_f64, 2.0], &[1.0_f64]).is_err());
+    }
+
+    #[test]
+    fn max_error_mismatch_errors() {
+        assert!(lrm::max_error(&[1.0_f64, 2.0], &[1.0_f64]).is_err());
+    }
+
+    #[test]
+    fn msle_mismatch_errors() {
+        assert!(lrm::mean_squared_log_error(&[1.0_f64, 2.0], &[1.0_f64]).is_err());
+    }
+
+    #[test]
+    fn msle_value_minus_one_errors() {
+        // t == -1 or p == -1 triggers InvalidData
+        assert!(lrm::mean_squared_log_error(&[-1.0_f64, 2.0], &[1.0_f64, 2.0]).is_err());
+    }
+
+    #[test]
+    fn rmsle_mismatch_errors() {
+        assert!(lrm::root_mean_squared_log_error(&[1.0_f64, 2.0], &[1.0_f64]).is_err());
+    }
+
+    #[test]
+    fn mape_mismatch_errors() {
+        assert!(lrm::mean_absolute_percentage_error(&[1.0_f64, 2.0], &[1.0_f64]).is_err());
+    }
+
+    // --- classification_metrics error cases ---
+
+    #[test]
+    fn precision_from_label_mismatch_errors() {
+        assert!(cm::precision_from_label(&[1, 0], &[1], 1).is_err());
+    }
+
+    #[test]
+    fn precision_from_threshold_mismatch_errors() {
+        assert!(cm::precision_from_threshold(&[1.0_f32, 0.0], &[1.0_f32], 0.5).is_err());
+    }
+
+    #[test]
+    fn recall_from_label_mismatch_errors() {
+        assert!(cm::recall_from_label(&[1, 0], &[1], 1).is_err());
+    }
+
+    #[test]
+    fn recall_from_threshold_mismatch_errors() {
+        assert!(cm::recall_from_threshold(&[1.0_f32, 0.0], &[1.0_f32], 0.5).is_err());
+    }
+
+    #[test]
+    fn accuracy_from_label_mismatch_errors() {
+        assert!(cm::accuracy_from_label(&[1, 0], &[1]).is_err());
+    }
+
+    #[test]
+    fn accuracy_from_threshold_mismatch_errors() {
+        assert!(cm::accuracy_from_threshold(&[1.0_f32, 0.0], &[1.0_f32], 0.5).is_err());
+    }
+
+    #[test]
+    fn log_loss_mismatch_errors() {
+        assert!(cm::log_loss_score(&[1.0_f32, 0.0], &[0.8_f32]).is_err());
+    }
+
+    #[test]
+    fn f1_score_from_label_mismatch_errors() {
+        assert!(cm::f1_score_from_label(&[1, 0], &[1], 1).is_err());
+    }
+
+    #[test]
+    fn f1_score_from_threshold_mismatch_errors() {
+        assert!(cm::f1_score_from_threshold(&[1.0_f32, 0.0], &[1.0_f32], 0.5).is_err());
+    }
+
+    #[test]
+    fn balanced_accuracy_from_label_mismatch_errors() {
+        assert!(cm::balanced_accuracy_from_label(&[1, 0], &[1], 1).is_err());
+    }
+
+    #[test]
+    fn balanced_accuracy_from_threshold_mismatch_errors() {
+        assert!(cm::balanced_accuracy_from_threshold(&[1.0_f32, 0.0], &[1.0_f32], 0.5).is_err());
+    }
+}
+
+#[cfg(test)]
 mod test_model_perf_stats {
     #[test]
     fn test_regression_ad_hoc_metrics_zero() {

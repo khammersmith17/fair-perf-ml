@@ -1,16 +1,32 @@
-use crate::errors::{ModelPerfResult, ModelPerformanceError};
+use crate::errors::{BiasError, ModelPerfResult, ModelPerformanceError};
 #[cfg(feature = "python")]
 pub(crate) mod py_types_handler {
-    use super::{apply_label_continuous, apply_label_discrete};
+    use super::{BiasSegmentationCriteria, BiasSegmentationType, SegmentationThresholdType};
+    use crate::errors::BiasError;
     use numpy::dtype;
     use numpy::PyUntypedArrayMethods;
     use numpy::{PyArrayDescrMethods, PyUntypedArray};
     use pyo3::exceptions::PyTypeError;
     use pyo3::prelude::*;
-    use pyo3::types::{PyDict, PyDictMethods, PyFloat, PyInt, PyString};
+    use pyo3::types::{PyBool, PyDict, PyDictMethods, PyFloat, PyInt, PyString};
     use std::collections::HashMap;
+    use std::env;
+    use std::sync::OnceLock;
 
     pub type PyDictResult<'py> = PyResult<Bound<'py, PyDict>>;
+
+    const DEFAULT_DISTRIBUTION_TYPE_HEURISTIC: f32 = 0.05;
+    const CARDINALITY_MIN: usize = 3;
+    static DISTRIBUTION_TYPE_HEURISTIC: OnceLock<f32> = OnceLock::new();
+
+    fn get_dist_type_heuristic() -> f32 {
+        *(DISTRIBUTION_TYPE_HEURISTIC.get_or_init(|| {
+            env::var("FAIR_PERF_DISTRIBUTION_HEURISTIC")
+                .ok()
+                .and_then(|v| v.parse::<f32>().ok())
+                .unwrap_or(DEFAULT_DISTRIBUTION_TYPE_HEURISTIC)
+        }))
+    }
 
     // Coerce analysis/runtime report into Python Dictionary
     pub(crate) fn report_to_py_dict<'py, T>(
@@ -25,6 +41,41 @@ pub(crate) mod py_types_handler {
             let _ = dict.set_item(key.to_string(), val);
         }
         dict
+    }
+
+    /*
+     * construct a labeled dataset from explicit segementation criteria
+     * passed across from Python.
+     *  valid variants (threshold, label, threshold type):
+     *   None, Some, None -> read data into string, label application
+     *   Some, None, Some -> read data into float, threshold application
+     *
+     *   other variants are invalid
+     * */
+    pub(crate) fn label_python_bias_explicit_seg<'py>(
+        data: &Bound<'py, PyUntypedArray>,
+        seg_threshold: Option<f64>,
+        seg_label: Option<String>,
+        threshold_type: Option<String>,
+    ) -> Result<Vec<i16>, BiasError> {
+        match (seg_threshold, seg_label, threshold_type) {
+            (Some(thres), None, Some(ttype_str)) => {
+                let Ok(copied_data) = copy_into_rust_type::<f64>(data) else {
+                    return Err(BiasError::BiasConfigError);
+                };
+                let ttype = SegmentationThresholdType::try_from(ttype_str.as_str())?;
+                let seg_crit =
+                    BiasSegmentationCriteria::new(thres, BiasSegmentationType::Threshold(ttype));
+                Ok(seg_crit.generate_labeled_array(&copied_data))
+            }
+            (None, Some(label), None) => {
+                let Ok(copied_data) = copy_into_rust_type::<String>(data) else {
+                    return Err(BiasError::BiasConfigError);
+                };
+                Ok(apply_label_discrete(&copied_data, &label))
+            }
+            _ => Err(BiasError::BiasConfigError),
+        }
     }
 
     /// The purpose of this type is to be able to use floating point values to create a HashSet.
@@ -72,6 +123,7 @@ pub(crate) mod py_types_handler {
         Float,
         Integer,
         String,
+        Bool,
     }
 
     /// Utility to extract the type from a PyUntypedArray to work with the dyanmic typed semantics
@@ -84,14 +136,30 @@ pub(crate) mod py_types_handler {
         if element_type.is_equiv_to(&dtype::<f64>(py)) | element_type.is_equiv_to(&dtype::<f32>(py))
         {
             PassedType::Float
-        } else if element_type.is_equiv_to(&dtype::<i32>(py))
-            | element_type.is_equiv_to(&dtype::<i64>(py))
+        } else if element_type.is_equiv_to(&dtype::<i8>(py))
             | element_type.is_equiv_to(&dtype::<i16>(py))
+            | element_type.is_equiv_to(&dtype::<i32>(py))
+            | element_type.is_equiv_to(&dtype::<i64>(py))
+            | element_type.is_equiv_to(&dtype::<u8>(py))
+            | element_type.is_equiv_to(&dtype::<u16>(py))
+            | element_type.is_equiv_to(&dtype::<u32>(py))
+            | element_type.is_equiv_to(&dtype::<u64>(py))
         {
             PassedType::Integer
+        } else if element_type.is_equiv_to(&dtype::<bool>(py)) {
+            PassedType::Bool
         } else {
             PassedType::String
         }
+    }
+
+    fn is_discrete_dist(cardinality: usize, n: usize) -> bool {
+        if cardinality <= CARDINALITY_MIN {
+            return true;
+        }
+        let thres = get_dist_type_heuristic();
+        let ratio: f32 = cardinality as f32 / n as f32;
+        ratio <= thres
     }
 
     fn copy_into_rust_type<'py, T: Clone + FromPyObject<'py>>(
@@ -118,6 +186,30 @@ pub(crate) mod py_types_handler {
         PyTypeError::new_err("Data passed in is of hetergeneous types")
     }
 
+    #[inline]
+    fn apply_label_discrete<T>(array: &[T], label: &T) -> Vec<i16>
+    where
+        T: PartialEq<T>,
+    {
+        let labeled_array: Vec<i16> = array
+            .iter()
+            .map(|value| if value == label { 1_i16 } else { 0_i16 })
+            .collect();
+        labeled_array
+    }
+
+    #[inline]
+    fn apply_label_continuous<T>(array: &[T], threshold: &T) -> Vec<i16>
+    where
+        T: PartialOrd<T>,
+    {
+        let labeled_array: Vec<i16> = array
+            .iter()
+            .map(|value| if value >= threshold { 1_i16 } else { 0_i16 })
+            .collect();
+        labeled_array
+    }
+
     // Handles untyped nature of python data. Determines type and labels accordingly. This function
     // will error if the underlying type identification is incorrect.
     pub(crate) fn apply_label<'py>(
@@ -131,6 +223,18 @@ pub(crate) mod py_types_handler {
         // owned rust container. Given that these come from numpy arrays, the type in the array
         // should be uniform.
         let labeled_array: Vec<i16> = match pred_type {
+            PassedType::Bool => {
+                let data_vec: Vec<bool> = copy_into_rust_type(array)?;
+                let label = if label.is_instance_of::<PyBool>() {
+                    label.extract::<bool>()?
+                } else if label.is_instance_of::<PyInt>() {
+                    label.extract::<i64>()? == 1
+                } else {
+                    return Err(generate_type_err());
+                };
+
+                apply_label_discrete(&data_vec, &label)
+            }
             PassedType::String => {
                 let data_vec: Vec<String> = copy_into_rust_type(array)?;
                 if !label.is_instance_of::<PyString>() {
@@ -155,7 +259,7 @@ pub(crate) mod py_types_handler {
                 let f = Box::new(|v: &f64| OrderedFloat(*v));
                 let num_unique = resolve_num_unique_values(&data_vec, &f);
 
-                if num_unique == 2 {
+                if is_discrete_dist(num_unique, data_vec.len()) {
                     apply_label_discrete(&data_vec, &data_label)
                 } else {
                     apply_label_continuous(&data_vec, &data_label)
@@ -175,8 +279,7 @@ pub(crate) mod py_types_handler {
 
                 let f = Box::new(|v: &i64| OrderedFloat(*v as f64));
                 let num_unique = resolve_num_unique_values(&data_vec, &f);
-
-                if num_unique == 2 {
+                if is_discrete_dist(num_unique, data_vec.len()) {
                     apply_label_discrete(&data_vec, &data_label)
                 } else {
                     apply_label_continuous(&data_vec, &data_label)
@@ -309,18 +412,31 @@ impl ConfusionMatrix {
     }
 }
 /// Defines segmentation definition for [`BiasSegmentationType::Threshold`].
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum SegmentationThresholdType {
     GreaterThan,
     GreaterThanEqualTo,
     LessThan,
     LessThanEqualTo,
 }
+
+impl TryFrom<&str> for SegmentationThresholdType {
+    type Error = BiasError;
+    fn try_from(val: &str) -> Result<Self, Self::Error> {
+        match val {
+            "GreaterThan" => Ok(Self::GreaterThan),
+            "GreaterThanEqualTo" => Ok(Self::GreaterThanEqualTo),
+            "LessThan" => Ok(Self::LessThan),
+            "LessThanEqualTo" => Ok(Self::LessThanEqualTo),
+            _ => Err(Self::Error::BiasConfigError),
+        }
+    }
+}
 /// Enum to differentiate between an array that is going to be segmented by label versus by a
 /// threshold. Dicrete data should be segmented by a label and continuous data should be segmented
 /// by a threshold. For example a categorical dataset should use the label variant, where as a
 /// linear regression prediction dataset should use the threshold.
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum BiasSegmentationType {
     Label,
     Threshold(SegmentationThresholdType),
@@ -341,7 +457,8 @@ pub enum BiasSegmentationType {
 ///
 /// This intentionally does not implement Clone, to avoid narrowing the scope of possible types that
 /// can be used.
-/// This type is cheap enough to reconstuct when needed
+/// This type is cheap enough to reconstruct when needed
+#[derive(Debug)]
 pub struct BiasSegmentationCriteria<T>
 where
     T: PartialOrd,
@@ -430,30 +547,6 @@ where
     pub(crate) fn generate_labeled_data(&self) -> Vec<i16> {
         self.segmentation_criteria.generate_labeled_array(self.data)
     }
-}
-
-#[inline]
-fn apply_label_discrete<T>(array: &[T], label: &T) -> Vec<i16>
-where
-    T: PartialEq<T>,
-{
-    let labeled_array: Vec<i16> = array
-        .iter()
-        .map(|value| if value == label { 1_i16 } else { 0_i16 })
-        .collect();
-    labeled_array
-}
-
-#[inline]
-fn apply_label_continuous<T>(array: &[T], threshold: &T) -> Vec<i16>
-where
-    T: PartialOrd<T>,
-{
-    let labeled_array: Vec<i16> = array
-        .iter()
-        .map(|value| if value >= threshold { 1_i16 } else { 0_i16 })
-        .collect();
-    labeled_array
 }
 
 #[cfg(test)]

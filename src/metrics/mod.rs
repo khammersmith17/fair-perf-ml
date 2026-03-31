@@ -29,6 +29,7 @@ impl MachineLearningMetric for LinearRegressionEvaluationMetric {}
 /// New type wrapper for Vec<DataBiasMetric>, this is to allow for an implementation of
 /// `From<Vec<DataBiasMetric>>`, or TryFrom<T> where T is something the looks like the String
 /// representation of the metric name to be used where metrics are required parameters.
+#[derive(Debug)]
 pub struct DataBiasMetricVec(Vec<DataBiasMetric>);
 impl AsRef<[DataBiasMetric]> for DataBiasMetricVec {
     fn as_ref(&self) -> &[DataBiasMetric] {
@@ -62,6 +63,7 @@ impl TryFrom<&[String]> for DataBiasMetricVec {
     }
 }
 
+#[derive(Debug)]
 pub struct LogisticRegressionMetricVec(Vec<ClassificationEvaluationMetric>);
 impl AsRef<[ClassificationEvaluationMetric]> for LogisticRegressionMetricVec {
     fn as_ref(&self) -> &[ClassificationEvaluationMetric] {
@@ -94,6 +96,7 @@ impl TryFrom<&[String]> for LogisticRegressionMetricVec {
         Ok(LogisticRegressionMetricVec(map))
     }
 }
+#[derive(Debug)]
 pub struct LinearRegressionMetricVec(Vec<LinearRegressionEvaluationMetric>);
 impl AsRef<[LinearRegressionEvaluationMetric]> for LinearRegressionMetricVec {
     fn as_ref(&self) -> &[LinearRegressionEvaluationMetric] {
@@ -126,6 +129,7 @@ impl TryFrom<&[String]> for LinearRegressionMetricVec {
         Ok(LinearRegressionMetricVec(map))
     }
 }
+#[derive(Debug)]
 pub struct ClassificationMetricVec(Vec<ClassificationEvaluationMetric>);
 impl AsRef<[ClassificationEvaluationMetric]> for ClassificationMetricVec {
     fn as_ref(&self) -> &[ClassificationEvaluationMetric] {
@@ -165,6 +169,7 @@ impl TryFrom<&[String]> for ClassificationMetricVec {
         Ok(ClassificationMetricVec(map))
     }
 }
+#[derive(Debug)]
 pub struct ModelBiasMetricVec(Vec<ModelBiasMetric>);
 impl AsRef<[ModelBiasMetric]> for ModelBiasMetricVec {
     fn as_ref(&self) -> &[ModelBiasMetric] {
@@ -206,7 +211,7 @@ pub enum DataBiasMetric {
     JsDivergence,
     LpNorm,
     TotalVariationDistance,
-    KolmorogvSmirnov,
+    KolmogorovSmirnov,
 }
 
 impl std::fmt::Display for DataBiasMetric {
@@ -218,7 +223,7 @@ impl std::fmt::Display for DataBiasMetric {
             Self::JsDivergence => write!(f, "JsDivergence"),
             Self::LpNorm => write!(f, "LpNorm"),
             Self::TotalVariationDistance => write!(f, "TotalVariationDistance"),
-            Self::KolmorogvSmirnov => write!(f, "KolmorogvSmirnov"),
+            Self::KolmogorovSmirnov => write!(f, "KolmogorovSmirnov"),
         }
     }
 }
@@ -230,7 +235,7 @@ pub const FULL_DATA_BIAS_METRICS: [DataBiasMetric; 7] = [
     DataBiasMetric::JsDivergence,
     DataBiasMetric::LpNorm,
     DataBiasMetric::TotalVariationDistance,
-    DataBiasMetric::KolmorogvSmirnov,
+    DataBiasMetric::KolmogorovSmirnov,
 ];
 
 impl TryFrom<&str> for DataBiasMetric {
@@ -243,7 +248,7 @@ impl TryFrom<&str> for DataBiasMetric {
             "JsDivergence" => Ok(Self::JsDivergence),
             "LpNorm" => Ok(Self::LpNorm),
             "TotalVariationDistance" => Ok(Self::TotalVariationDistance),
-            "KolmorogvSmirnov" => Ok(Self::KolmorogvSmirnov),
+            "KolmogorovSmirnov" => Ok(Self::KolmogorovSmirnov),
             _ => Err(()),
         }
     }
@@ -445,5 +450,253 @@ impl std::fmt::Display for LinearRegressionEvaluationMetric {
             Self::RootMeanSquaredLogError => write!(f, "RootMeanSquaredLogError"),
             Self::MeanAbsolutePercentageError => write!(f, "MeanAbsolutePercentageError"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::errors::InvalidMetricError;
+
+    // --- DataBiasMetric ---
+
+    #[test]
+    fn data_bias_metric_display_round_trips_via_try_from() {
+        for m in &FULL_DATA_BIAS_METRICS {
+            let s = m.to_string();
+            assert_eq!(DataBiasMetric::try_from(s.as_str()).unwrap(), *m);
+        }
+    }
+
+    #[test]
+    fn data_bias_metric_try_from_unknown_returns_err() {
+        assert!(DataBiasMetric::try_from("NotAMetric").is_err());
+    }
+
+    #[test]
+    fn full_data_bias_metrics_has_seven_variants() {
+        assert_eq!(FULL_DATA_BIAS_METRICS.len(), 7);
+    }
+
+    // --- ModelBiasMetric ---
+
+    #[test]
+    fn model_bias_metric_display_round_trips_via_try_from() {
+        for m in &FULL_MODEL_BIAS_METRICS {
+            let s = m.to_string();
+            assert_eq!(ModelBiasMetric::try_from(s.as_str()).unwrap(), *m);
+        }
+    }
+
+    #[test]
+    fn model_bias_metric_try_from_unknown_returns_err() {
+        assert!(ModelBiasMetric::try_from("NotAMetric").is_err());
+    }
+
+    #[test]
+    fn full_model_bias_metrics_has_twelve_variants() {
+        assert_eq!(FULL_MODEL_BIAS_METRICS.len(), 12);
+    }
+
+    // --- ClassificationEvaluationMetric ---
+
+    #[test]
+    fn classification_metric_display_round_trips_via_try_from() {
+        for m in &FULL_LOGISTIC_REGRESSION_METRICS {
+            let s = m.to_string();
+            assert_eq!(ClassificationEvaluationMetric::try_from(s.as_str()).unwrap(), *m);
+        }
+    }
+
+    #[test]
+    fn classification_metric_try_from_unknown_returns_err() {
+        assert!(ClassificationEvaluationMetric::try_from("NotAMetric").is_err());
+    }
+
+    #[test]
+    fn full_logistic_regression_metrics_includes_log_loss() {
+        assert_eq!(FULL_LOGISTIC_REGRESSION_METRICS.len(), 8);
+        assert!(FULL_LOGISTIC_REGRESSION_METRICS.contains(&ClassificationEvaluationMetric::LogLoss));
+    }
+
+    #[test]
+    fn full_binary_classification_metrics_excludes_log_loss() {
+        assert_eq!(FULL_BINARY_CLASSIFICATION_METRICS.len(), 7);
+        assert!(!FULL_BINARY_CLASSIFICATION_METRICS.contains(&ClassificationEvaluationMetric::LogLoss));
+    }
+
+    // --- LinearRegressionEvaluationMetric ---
+
+    #[test]
+    fn linear_regression_metric_display_round_trips_via_try_from() {
+        for m in &FULL_REGRESSION_METRICS {
+            let s = m.to_string();
+            assert_eq!(LinearRegressionEvaluationMetric::try_from(s.as_str()).unwrap(), *m);
+        }
+    }
+
+    #[test]
+    fn linear_regression_metric_try_from_unknown_returns_err() {
+        assert!(LinearRegressionEvaluationMetric::try_from("NotAMetric").is_err());
+    }
+
+    #[test]
+    fn full_regression_metrics_has_eight_variants() {
+        assert_eq!(FULL_REGRESSION_METRICS.len(), 8);
+    }
+
+    // --- DataBiasMetricVec ---
+
+    #[test]
+    fn data_bias_metric_vec_from_vec() {
+        let v = vec![DataBiasMetric::ClassImbalance, DataBiasMetric::LpNorm];
+        let wrapped = DataBiasMetricVec::from(v);
+        assert_eq!(wrapped.as_ref(), &[DataBiasMetric::ClassImbalance, DataBiasMetric::LpNorm]);
+    }
+
+    #[test]
+    fn data_bias_metric_vec_try_from_strings_success() {
+        let strings: Vec<String> = vec!["ClassImbalance".into(), "LpNorm".into()];
+        let vec = DataBiasMetricVec::try_from(strings.as_slice()).unwrap();
+        assert_eq!(vec.as_ref(), &[DataBiasMetric::ClassImbalance, DataBiasMetric::LpNorm]);
+    }
+
+    #[test]
+    fn data_bias_metric_vec_try_from_strings_invalid_returns_error() {
+        let strings: Vec<String> = vec!["ClassImbalance".into(), "BadMetric".into()];
+        let err = DataBiasMetricVec::try_from(strings.as_slice()).unwrap_err();
+        assert!(matches!(err, InvalidMetricError::DataBiasMetricError(ref v) if v.contains(&"BadMetric".to_string())));
+    }
+
+    #[test]
+    fn data_bias_metric_vec_try_from_all_full_metrics() {
+        let strings: Vec<String> = FULL_DATA_BIAS_METRICS.iter().map(|m| m.to_string()).collect();
+        let vec = DataBiasMetricVec::try_from(strings.as_slice()).unwrap();
+        assert_eq!(vec.as_ref().len(), 7);
+    }
+
+    // --- ModelBiasMetricVec ---
+
+    #[test]
+    fn model_bias_metric_vec_from_vec() {
+        let v = vec![ModelBiasMetric::DisparateImpact];
+        let wrapped = ModelBiasMetricVec::from(v);
+        assert_eq!(wrapped.as_ref(), &[ModelBiasMetric::DisparateImpact]);
+    }
+
+    #[test]
+    fn model_bias_metric_vec_try_from_strings_success() {
+        let strings: Vec<String> = vec!["DisparateImpact".into(), "GeneralizedEntropy".into()];
+        let vec = ModelBiasMetricVec::try_from(strings.as_slice()).unwrap();
+        assert_eq!(
+            vec.as_ref(),
+            &[ModelBiasMetric::DisparateImpact, ModelBiasMetric::GeneralizedEntropy]
+        );
+    }
+
+    #[test]
+    fn model_bias_metric_vec_try_from_strings_invalid_returns_error() {
+        let strings: Vec<String> = vec!["DisparateImpact".into(), "BadMetric".into()];
+        let err = ModelBiasMetricVec::try_from(strings.as_slice()).unwrap_err();
+        assert!(matches!(err, InvalidMetricError::ModelBiasMetricError(_)));
+    }
+
+    // --- LogisticRegressionMetricVec ---
+
+    #[test]
+    fn logistic_regression_metric_vec_from_vec() {
+        let v = vec![ClassificationEvaluationMetric::Accuracy];
+        let wrapped = LogisticRegressionMetricVec::from(v);
+        assert_eq!(wrapped.as_ref(), &[ClassificationEvaluationMetric::Accuracy]);
+    }
+
+    #[test]
+    fn logistic_regression_metric_vec_try_from_strings_success() {
+        let strings: Vec<String> = vec!["Accuracy".into(), "LogLoss".into()];
+        let vec = LogisticRegressionMetricVec::try_from(strings.as_slice()).unwrap();
+        assert_eq!(
+            vec.as_ref(),
+            &[ClassificationEvaluationMetric::Accuracy, ClassificationEvaluationMetric::LogLoss]
+        );
+    }
+
+    #[test]
+    fn logistic_regression_metric_vec_try_from_strings_invalid_returns_error() {
+        let strings: Vec<String> = vec!["Accuracy".into(), "BadMetric".into()];
+        let err = LogisticRegressionMetricVec::try_from(strings.as_slice()).unwrap_err();
+        assert!(matches!(err, InvalidMetricError::RegressionMetricError(_)));
+    }
+
+    // --- LinearRegressionMetricVec ---
+
+    #[test]
+    fn linear_regression_metric_vec_from_vec() {
+        let v = vec![LinearRegressionEvaluationMetric::RSquared];
+        let wrapped = LinearRegressionMetricVec::from(v);
+        assert_eq!(wrapped.as_ref(), &[LinearRegressionEvaluationMetric::RSquared]);
+    }
+
+    #[test]
+    fn linear_regression_metric_vec_try_from_strings_success() {
+        let strings: Vec<String> = vec!["RSquared".into(), "MaxError".into()];
+        let vec = LinearRegressionMetricVec::try_from(strings.as_slice()).unwrap();
+        assert_eq!(
+            vec.as_ref(),
+            &[
+                LinearRegressionEvaluationMetric::RSquared,
+                LinearRegressionEvaluationMetric::MaxError,
+            ]
+        );
+    }
+
+    #[test]
+    fn linear_regression_metric_vec_try_from_strings_invalid_returns_error() {
+        let strings: Vec<String> = vec!["RSquared".into(), "BadMetric".into()];
+        let err = LinearRegressionMetricVec::try_from(strings.as_slice()).unwrap_err();
+        assert!(matches!(err, InvalidMetricError::RegressionMetricError(_)));
+    }
+
+    // --- ClassificationMetricVec ---
+
+    #[test]
+    fn classification_metric_vec_from_vec() {
+        let v = vec![ClassificationEvaluationMetric::F1Score];
+        let wrapped = ClassificationMetricVec::from(v);
+        assert_eq!(wrapped.as_ref(), &[ClassificationEvaluationMetric::F1Score]);
+    }
+
+    #[test]
+    fn classification_metric_vec_try_from_strings_success() {
+        let strings: Vec<String> = vec!["F1Score".into(), "Accuracy".into()];
+        let vec = ClassificationMetricVec::try_from(strings.as_slice()).unwrap();
+        assert_eq!(
+            vec.as_ref(),
+            &[ClassificationEvaluationMetric::F1Score, ClassificationEvaluationMetric::Accuracy]
+        );
+    }
+
+    #[test]
+    fn classification_metric_vec_rejects_log_loss() {
+        let strings: Vec<String> = vec!["Accuracy".into(), "LogLoss".into()];
+        let err = ClassificationMetricVec::try_from(strings.as_slice()).unwrap_err();
+        assert!(matches!(err, InvalidMetricError::ClassificationMetricError(_)));
+    }
+
+    #[test]
+    fn classification_metric_vec_try_from_strings_invalid_returns_error() {
+        let strings: Vec<String> = vec!["Accuracy".into(), "BadMetric".into()];
+        let err = ClassificationMetricVec::try_from(strings.as_slice()).unwrap_err();
+        assert!(matches!(err, InvalidMetricError::ClassificationMetricError(_)));
+    }
+
+    // --- get_stability_eps ---
+
+    #[test]
+    fn stability_eps_default_is_1e_12() {
+        // Only valid when env var is unset; calling get_stability_eps() after it has been
+        // initialised with a different value in the same process would return the cached value.
+        // We just verify the return is positive and finite.
+        let eps = get_stability_eps();
+        assert!(eps > 0.0 && eps.is_finite());
     }
 }

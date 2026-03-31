@@ -40,8 +40,6 @@ pub(crate) trait DriftContainer {
 
     fn num_examples(&self) -> f64;
 
-    fn get_bin_edges(&self) -> Option<&[f64]>;
-
     fn container_type(&self) -> DriftContainerType;
 }
 
@@ -71,7 +69,6 @@ pub(crate) fn global_compute_drift<T: DriftContainer>(
             DriftContainerType::Continuous => continuous_wasserstein_distance(
                 drift_container.get_baseline_hist(),
                 drift_container.get_runtime_bins(),
-                drift_container.get_bin_edges().unwrap(),
                 drift_container.num_examples(),
             ),
             DriftContainerType::Categorical => categorical_wasserstein_distance(
@@ -155,25 +152,24 @@ pub(crate) fn compute_jensen_shannon_divergence_drift(
 pub(crate) fn continuous_wasserstein_distance(
     baseline_hist: &[f64],
     runtime_bins: &[f64],
-    bin_edges: &[f64],
     n: f64,
 ) -> f64 {
     debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
-    let n_bin_edges = bin_edges.len();
-    debug_assert_eq!(n_bin_edges, runtime_bins.len() + 1);
 
     let eps = get_stability_eps();
     let mut w_dist = 0_f64;
 
-    for (i, (bl, rt)) in baseline_hist.iter().zip(runtime_bins.iter()).enumerate() {
-        let bin_width = bin_edges[i + 1] - bin_edges[i];
-        let p = (bl + eps).max(eps);
-        let q = ((rt / n) + eps).max(eps);
+    let n_bins = baseline_hist.len();
 
-        w_dist += (p - q).abs() * bin_width;
+    // Outer 2 bins are effectively overflow on the tails.
+    // Skipping those quantiole bins here.
+    for i in 1..(n_bins - 1) {
+        let p = (baseline_hist[i] + eps).max(eps);
+        let q = ((runtime_bins[i] / n) + eps).max(eps);
+        w_dist += (p - q).abs();
     }
 
-    w_dist / (bin_edges[n_bin_edges - 1] - bin_edges[0])
+    w_dist / (baseline_hist.len() - 2).max(1_usize) as f64
 }
 
 #[inline]

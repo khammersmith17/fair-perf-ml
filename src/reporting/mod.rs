@@ -28,8 +28,8 @@ pub const DEFAULT_DRIFT_THRESHOLD: f32 = 0.10;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct MetricDrift<T: metrics::MachineLearningMetric> {
-    metric: T,
-    drift: f32,
+    pub metric: T,
+    pub drift: f32,
 }
 
 /// Type to return the results of a runtime "check". Runtime check is where the runtime data passed

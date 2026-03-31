@@ -1168,4 +1168,230 @@ mod test_perf_streaming {
         let test = TestLogisticRegressionAnalysisReport(streaming.performance_snapshot().unwrap());
         assert_eq!(base, test);
     }
+
+    // Shared data helpers
+
+    fn bin_true() -> Vec<i32> { vec![1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1] }
+    fn bin_pred() -> Vec<i32> { vec![1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1] }
+
+    fn reg_true() -> Vec<f32> { vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6] }
+    fn reg_pred() -> Vec<f32> { vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0] }
+
+    fn log_true() -> Vec<f32> { vec![0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0] }
+    fn log_pred() -> Vec<f32> { vec![0.7, 0.3, 0.65, 0.55, 0.1, 0.2, 0.25, 0.66, 0.12, 0.98, 0.23, 0.34, 0.67, 0.77, 0.45, 0.88] }
+
+    // --- LinearRegressionStreaming ---
+
+    #[test]
+    fn lin_reg_new_mismatch_errors() {
+        assert!(LinearRegressionStreaming::new(&[1.0_f32, 2.0], &[1.0_f32]).is_err());
+    }
+
+    #[test]
+    fn lin_reg_new_empty_errors() {
+        assert!(LinearRegressionStreaming::new(&[], &[]).is_err());
+    }
+
+    #[test]
+    fn lin_reg_drift_snapshot_empty_stream_errors() {
+        let s = LinearRegressionStreaming::new(&reg_true(), &reg_pred()).unwrap();
+        assert!(s.drift_snapshot().is_err());
+    }
+
+    #[test]
+    fn lin_reg_drift_report_empty_stream_errors() {
+        let s = LinearRegressionStreaming::new(&reg_true(), &reg_pred()).unwrap();
+        assert!(s.drift_report(None).is_err());
+    }
+
+    #[test]
+    fn lin_reg_performance_snapshot_empty_stream_errors() {
+        let s = LinearRegressionStreaming::new(&reg_true(), &reg_pred()).unwrap();
+        assert!(s.performance_snapshot().is_err());
+    }
+
+    #[test]
+    fn lin_reg_flush_clears_data() {
+        let mut s = LinearRegressionStreaming::new(&reg_true(), &reg_pred()).unwrap();
+        s.push_batch(&reg_true(), &reg_pred()).unwrap();
+        assert!(s.performance_snapshot().is_ok());
+        s.flush();
+        assert!(s.performance_snapshot().is_err());
+    }
+
+    #[test]
+    fn lin_reg_push_batch_mismatch_errors() {
+        let mut s = LinearRegressionStreaming::new(&reg_true(), &reg_pred()).unwrap();
+        assert!(s.push_batch(&[1.0_f32, 2.0], &[1.0_f32]).is_err());
+    }
+
+    #[test]
+    fn lin_reg_drift_report_passes_with_high_threshold() {
+        let mut s = LinearRegressionStreaming::new(&reg_true(), &reg_pred()).unwrap();
+        s.push_batch(&reg_true(), &reg_pred()).unwrap();
+        assert!(s.drift_report(Some(1e6)).unwrap().passed);
+    }
+
+    #[test]
+    fn lin_reg_drift_report_partial_metrics() {
+        use crate::metrics::LinearRegressionEvaluationMetric as LRM;
+        let mut s = LinearRegressionStreaming::new(&reg_true(), &reg_pred()).unwrap();
+        s.push_batch(&reg_true(), &reg_pred()).unwrap();
+        let report = s.drift_report_partial_metrics(&[LRM::MeanAbsoluteError], Some(1e6)).unwrap();
+        assert!(report.passed);
+    }
+
+    #[test]
+    fn lin_reg_reset_baseline_updates() {
+        let mut s = LinearRegressionStreaming::new(&reg_true(), &reg_pred()).unwrap();
+        assert!(s.reset_baseline(&reg_true(), &reg_pred()).is_ok());
+    }
+
+    #[test]
+    fn lin_reg_reset_baseline_mismatch_errors() {
+        let mut s = LinearRegressionStreaming::new(&reg_true(), &reg_pred()).unwrap();
+        assert!(s.reset_baseline(&[1.0_f32, 2.0], &[1.0_f32]).is_err());
+    }
+
+    // --- BinaryClassificationStreaming ---
+
+    #[test]
+    fn bin_class_new_mismatch_errors() {
+        assert!(BinaryClassificationStreaming::new(1, &[1, 0], &[1]).is_err());
+    }
+
+    #[test]
+    fn bin_class_new_empty_errors() {
+        let empty: &[i32] = &[];
+        assert!(BinaryClassificationStreaming::new(1, empty, empty).is_err());
+    }
+
+    #[test]
+    fn bin_class_drift_snapshot_empty_stream_errors() {
+        let s = BinaryClassificationStreaming::new(1, &bin_true(), &bin_pred()).unwrap();
+        assert!(s.drift_snapshot().is_err());
+    }
+
+    #[test]
+    fn bin_class_drift_report_empty_stream_errors() {
+        let s = BinaryClassificationStreaming::new(1, &bin_true(), &bin_pred()).unwrap();
+        assert!(s.drift_report(None).is_err());
+    }
+
+    #[test]
+    fn bin_class_performance_snapshot_empty_stream_errors() {
+        let s = BinaryClassificationStreaming::new(1, &bin_true(), &bin_pred()).unwrap();
+        assert!(s.performance_snapshot().is_err());
+    }
+
+    #[test]
+    fn bin_class_flush_clears_data() {
+        let mut s = BinaryClassificationStreaming::new(1, &bin_true(), &bin_pred()).unwrap();
+        s.push_batch(&bin_true(), &bin_pred()).unwrap();
+        assert!(s.performance_snapshot().is_ok());
+        s.flush();
+        assert!(s.performance_snapshot().is_err());
+    }
+
+    #[test]
+    fn bin_class_push_batch_mismatch_errors() {
+        let mut s = BinaryClassificationStreaming::new(1, &bin_true(), &bin_pred()).unwrap();
+        assert!(s.push_batch(&[1, 0], &[1]).is_err());
+    }
+
+    #[test]
+    fn bin_class_drift_report_passes_with_high_threshold() {
+        let mut s = BinaryClassificationStreaming::new(1, &bin_true(), &bin_pred()).unwrap();
+        s.push_batch(&bin_true(), &bin_pred()).unwrap();
+        assert!(s.drift_report(Some(1e6)).unwrap().passed);
+    }
+
+    #[test]
+    fn bin_class_drift_report_partial_metrics() {
+        use crate::metrics::ClassificationEvaluationMetric as CM;
+        let mut s = BinaryClassificationStreaming::new(1, &bin_true(), &bin_pred()).unwrap();
+        s.push_batch(&bin_true(), &bin_pred()).unwrap();
+        let report = s.drift_report_partial_metrics(&[CM::Accuracy], Some(1e6)).unwrap();
+        assert!(report.passed);
+    }
+
+    #[test]
+    fn bin_class_reset_baseline_updates() {
+        let mut s = BinaryClassificationStreaming::new(1, &bin_true(), &bin_pred()).unwrap();
+        assert!(s.reset_baseline(&bin_true(), &bin_pred()).is_ok());
+    }
+
+    // --- LogisticRegressionStreaming ---
+
+    #[test]
+    fn log_reg_new_mismatch_errors() {
+        assert!(LogisticRegressionStreaming::new(&[1.0_f32, 0.0], &[0.7_f32], None).is_err());
+    }
+
+    #[test]
+    fn log_reg_drift_snapshot_empty_stream_errors() {
+        let s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), None).unwrap();
+        assert!(s.drift_snapshot().is_err());
+    }
+
+    #[test]
+    fn log_reg_drift_report_empty_stream_errors() {
+        let s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), None).unwrap();
+        assert!(s.drift_report(None).is_err());
+    }
+
+    #[test]
+    fn log_reg_performance_snapshot_empty_stream_errors() {
+        let s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), None).unwrap();
+        assert!(s.performance_snapshot().is_err());
+    }
+
+    #[test]
+    fn log_reg_flush_clears_data() {
+        let mut s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), None).unwrap();
+        s.push_batch(&log_true(), &log_pred()).unwrap();
+        assert!(s.performance_snapshot().is_ok());
+        s.flush();
+        assert!(s.performance_snapshot().is_err());
+    }
+
+    #[test]
+    fn log_reg_push_batch_mismatch_errors() {
+        let mut s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), None).unwrap();
+        assert!(s.push_batch(&[1.0_f32, 0.0], &[0.7_f32]).is_err());
+    }
+
+    #[test]
+    fn log_reg_drift_report_passes_with_high_threshold() {
+        let mut s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), None).unwrap();
+        s.push_batch(&log_true(), &log_pred()).unwrap();
+        assert!(s.drift_report(Some(1e6)).unwrap().passed);
+    }
+
+    #[test]
+    fn log_reg_drift_report_partial_metrics() {
+        use crate::metrics::ClassificationEvaluationMetric as CM;
+        let mut s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), None).unwrap();
+        s.push_batch(&log_true(), &log_pred()).unwrap();
+        let report = s.drift_report_partial_metrics(&[CM::Accuracy], Some(1e6)).unwrap();
+        assert!(report.passed);
+    }
+
+    #[test]
+    fn log_reg_reset_baseline_updates() {
+        let mut s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), None).unwrap();
+        assert!(s.reset_baseline(&log_true(), &log_pred()).is_ok());
+    }
+
+    #[test]
+    fn log_reg_reset_baseline_mismatch_errors() {
+        let mut s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), None).unwrap();
+        assert!(s.reset_baseline(&[1.0_f32, 0.0], &[0.7_f32]).is_err());
+    }
+
+    #[test]
+    fn log_reg_reset_baseline_and_decision_threshold() {
+        let mut s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), Some(0.5)).unwrap();
+        assert!(s.reset_baseline_and_decision_threshold(&log_true(), &log_pred(), 0.6).is_ok());
+    }
 }

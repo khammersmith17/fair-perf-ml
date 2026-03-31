@@ -25,12 +25,8 @@ pub(crate) struct BaselineContinuousBins {
     pub n_bins: usize,
     pub bin_edges: Vec<f64>,
     pub baseline_hist: Vec<f64>,
+    q_type: QuantileType,
 }
-
-/*
-* TODO: redefine construction logic here to define the bin number, then define the edges, then
-* define the baseline hist. The bin edges should in theory be n bins - 2?
-* */
 
 impl BaselineContinuousBins {
     // Constructor on a baseline dataset. Allocates then hyrdates with the provided baseline
@@ -45,6 +41,7 @@ impl BaselineContinuousBins {
             n_bins,
             bin_edges: Vec::new(),
             baseline_hist: Vec::new(),
+            q_type: quantile_resolution,
         };
 
         obj.init_baseline_hist(&sorted_baseline)?;
@@ -163,6 +160,7 @@ impl BaselineContinuousBins {
     // call into init method
     pub(crate) fn reset(&mut self, baseline_data: &[f64]) -> Result<(), DriftError> {
         let sorted_baseline = Self::sort_baseline_data(baseline_data)?;
+        self.n_bins = self.q_type.compute_num_bins(&sorted_baseline);
         self.init_baseline_hist(&sorted_baseline)?;
         Ok(())
     }

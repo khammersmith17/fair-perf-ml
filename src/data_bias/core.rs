@@ -1,14 +1,6 @@
 use super::{DataBiasAnalysisReport, PreTraining};
-use crate::errors::{BiasError, ModelPerfResult};
+use crate::errors::ModelPerfResult;
 use std::collections::HashMap;
-
-pub fn data_bias_analysis_core(
-    labeled_features: Vec<i16>,
-    labeled_ground_truth: Vec<i16>,
-) -> Result<DataBiasAnalysisReport, BiasError> {
-    let pre_training = PreTraining::new_from_labeled(&labeled_features, &labeled_ground_truth)?;
-    Ok(pre_training_bias(pre_training)?)
-}
 
 pub fn pre_training_bias(data: PreTraining) -> ModelPerfResult<DataBiasAnalysisReport> {
     use super::statistics::inner as stats;
@@ -26,7 +18,7 @@ pub fn pre_training_bias(data: PreTraining) -> ModelPerfResult<DataBiasAnalysisR
         M::TotalVariationDistance,
         stats::total_variation_distance(&data)?,
     );
-    result.insert(M::KolmorogvSmirnov, stats::kolmogorov_smirnov(&data)?);
+    result.insert(M::KolmogorovSmirnov, stats::kolmogorov_smirnov(&data)?);
 
     Ok(result)
 }
@@ -105,7 +97,7 @@ mod db_core {
         result.insert(M::JsDivergence, js);
         result.insert(M::LpNorm, lp_norm);
         result.insert(M::TotalVariationDistance, tvd);
-        result.insert(M::KolmorogvSmirnov, ks);
+        result.insert(M::KolmogorovSmirnov, ks);
 
         let pre_training = PreTraining::new_from_segmentation(
             &feature_data,
