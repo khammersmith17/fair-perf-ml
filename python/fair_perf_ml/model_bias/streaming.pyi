@@ -17,6 +17,15 @@ from ..models import (
 class ModelBiasStreaming[
     F: SegmentationValueBounds, G: SegmentationValueBounds, P: SegmentationValueBounds
 ]:
+    def __init__(
+        self,
+        feature_segment_criteria: BiasSegmentationProtocol[F],
+        ground_truth_segment_criteria: BiasSegmentationProtocol[G],
+        prediction_segment_criteria: BiasSegmentationProtocol[P],
+        feature_data: Sequence[F],
+        ground_truth_data: Sequence[G],
+        prediction_data: Sequence[P],
+    ): ...
     def push(self, feature: F, prediction: P, ground_truth: G) -> None: ...
     def push_batch(
         self,

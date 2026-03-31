@@ -157,7 +157,8 @@ where
             self.feat_seg.label(feature),
             self.pred_seg.label(pred),
             self.gt_seg.label(gt),
-        )
+        );
+        self.ge.push_single(gt, &self.gt_seg, pred, &self.pred_seg);
     }
 
     /// Push a batch of runtime feature data, prediction data, and ground truth data into the stream. This

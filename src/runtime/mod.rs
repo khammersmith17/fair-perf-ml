@@ -33,23 +33,6 @@ pub struct DataBiasRuntime {
     pub(crate) ks: f32,
 }
 
-impl DataBiasRuntime {
-    pub(crate) fn new_from_pre_training(
-        pre_training: &PreTraining,
-    ) -> Result<DataBiasRuntime, BiasError> {
-        use crate::data_bias::statistics::inner as metrics;
-        Ok(DataBiasRuntime {
-            ci: metrics::class_imbalance(pre_training),
-            dpl: metrics::diff_in_proportion_of_labels(pre_training)?,
-            kl: metrics::kl_divergence(pre_training)?,
-            js: metrics::jensen_shannon(pre_training)?,
-            lpnorm: metrics::lp_norm(pre_training)?,
-            tvd: metrics::total_variation_distance(pre_training)?,
-            ks: metrics::kolmogorov_smirnov(pre_training)?,
-        })
-    }
-}
-
 impl TryFrom<HashMap<String, f32>> for DataBiasRuntime {
     type Error = DataBiasRuntimeError;
     fn try_from(data: HashMap<String, f32>) -> Result<Self, Self::Error> {
@@ -139,7 +122,26 @@ impl TryFrom<DataBiasAnalysisReport> for DataBiasRuntime {
     }
 }
 
+/*
+* TODO: for class imbalance, dpl
+*
+* need to decide if absolute magnitude or drift is the condition to check on
+* */
 impl DataBiasRuntime {
+    pub(crate) fn new_from_pre_training(
+        pre_training: &PreTraining,
+    ) -> Result<DataBiasRuntime, BiasError> {
+        use crate::data_bias::statistics::inner as metrics;
+        Ok(DataBiasRuntime {
+            ci: metrics::class_imbalance(pre_training),
+            dpl: metrics::diff_in_proportion_of_labels(pre_training)?,
+            kl: metrics::kl_divergence(pre_training)?,
+            js: metrics::jensen_shannon(pre_training)?,
+            lpnorm: metrics::lp_norm(pre_training)?,
+            tvd: metrics::total_variation_distance(pre_training)?,
+            ks: metrics::kolmogorov_smirnov(pre_training)?,
+        })
+    }
     pub fn runtime_check(
         &self,
         baseline: DataBiasRuntime,
@@ -150,7 +152,7 @@ impl DataBiasRuntime {
         for m in metrics {
             match m {
                 DataBiasMetric::ClassImbalance => {
-                    if self.ci.abs() > baseline.ci.abs() * (1_f32 + threshold) {
+                    if self.ci.abs() > (baseline.ci.abs() * (1_f32 + threshold)).abs() {
                         result.insert(
                             DataBiasMetric::ClassImbalance,
                             (self.ci.abs() - baseline.ci.abs()).abs(),
@@ -158,7 +160,7 @@ impl DataBiasRuntime {
                     }
                 }
                 DataBiasMetric::DifferenceInProportionOfLabels => {
-                    if ((self.dpl - baseline.dpl).abs() / baseline.dpl) > threshold {
+                    if self.dpl.abs() > baseline.dpl.abs() * (1_f32 + threshold) {
                         result.insert(
                             DataBiasMetric::DifferenceInProportionOfLabels,
                             (self.dpl - baseline.dpl).abs(),
@@ -363,6 +365,116 @@ impl ModelBiasRuntime {
         report.insert(ModelBiasMetric::GeneralizedEntropy, self.ge);
         report
     }
+    /*
+     * TODO: for dppl, cddpl, ad, rd, cdacc, dar, sd, dcr, drr, te
+     *
+     * need to decide if absolute magnitude or drift is the condition to check on
+     * */
+    pub fn runtime_check(
+        &self,
+        baseline: ModelBiasRuntime,
+        threshold: f32,
+        metrics: &[ModelBiasMetric],
+    ) -> ModelBiasRuntimeReport {
+        use ModelBiasMetric as M;
+        let mut result: HashMap<ModelBiasMetric, f32> = HashMap::with_capacity(metrics.len());
+        for m in metrics {
+            match m {
+                ModelBiasMetric::DifferenceInPositivePredictedLabels => {
+                    if self.ddpl.abs() > baseline.ddpl.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            M::DifferenceInPositivePredictedLabels,
+                            (self.ddpl.abs() - baseline.ddpl.abs()).abs(),
+                        );
+                    }
+                }
+                ModelBiasMetric::DisparateImpact => {
+                    if self.di > baseline.di * (1_f32 + threshold) {
+                        result.insert(M::DisparateImpact, (self.di - baseline.di).abs());
+                    }
+                }
+                ModelBiasMetric::AccuracyDifference => {
+                    if self.ad.abs() > baseline.ad.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            M::AccuracyDifference,
+                            (self.ad.abs() - baseline.ad.abs()).abs(),
+                        );
+                    }
+                }
+                ModelBiasMetric::RecallDifference => {
+                    if self.rd.abs() > baseline.rd.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            M::RecallDifference,
+                            (self.rd.abs() - baseline.rd.abs()).abs(),
+                        );
+                    }
+                }
+                ModelBiasMetric::DifferenceInConditionalAcceptance => {
+                    if self.cdacc.abs() > baseline.cdacc.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            M::DifferenceInConditionalAcceptance,
+                            (self.cdacc.abs() - baseline.cdacc.abs()).abs(),
+                        );
+                    }
+                }
+                ModelBiasMetric::DifferenceInAcceptanceRate => {
+                    if self.dar.abs() > baseline.dar.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            M::DifferenceInAcceptanceRate,
+                            (self.dar.abs() - baseline.dar.abs()).abs(),
+                        );
+                    }
+                }
+                ModelBiasMetric::SpecialityDifference => {
+                    if self.sd.abs() > baseline.sd.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            M::SpecialityDifference,
+                            (self.sd.abs() - baseline.sd.abs()).abs(),
+                        );
+                    }
+                }
+                ModelBiasMetric::DifferenceInConditionalRejection => {
+                    if self.dcr.abs() > baseline.dcr.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            M::DifferenceInConditionalRejection,
+                            (self.dcr.abs() - baseline.dcr.abs()).abs(),
+                        );
+                    }
+                }
+                ModelBiasMetric::DifferenceInRejectionRate => {
+                    if self.drr.abs() > baseline.drr.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            M::DifferenceInRejectionRate,
+                            (self.drr.abs() - baseline.drr.abs()).abs(),
+                        );
+                    }
+                }
+                ModelBiasMetric::TreatmentEquity => {
+                    if self.te.abs() > baseline.te.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            M::TreatmentEquity,
+                            (self.te.abs() - baseline.te.abs()).abs(),
+                        );
+                    }
+                }
+                ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels => {
+                    if self.ccdpl.abs() > baseline.ccdpl.abs() * (1_f32 + threshold) {
+                        result.insert(
+                            M::ConditionalDemographicDesparityPredictedLabels,
+                            (self.ccdpl.abs() - baseline.ccdpl.abs()).abs(),
+                        );
+                    }
+                }
+                ModelBiasMetric::GeneralizedEntropy => {
+                    if self.ge > baseline.ge * (1_f32 + threshold) {
+                        result.insert(M::GeneralizedEntropy, (self.ge - baseline.ge).abs());
+                    }
+                }
+            }
+        }
+
+        result
+    }
 }
 
 impl TryFrom<ModelBiasAnalysisReport> for ModelBiasRuntime {
@@ -503,114 +615,6 @@ impl TryFrom<HashMap<String, f32>> for ModelBiasRuntime {
             ccdpl,
             ge,
         })
-    }
-}
-
-impl ModelBiasRuntime {
-    pub fn runtime_check(
-        &self,
-        baseline: ModelBiasRuntime,
-        threshold: f32,
-        metrics: &[ModelBiasMetric],
-    ) -> ModelBiasRuntimeReport {
-        use ModelBiasMetric as M;
-        let mut result: HashMap<ModelBiasMetric, f32> = HashMap::with_capacity(metrics.len());
-        for m in metrics {
-            match m {
-                ModelBiasMetric::DifferenceInPositivePredictedLabels => {
-                    if self.ddpl.abs() > baseline.ddpl.abs() * (1_f32 + threshold) {
-                        result.insert(
-                            M::DifferenceInPositivePredictedLabels,
-                            (self.ddpl.abs() - baseline.ddpl.abs()).abs(),
-                        );
-                    }
-                }
-                ModelBiasMetric::DisparateImpact => {
-                    if self.di > baseline.di * (1_f32 + threshold) {
-                        result.insert(M::DisparateImpact, (self.di - baseline.di).abs());
-                    }
-                }
-                ModelBiasMetric::AccuracyDifference => {
-                    if self.ad.abs() > baseline.ad.abs() * (1_f32 + threshold) {
-                        result.insert(
-                            M::AccuracyDifference,
-                            (self.ad.abs() - baseline.ad.abs()).abs(),
-                        );
-                    }
-                }
-                ModelBiasMetric::RecallDifference => {
-                    if self.rd.abs() > baseline.rd.abs() * (1_f32 + threshold) {
-                        result.insert(
-                            M::RecallDifference,
-                            (self.rd.abs() - baseline.rd.abs()).abs(),
-                        );
-                    }
-                }
-                ModelBiasMetric::DifferenceInConditionalAcceptance => {
-                    if self.cdacc.abs() > baseline.cdacc.abs() * (1_f32 + threshold) {
-                        result.insert(
-                            M::DifferenceInConditionalAcceptance,
-                            (self.cdacc.abs() - baseline.cdacc.abs()).abs(),
-                        );
-                    }
-                }
-                ModelBiasMetric::DifferenceInAcceptanceRate => {
-                    if self.dar.abs() > baseline.dar.abs() * (1_f32 + threshold) {
-                        result.insert(
-                            M::DifferenceInAcceptanceRate,
-                            (self.dar.abs() - baseline.dar.abs()).abs(),
-                        );
-                    }
-                }
-                ModelBiasMetric::SpecialityDifference => {
-                    if self.sd.abs() > baseline.sd.abs() * (1_f32 + threshold) {
-                        result.insert(
-                            M::SpecialityDifference,
-                            (self.sd.abs() - baseline.sd.abs()).abs(),
-                        );
-                    }
-                }
-                ModelBiasMetric::DifferenceInConditionalRejection => {
-                    if self.dcr.abs() > baseline.dcr.abs() * (1_f32 + threshold) {
-                        result.insert(
-                            M::DifferenceInConditionalRejection,
-                            (self.dcr.abs() - baseline.dcr.abs()).abs(),
-                        );
-                    }
-                }
-                ModelBiasMetric::DifferenceInRejectionRate => {
-                    if self.drr.abs() > baseline.drr.abs() * (1_f32 + threshold) {
-                        result.insert(
-                            M::DifferenceInRejectionRate,
-                            (self.drr.abs() - baseline.drr.abs()).abs(),
-                        );
-                    }
-                }
-                ModelBiasMetric::TreatmentEquity => {
-                    if self.te.abs() > baseline.te.abs() * (1_f32 + threshold) {
-                        result.insert(
-                            M::TreatmentEquity,
-                            (self.te.abs() - baseline.te.abs()).abs(),
-                        );
-                    }
-                }
-                ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels => {
-                    if self.ccdpl.abs() > baseline.ccdpl.abs() * (1_f32 + threshold) {
-                        result.insert(
-                            M::ConditionalDemographicDesparityPredictedLabels,
-                            (self.ccdpl.abs() - baseline.ccdpl.abs()).abs(),
-                        );
-                    }
-                }
-                ModelBiasMetric::GeneralizedEntropy => {
-                    if self.ge > baseline.ge * (1_f32 + threshold) {
-                        result.insert(M::GeneralizedEntropy, (self.ge - baseline.ge).abs());
-                    }
-                }
-            }
-        }
-
-        result
     }
 }
 

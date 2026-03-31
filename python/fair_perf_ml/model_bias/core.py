@@ -119,7 +119,7 @@ def model_bias_partial_runtime_comparison(
     baseline: AnalysisReport,
     comparison: AnalysisReport,
     metrics: list[ModelBiasDriftMetric],
-    threshold: float | None = None,
+    threshold: float = 0.10,
 ) -> DriftReport:
     """
     Performs the same logic as the function above, but on a limited set of metrics defined by

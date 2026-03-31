@@ -49,6 +49,10 @@ class SegmentationValueBounds(Protocol):
     """
     Protocol to enforces typing. The type used for segmentation should
     safely implement __eq__ and __ge__.
+
+    pyright does not like this, as Self is interpreted as the Protocol and not
+    the type that implements the protocol. As long as the types used satisfy this
+    contract, pyright can safely be ignored.
     """
 
     def __eq__(self, other: object) -> bool: ...

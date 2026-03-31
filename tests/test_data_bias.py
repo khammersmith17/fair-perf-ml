@@ -41,11 +41,11 @@ EXPECTED = {
     "KolmogorovSmirnov": 0.5,
 }
 
-# Dataset where facet_a has acceptance≈0.1, facet_d≈0.6 — large drift from EXPECTED
-FEATURE_DRIFT = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-GT_DRIFT = [1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
-# facet_a (feature=1, indices 10-19): gt = 0,0,0,0,0,0,1,0,0 → positive=1, acceptance=0.1
-# facet_d (feature=0, indices 0-9):  gt = 1,1,1,0,1,1,1,0,0,0 → positive=6, acceptance=0.6
+# Dataset where facet_a acceptance=0.8, facet_d=0.1 → DPL=0.7 (> baseline |DPL|*1.1=0.55)
+FEATURE_DRIFT = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+GT_DRIFT = [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+# facet_a (feature=1, indices 0-9):  gt = 1,1,1,1,1,1,1,1,0,0 → positive=8, acceptance=0.8
+# facet_d (feature=0, indices 10-19): gt = 1,0,0,0,0,0,0,0,0,0 → positive=1, acceptance=0.1
 
 
 # ---------------------------------------------------------------------------

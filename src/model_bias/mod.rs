@@ -73,6 +73,27 @@ pub(crate) struct BucketGeneralizedEntropy {
 }
 
 impl BucketGeneralizedEntropy {
+    #[inline]
+    pub(crate) fn push_single<T, P>(
+        &mut self,
+        y_true: &T,
+        true_seg: &BiasSegmentationCriteria<T>,
+        y_pred: &P,
+        pred_seg: &BiasSegmentationCriteria<P>,
+    ) where
+        T: PartialOrd,
+        P: PartialOrd,
+    {
+        let t_label = true_seg.label(y_true);
+        let p_label = pred_seg.label(y_pred);
+        if !p_label && t_label {
+            self.count_0 += 1;
+        } else if p_label && t_label {
+            self.count_1 += 1;
+        } else {
+            self.count_2 += 1
+        }
+    }
     pub(crate) fn accumulate<T, P>(
         &mut self,
         y_true: &[T],
@@ -84,15 +105,7 @@ impl BucketGeneralizedEntropy {
         P: PartialOrd,
     {
         for (t, p) in zip_iters!(y_true, y_pred) {
-            let t_label = true_seg.label(t);
-            let p_label = pred_seg.label(p);
-            if !p_label && t_label {
-                self.count_0 += 1;
-            } else if p_label && t_label {
-                self.count_1 += 1;
-            } else {
-                self.count_2 += 1
-            }
+            self.push_single(t, true_seg, p, pred_seg);
         }
     }
 
