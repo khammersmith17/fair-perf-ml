@@ -10,6 +10,7 @@ pub mod distribution;
 pub mod drift_metrics;
 #[cfg(feature = "python")]
 pub(crate) mod python_impl;
+pub mod windowed_drift;
 use crate::errors::DriftError;
 use data_drift::{CategoricalDataDrift, ContinuousDataDrift};
 use distribution::QuantileType;
@@ -120,8 +121,7 @@ mod tests {
         let candidate = [1.0, 2.0];
         let metrics = [DataDriftType::PopulationStabilityIndex];
 
-        let result =
-            compute_drift_continuous_distribution(baseline, &candidate, &metrics, None);
+        let result = compute_drift_continuous_distribution(baseline, &candidate, &metrics, None);
 
         assert!(result.is_err());
     }

@@ -4,8 +4,9 @@ use super::{
 };
 use crate::errors::DriftError;
 use std::fs::File;
-use std::io::{self, Read, Seek};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::num::NonZeroUsize;
+use tempfile::NamedTempFile;
 /*
 * The goal with this module is to allow for a smooth transition between drift windows.
 *
@@ -43,20 +44,69 @@ use std::num::NonZeroUsize;
 
 enum WindowBuffer {
     Memory(InMemoryWindowBuffer),
-    Disk(DiskWindowBuffer),
+    Disk,
+}
+
+struct DiskBuffer {
+    mem_buf: Vec<u8>,
+    disk_buf: NamedTempFile,
+    window_size: usize,
+    num_epochs: usize,
+}
+
+// after buffer saturation...
+// when a window gets saturated, then
+// read in the buffer to be evicted, resolve global state,
+// then clear the live window
+
+impl DiskBuffer {
+    fn new(window_size: usize, num_epochs: usize) -> std::io::Result<DiskBuffer> {
+        let disk_buf = NamedTempFile::new()?;
+        let mem_buf_size = window_size * num_epochs * 8_usize;
+        Ok(DiskBuffer {
+            disk_buf,
+            mem_buf: vec![0_u8; mem_buf_size],
+            window_size: window_size.into(),
+            num_epochs: num_epochs.into(),
+        })
+    }
+    fn flush_window(&mut self, window: &[f64]) -> std::io::Result<()> {
+        debug_assert_eq!(window.len(), self.window_size);
+
+        // When we reach the end "wrap around" by seeking back to the start.
+        // This maintains a "static size" disk buffer.
+        if self.disk_buf.stream_position()? == self.disk_buf_size() {
+            self.disk_buf.seek(SeekFrom::Start(0))?;
+        }
+        let bytes_written = self.disk_buf.write(bytemuck::cast_slice(window))?;
+        debug_assert_eq!(bytes_written, (std::mem::size_of::<f64>() * window.len()));
+        Ok(())
+    }
+
+    fn read_window_to_evict(&mut self) -> std::io::Result<()> {
+        self.disk_buf.read(&mut self.mem_buf)?;
+        Ok(())
+    }
+
+    fn disk_buf_size(&self) -> u64 {
+        (self.window_size * self.num_epochs) as u64 * 8_u64
+    }
+
+    fn get_evicted_window(&mut self) -> &[f64] {
+        bytemuck::cast_slice(self.mem_buf.as_slice())
+    }
 }
 
 struct DiskWindowBuffer {
-    window_buffer: File,
+    window_buffer: DiskBuffer,
     live_window: Vec<f64>,
 }
 
 struct InMemoryWindowBuffer {
     window_buffer: Vec<f64>, // contiguous allocation of all the windows
-    epoch_offset: usize,     // the "index" of the current epoch
+    epoch_count: usize,      // the "index" of the current epoch
     curr_epoch_sat: usize,   // the current saturation of the current epoch
     epoch_size: usize,       // size of a single window epoch
-    saturated: bool,         // flag for if the entire buffer has been used
 }
 
 struct ConsumedWindow(bool);
@@ -67,10 +117,9 @@ impl InMemoryWindowBuffer {
 
         InMemoryWindowBuffer {
             window_buffer,
-            epoch_offset: 0,
+            epoch_count: 0,
             curr_epoch_sat: 0,
             epoch_size,
-            saturated: false,
         }
     }
 
@@ -80,7 +129,7 @@ impl InMemoryWindowBuffer {
     }
 
     fn compute_offset(&self, bin_idx: usize) -> usize {
-        (self.epoch_offset * self.epoch_size) + bin_idx
+        (self.epoch_offset() * self.epoch_size) + bin_idx
     }
 
     #[inline]
@@ -90,26 +139,30 @@ impl InMemoryWindowBuffer {
         ConsumedWindow(self.curr_epoch_sat == self.epoch_size)
     }
 
+    fn is_saturated(&self) -> bool {
+        self.epoch_count > self.num_epochs()
+    }
+
+    fn epoch_offset(&self) -> usize {
+        self.epoch_count % self.num_epochs()
+    }
+
     /// Push the head epoch forward. When the buffer has been saturated, then clean the global
     /// window and clean up the epoch being evicted, as it is now the current epoch to be used.
     fn forward_head(&mut self) {
-        let size = self.num_epochs();
-        if !self.saturated && self.epoch_offset == size.saturating_sub(1) {
-            self.saturated = true;
-        }
-        self.epoch_offset = (self.epoch_offset + 1) % size;
+        self.epoch_count += 1;
     }
 
     fn roll_window(&mut self, global_bins: &mut [f64]) {
         self.forward_head();
-        if self.saturated {
+        if self.is_saturated() {
             self.clean_window(global_bins);
         }
         self.curr_epoch_sat = 0;
     }
 
     fn tail(&self) -> usize {
-        debug_assert!(!self.saturated);
+        debug_assert!(!self.is_saturated());
         (self.curr_epoch_sat) + 1 % self.num_epochs()
     }
 
@@ -117,7 +170,7 @@ impl InMemoryWindowBuffer {
         let size = self.num_epochs();
 
         // start offset at the base of the window to be evicted.
-        let base_window_offset = self.epoch_offset * size;
+        let base_window_offset = self.epoch_offset() * size;
         for i in 0..self.epoch_size {
             let buffer_offset = base_window_offset + i;
             global_bins[i] -= self.window_buffer[buffer_offset];
