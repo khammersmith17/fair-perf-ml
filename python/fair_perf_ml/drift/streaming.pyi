@@ -24,8 +24,8 @@ class StreamingContinuousDataDriftFlush(DataDriftStreamingBase[float, dict[str, 
         self,
         baseline_dataset: FloatingPointDataSlice,
         quantile_type: QuantileConfig,
-        flush_rate: int | None,
-        flush_cadence: int | None,
+        flush_rate: int | None = None,
+        flush_cadence: int | None = None,
     ) -> None: ...
     def reset_baseline(self, new_baseline: FloatingPointDataSlice) -> None: ...
     def update_stream(self, example: float) -> None: ...
@@ -48,7 +48,7 @@ class StreamingContinuousDataDriftDecay(DataDriftStreamingBase[float, dict[str, 
         self,
         baseline_dataset: FloatingPointDataSlice,
         quantile_type: QuantileConfig,
-        decay_half_life: int | None,
+        decay_half_life: int | None = None,
     ) -> None: ...
     def reset_baseline(self, new_baseline: FloatingPointDataSlice) -> None: ...
     def update_stream(self, example: float) -> None: ...
@@ -68,8 +68,8 @@ class StreamingCategoricalDataDriftFlush(DataDriftStreamingBase[StringBound, dic
     def __init__(
         self,
         baseline_dataset: Iterable[StringBound],
-        flush_rate: int | None,
-        flush_cadence: int | None,
+        flush_rate: int | None = None,
+        flush_cadence: int | None = None,
     ) -> None: ...
     def reset_baseline(self, new_baseline: Iterable[StringBound]) -> None: ...
     def update_stream(self, example: StringBound) -> None: ...
@@ -91,7 +91,7 @@ class StreamingCategoricalDataDriftDecay(DataDriftStreamingBase[StringBound, dic
     def __init__(
         self,
         baseline_dataset: Iterable[StringBound],
-        decay_half_life: int,
+        decay_half_life: int | None = None,
     ) -> None: ...
     def reset_baseline(self, new_baseline: Iterable[StringBound]) -> None: ...
     def update_stream(self, example: StringBound) -> None: ...

@@ -434,9 +434,9 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
             unreachable!()
         };
         for bin in self.stream_bins.iter_mut() {
-            *bin = (*bin * decay_factor).floor();
+            *bin = *bin * decay_factor;
         }
-        self.total_stream_size = (self.total_stream_size * decay_factor).floor();
+        self.total_stream_size = self.total_stream_size * decay_factor;
     }
 
     /// Push a single example into the stream.
@@ -1058,9 +1058,9 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, DecayModeMark> {
             unreachable!()
         };
         for bin in self.stream_bins.iter_mut() {
-            *bin = (*bin * decay_factor).floor();
+            *bin = *bin * decay_factor;
         }
-        self.total_stream_size = (self.total_stream_size * decay_factor).floor();
+        self.total_stream_size = self.total_stream_size * decay_factor;
     }
 
     /// Push a single label into the stream.

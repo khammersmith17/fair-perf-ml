@@ -38,7 +38,9 @@ type QuantileConfig = QuantileType | str | None
 
 
 def _map_drift_metric_type(m: DataDriftMetric) -> str:
-    return str(m)
+    if isinstance(m, DataDriftType):
+        return m.value
+    return m
 
 
 class StringBound(Protocol):
@@ -85,7 +87,7 @@ def compute_drift_categorical_distribution(
     return py_compute_drift_categorical_distribtuion(
         _cast_to_string_iterable(baseline_distribution),
         _cast_to_string_iterable(candidate_distribution),
-        drift_metrics,
+        list(map(_map_drift_metric_type, drift_metrics)),
     )
 
 
@@ -93,14 +95,19 @@ def compute_drift_continuous_distribution(
     baseline_distribution: FloatingPointDataSlice,
     candidate_distribution: FloatingPointDataSlice,
     drift_metrics: list[DataDriftMetric],
-    quantile_type: QuantileConfig,
+    quantile_type: QuantileConfig = None,
 ) -> list[float]:
+    if isinstance(quantile_type, QuantileType):
+        quantile_type = quantile_type.value
     return py_compute_drift_continuous_distribtuion(
-        baseline_distribution, candidate_distribution, drift_metrics, quantile_type
+        _cast_to_numpy_float_arr(baseline_distribution),
+        _cast_to_numpy_float_arr(candidate_distribution),
+        list(map(_map_drift_metric_type, drift_metrics)),
+        quantile_type,
     )
 
 
-class DataDriftDiscreteBase[T](ABC):
+class DataDriftDiscreteBase[T, B](ABC):
     """
     Abtract class to define the streaming data drift api contract.
     More for correctness constraint rather than utility here.
@@ -124,10 +131,10 @@ class DataDriftDiscreteBase[T](ABC):
     def num_bins(self) -> int: ...
 
     @abstractmethod
-    def export_baseline(self) -> list[float]: ...
+    def export_baseline(self) -> B: ...
 
 
-class ContinuousDataDrift(DataDriftDiscreteBase[float]):
+class ContinuousDataDrift(DataDriftDiscreteBase[float, list[float]]):
     """
     Detects distributional drift in continuous (floating-point) features between
     a fixed baseline dataset and a runtime dataset.
@@ -171,7 +178,7 @@ class ContinuousDataDrift(DataDriftDiscreteBase[float]):
         """
         typed_data = _cast_to_numpy_float_arr(baseline_data)
         if isinstance(quantile_type, QuantileType):
-            quantile_type = str(quantile_type)
+            quantile_type = quantile_type.value
         self._inner = PyContinuousDataDrift(typed_data, quantile_type)
 
     def reset_baseline(self, new_baseline: FloatingPointDataSlice):
@@ -248,32 +255,7 @@ class ContinuousDataDrift(DataDriftDiscreteBase[float]):
         return self._inner.num_bins
 
 
-class CategoricalDataDrift(DataDriftDiscreteBase[str]):
-    """
-    Detects distributional drift in categorical features between a fixed baseline
-    dataset and a runtime dataset.
-
-    The baseline is summarized as a label frequency distribution. Each unique
-    value observed in the baseline becomes its own bin. An additional overflow
-    bin captures any labels present in the runtime data that were not seen in
-    the baseline. Drift is measured by comparing the runtime label distribution
-    against the baseline using the chosen divergence metric.
-
-    This type is suited for batch analysis: you collect a runtime dataset and
-    compare it against the baseline in one call. For long-running accumulation
-    where data arrives incrementally, use the streaming variants instead.
-
-    Considerations:
-        1. There will be n + 1 bins, where n is the number of unique labels in
-           the baseline. The extra bin collects any unseen runtime labels.
-        2. Resetting the baseline recomputes the distribution and bin set from
-           the new data.
-        3. The label used for the overflow bin can be configured via the
-           ``FAIR_PERF_OTHER_BUCKET`` environment variable.
-        4. Items passed in must be castable to ``str`` via ``__str__``. All
-           bucketing is performed on string representations.
-    """
-
+class CategoricalDataDrift(DataDriftDiscreteBase[str, dict[str, float]]):
     __slots__ = "_inner"
 
     def __init__(self, baseline_data: Sequence[StringBound]):
@@ -343,7 +325,7 @@ class CategoricalDataDrift(DataDriftDiscreteBase[str]):
             typed_data, list(map(_map_drift_metric_type, drift_metrics))
         )
 
-    def export_baseline(self) -> list[float]:
+    def export_baseline(self) -> dict[str, float]:
         """
         Export the baseline as a normalized label frequency distribution.
 

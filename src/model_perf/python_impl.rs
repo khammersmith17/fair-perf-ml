@@ -203,14 +203,14 @@ pub(crate) mod py_api {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (y_pred_src, y_true_src))]
+    #[pyo3(signature = (y_true_src, y_pred_src))]
     pub fn py_model_perf_classification<'py>(
         py: Python<'py>,
-        y_pred_src: &Bound<'py, PyUntypedArray>,
         y_true_src: &Bound<'py, PyUntypedArray>,
+        y_pred_src: &Bound<'py, PyUntypedArray>,
     ) -> PyResult<Bound<'py, PyDict>> {
         // coerce py types
-        let true_type: PassedType = determine_type(py, y_true_src);
+        let true_type = determine_type(py, y_true_src);
         let y_true = convert_f32(py, y_true_src, true_type)?;
 
         let pred_type = determine_type(py, y_pred_src);
@@ -222,11 +222,11 @@ pub(crate) mod py_api {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (y_pred_src, y_true_src, threshold))]
+    #[pyo3(signature = (y_true_src,y_pred_src, threshold))]
     pub fn py_model_perf_logistic_regression<'py>(
         py: Python<'py>,
-        y_pred_src: &Bound<'py, PyUntypedArray>,
         y_true_src: &Bound<'py, PyUntypedArray>,
+        y_pred_src: &Bound<'py, PyUntypedArray>,
         threshold: f32,
     ) -> PyResult<Bound<'py, PyDict>> {
         // coerce py types

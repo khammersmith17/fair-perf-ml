@@ -14,7 +14,7 @@ from .base import (DataDriftMetric, QuantileConfig, QuantileType, StringBound,
                    _map_drift_metric_type)
 
 
-class DataDriftStreamingBase[T, R](ABC):
+class DataDriftStreamingBase[T, R, B](ABC):
     """
     Abtract class to define the streaming data drift api contract.
     More for correctness constraint rather than utility here.
@@ -49,11 +49,11 @@ class DataDriftStreamingBase[T, R](ABC):
     def export_snapshot(self) -> R: ...
 
     @abstractmethod
-    def export_baseline(self) -> dict: ...
+    def export_baseline(self) -> B: ...
 
 
 class StreamingContinuousDataDriftFlush(
-    DataDriftStreamingBase[float, dict[str, list[float]]]
+    DataDriftStreamingBase[float, dict[str, list[float]], list[float]]
 ):
     __slots__ = "_inner"
 
@@ -66,7 +66,7 @@ class StreamingContinuousDataDriftFlush(
     ):
         baseline_dataset = _cast_to_numpy_float_arr(baseline_dataset)
         if isinstance(quantile_type, QuantileType):
-            quantile_type = str(quantile_type)
+            quantile_type = quantile_type.value
         self._inner = PyStreamingContinuousDataDriftFlush(
             baseline_dataset, quantile_type, flush_rate, flush_cadence
         )
@@ -103,7 +103,7 @@ class StreamingContinuousDataDriftFlush(
     def export_snapshot(self) -> dict[str, list[float]]:
         return self._inner.export_snapshot()
 
-    def export_baseline(self) -> dict:
+    def export_baseline(self) -> list[float]:
         return self._inner.export_baseline()
 
     def flush(self):
@@ -114,7 +114,7 @@ class StreamingContinuousDataDriftFlush(
 
 
 class StreamingContinuousDataDriftDecay(
-    DataDriftStreamingBase[float, dict[str, list[float]]]
+    DataDriftStreamingBase[float, dict[str, list[float]], list[float]]
 ):
     __slots__ = "_inner"
 
@@ -126,7 +126,7 @@ class StreamingContinuousDataDriftDecay(
     ):
         baseline_dataset = _cast_to_numpy_float_arr(baseline_dataset)
         if isinstance(quantile_type, QuantileType):
-            quantile_type = str(quantile_type)
+            quantile_type = quantile_type.value
         self._inner = PyStreamingContinuousDataDriftDecay(
             baseline_dataset, quantile_type, decay_half_life
         )
@@ -163,12 +163,12 @@ class StreamingContinuousDataDriftDecay(
     def export_snapshot(self) -> dict[str, list[float]]:
         return self._inner.export_snapshot()
 
-    def export_baseline(self) -> dict:
+    def export_baseline(self) -> list[float]:
         return self._inner.export_baseline()
 
 
 class StreamingCategoricalDataDriftFlush(
-    DataDriftStreamingBase[StringBound, dict[str, float]]
+    DataDriftStreamingBase[StringBound, dict[str, float], dict[str, float]]
 ):
     __slots__ = "_inner"
 
@@ -215,7 +215,7 @@ class StreamingCategoricalDataDriftFlush(
     def export_snapshot(self) -> dict[str, float]:
         return self._inner.export_snapshot()
 
-    def export_baseline(self) -> dict:
+    def export_baseline(self) -> dict[str, float]:
         return self._inner.export_baseline()
 
     def flush(self):
@@ -226,7 +226,7 @@ class StreamingCategoricalDataDriftFlush(
 
 
 class StreamingCategoricalDataDriftDecay(
-    DataDriftStreamingBase[StringBound, dict[str, float]]
+    DataDriftStreamingBase[StringBound, dict[str, float], dict[str, float]]
 ):
     __slots__ = "_inner"
 
