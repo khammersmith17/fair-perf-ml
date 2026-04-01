@@ -3,6 +3,8 @@ Custom implementation of bias analysis for machine learning models. Based on the
 
 Working on v0.2.0 to add some more runtime drift proxies, provide better runtime support, and make the crate available in both pure Rust and Python contexts.
 
+This Python Library and Rust crate serves to treat ML Observability as a first class principle for ML systems, by making it accessible, and exploring more effective methods of implementing real time systems.
+
 [Background](#background)
 [Modules](#modules)
 [Usage](#usage)
@@ -30,6 +32,8 @@ The logic is written in Rust, with a python interface to let users pass in some 
 This package would not be possbile without the great work done by the contributors of PYO3, that work is wonderdul.
 
 ## Modules
+
+When I have more time, I will write a better wiki as documentation, but for now the documentation for the public api surface lives here.
 
 ### bias.data_bias
 
