@@ -34,11 +34,23 @@ class InvalidBiasSegmentationConfig(Exception):
 
 
 class BiasSegmentationType(str, Enum):
+    """
+    Two segmentation types are supported.
+    Label implies segmentation based on a equality with the segmentation value.
+    Threshold implies segmentation based on the ordering with respect to the
+    segmentation value.
+    """
+
     Label = "Label"
     Threshold = "Threshold"
 
 
 class BiasSegmentationThresholdType(str, Enum):
+    """
+    When the segmentation type is BiasSegmentationType.Threshold.
+    This enum defines the ordering logic to derive segmentation group.
+    """
+
     GreaterThan = "GreaterThan"
     GreaterThanEqualTo = "GreaterThanEqualTo"
     LessThan = "LessThan"
@@ -90,6 +102,7 @@ class BiasSegmentationProtocol[T: SegmentationValueBounds](ABC):
     def _seg_value_type(self) -> type:
         """
         Resolve the type of the segmentation value.
+        Used to validate type parity.
         """
 
     @property
@@ -222,6 +235,9 @@ def _validate_factory_args(
     segmentation_type: BiasSegmentationType,
     segmentation_threshold_type: BiasSegmentationThresholdType | None,
 ):
+    """
+    Enforce that valid args are passed for defining segmetation logic.
+    """
     if (
         segmentation_type == BiasSegmentationType.Label
         and segmentation_threshold_type is not None
@@ -237,6 +253,17 @@ def bias_segmentation_criteria_factory(
     segmentation_type: BiasSegmentationType | str,
     segmentation_threshold_type: BiasSegmentationThresholdType | str | None = None,
 ) -> BiasSegmentationProtocol:
+    """
+    Factory method to define the segmentation class, based on arguments provided.
+    There are two sets of valid states:
+        segmentation_type = BiasSegmentationType.Label
+        segmentation_threshold_type = None
+
+        OR
+
+        segmentation_type = BiasSegmentationType.Threshold
+        segmentation_threshold_type = BiasSegmentationThresholdType
+    """
     if isinstance(segmentation_type, str):
         segmentation_type = BiasSegmentationType(segmentation_type)
 
@@ -266,7 +293,7 @@ def bias_segmentation_criteria_factory(
 
 class BiasDataPayload[T: SegmentationValueBounds]:
     """
-    Groups a dataset and the segmentation criteria as a single unit.
+    Convience type that groups a dataset and the segmentation criteria as a single unit.
     """
 
     __slots__ = ("_seg_criteria", "_payload")
@@ -302,6 +329,11 @@ class BiasDataPayload[T: SegmentationValueBounds]:
 
 
 class _ExplicitAnalysisArgs(NamedTuple):
+    """
+    NamedTuple to organize arguments for passing them down to Rust core
+    for explicit ad hoc bias logic.
+    """
+
     data: NDArray[np.float64] | NDArray[np.str_]
     threshold: float | None
     label: str | None
@@ -311,6 +343,10 @@ class _ExplicitAnalysisArgs(NamedTuple):
 def _construct_explicit_bias_args[
     T: DiscreteAnalysisSegmentationValueBounds
 ](payload: BiasDataPayload[T]) -> _ExplicitAnalysisArgs:
+    """
+    Construct the arguments for a single dimension of data. Organizes arguments
+    before passing the arguments down to core Rust logic.
+    """
     match payload._seg_criteria:
         case ThresholdBiasSegmentation():
             return _cast_sequence_and_label_thres(payload)
@@ -323,6 +359,9 @@ def _construct_explicit_bias_args[
 def _cast_sequence_and_label_thres[
     T: DiscreteAnalysisSegmentationValueBounds
 ](payload: BiasDataPayload[T]) -> _ExplicitAnalysisArgs:
+    """
+    Apply segmentation and class labeling for thresholded segmentation.
+    """
     try:
         data = np.fromiter(
             (float(v) for v in payload._payload),
@@ -346,6 +385,9 @@ def _cast_sequence_and_label_thres[
 def _cast_sequence_and_label_label[
     T: DiscreteAnalysisSegmentationValueBounds
 ](payload: BiasDataPayload[T]) -> _ExplicitAnalysisArgs:
+    """
+    Apply segmentation and class labeling for labeled segmentation.
+    """
     try:
         data = np.fromiter(
             (str(v) for v in payload._payload),

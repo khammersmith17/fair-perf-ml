@@ -2,6 +2,12 @@
 name = "fair_perf_ml"
 version = "0.2.0"
 edition = "2021"
+description = """This crate provides utilities for Machine Learning and data observability. \
+It inlcudes utilities for discrete analysis and components that can be used to build a real time observability service. \
+The components in this crate allow for expressive typing and are all inherently synchronous.
+"""
+license = "MIT"
+repository = "https://github.com/khammersmith17/fair-perf-ml"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]

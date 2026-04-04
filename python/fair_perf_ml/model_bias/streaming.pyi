@@ -7,7 +7,7 @@ from fair_perf_ml.bias.segmentation import (
     SegmentationValueBounds,
 )
 
-from ..models import (
+from fair_perf_ml.models import (
     DriftReport,
     DriftSnapshot,
     ModelBiasDriftMetric,

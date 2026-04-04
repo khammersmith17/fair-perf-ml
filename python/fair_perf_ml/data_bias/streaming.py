@@ -4,13 +4,21 @@ from collections.abc import Sequence
 
 from fair_perf_ml.bias.segmentation import (BiasSegmentationProtocol,
                                             SegmentationValueBounds)
+from fair_perf_ml.models import (DataBiasDriftMetric, DriftReport,
+                                 DriftSnapshot, PerformanceSnapshot)
 
 from .._fair_perf_ml import PyDataBiasStreaming
-from ..models import (DataBiasDriftMetric, DriftReport, DriftSnapshot,
-                      PerformanceSnapshot)
 
 
 class DataBiasStreaming[F: SegmentationValueBounds, G: SegmentationValueBounds]:
+    """
+    Container to hold state for long running data bias monitoring sessions, and
+    compute data bias observability metrics on demand. Allows the use of arbitrary types
+    that implement __ge__ and __eq__ to define ordering for segmentation.
+
+    Wraps the internal core rust logic.
+    """
+
     __slots__ = ("_inner", "_f_seg_criteria", "_gt_seg_criteria")
 
     def __init__(

@@ -1,5 +1,12 @@
 from typing import NamedTuple, cast
 
+from fair_perf_ml._internal import (FloatingPointDataSlice,
+                                    check_and_convert_type)
+from fair_perf_ml.models import (BinaryClassificationReport, DriftReport,
+                                 LinearRegressionReport,
+                                 LogisticRegressionReport,
+                                 MachineLearningMetric, ModelPerformanceReport,
+                                 ModelType)
 from numpy.typing import NDArray
 from pydantic import ValidationError
 
@@ -12,10 +19,6 @@ from .._fair_perf_ml import (py_model_perf_class_rt_full,
                              py_model_perf_log_reg_rt_full,
                              py_model_perf_log_reg_rt_partial,
                              py_model_perf_logistic_regression)
-from .._internal import FloatingPointDataSlice, check_and_convert_type
-from ..models import (BinaryClassificationReport, DriftReport,
-                      LinearRegressionReport, LogisticRegressionReport,
-                      MachineLearningMetric, ModelPerformanceReport, ModelType)
 
 
 class DifferentModelTypes(Exception):
@@ -40,6 +43,10 @@ class CleanedRuntimeInput(NamedTuple):
 def _serialize_runtime_input(
     runtime: ModelPerformanceReport | dict, baseline: ModelPerformanceReport | dict
 ) -> CleanedRuntimeInput:
+    """
+    Validates that both runtime and baseline analysis reports are for the same model type
+    and extracts the analysis reports.
+    """
     if isinstance(runtime, dict):
         try:
             runtime = ModelPerformanceReport(**runtime)
@@ -159,6 +166,8 @@ def partial_runtime_check(
 ) -> DriftReport:
     """
     Method to perform a runtime performance monitoring job on only selected metrics.
+    Allows for the drift report to only consider the metrics that are relevant to an
+    application. Often times not all loss metrics are relevant.
     args:
         latest: dict - latest analysis output, must match shape
         baseline: dict - baseline analysis output, must match shape
@@ -175,7 +184,11 @@ def _dispatch_runtime_check(
     metrics: list[MachineLearningMetric] | None,
     threshold: float,
 ) -> DriftReport:
-
+    """
+    Dispatch to the correct model perf runtime comparison method
+    based on model type and the precense of limited set of metrics to
+    evaluate drift on.
+    """
     match (cleaned_args.model_type, metrics):
         case (ModelType.BinaryClassification, None):
             return py_model_perf_class_rt_full(

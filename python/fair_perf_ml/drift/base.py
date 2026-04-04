@@ -12,21 +12,30 @@ from enum import Enum
 from typing import Protocol
 
 import numpy as np
+from fair_perf_ml._internal import FloatingPointDataSlice
 from numpy.typing import NDArray
 
 from .._fair_perf_ml import (PyCategoricalDataDrift, PyContinuousDataDrift,
                              py_compute_drift_categorical_distribtuion,
                              py_compute_drift_continuous_distribtuion)
-from .._internal import FloatingPointDataSlice
 
 
 class QuantileType(str, Enum):
+    """
+    Supported method for deriving the number of bins to use when approximating
+    a continuous distribution.
+    """
+
     FreedmanDiaconis = "FreedmanDiaconis"
     Scott = "Scott"
     Sturges = "Sturges"
 
 
 class DataDriftType(str, Enum):
+    """
+    Currently supported methods of deriving the divergence between two distributions.
+    """
+
     JensenShannon = "JensenShannon"
     PopulationStabilityIndex = "PopulationStabilityIndex"
     WassersteinDistance = "WassersteinDistance"
@@ -84,6 +93,16 @@ def compute_drift_categorical_distribution(
     candidate_distribution: list[StringBound],
     drift_metrics: list[DataDriftMetric],
 ) -> list[float]:
+    """
+    Ad hoc computation of drift between two distributions of cateogrical data.
+
+    args:
+        baseline_distribution: list[StringBound]
+        candidate_distribution: list[StringBound]
+        drift_metrics: list[DataDriftMetric]
+    returns:
+        list[float] - one entry for every drift method provided, element wise mapped.
+    """
     return py_compute_drift_categorical_distribtuion(
         _cast_to_string_iterable(baseline_distribution),
         _cast_to_string_iterable(candidate_distribution),
@@ -97,6 +116,17 @@ def compute_drift_continuous_distribution(
     drift_metrics: list[DataDriftMetric],
     quantile_type: QuantileConfig = None,
 ) -> list[float]:
+    """
+    Ad hoc computation of drift between two distributions of continuous data.
+
+    args:
+        baseline_distribution: list[StringBound]
+        candidate_distribution: list[StringBound]
+        drift_metrics: list[DataDriftMetric]
+        quantile_type: QuantileConfig = None - defaults to FreedmanDiaconis
+    returns:
+        list[float] - one entry for every drift method provided, element wise mapped.
+    """
     if isinstance(quantile_type, QuantileType):
         quantile_type = quantile_type.value
     return py_compute_drift_continuous_distribtuion(
@@ -128,7 +158,11 @@ class DataDriftDiscreteBase[T, B](ABC):
 
     @property
     @abstractmethod
-    def num_bins(self) -> int: ...
+    def num_bins(self) -> int:
+        """
+        The number of bins to approximate the distribution.
+        Derived from the dataset on construction.
+        """
 
     @abstractmethod
     def export_baseline(self) -> B: ...

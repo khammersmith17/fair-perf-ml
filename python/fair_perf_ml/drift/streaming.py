@@ -43,7 +43,11 @@ class DataDriftStreamingBase[T, R, B](ABC):
 
     @property
     @abstractmethod
-    def num_bins(self) -> int: ...
+    def num_bins(self) -> int:
+        """
+        The number of histogram bins used to approximate the distribution.
+        Derived from the dataset on construction.
+        """
 
     @abstractmethod
     def export_snapshot(self) -> R: ...

@@ -5,7 +5,7 @@ from typing import Protocol
 
 from numpy.typing import NDArray
 
-from .._internal import FloatingPointDataSlice
+from fair_perf_ml._internal import FloatingPointDataSlice
 
 class QuantileType(str, Enum):
     FreedmanDiaconis: str

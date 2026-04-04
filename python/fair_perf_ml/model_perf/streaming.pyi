@@ -2,7 +2,7 @@ from abc import ABC
 from collections.abc import Iterable
 from typing import Protocol, Self
 
-from ..models import (ClassificationDriftMetric, DriftReport, DriftSnapshot,
+from fair_perf_ml.models import (ClassificationDriftMetric, DriftReport, DriftSnapshot,
                       LinearRegressionDriftMetric, ModelPerformanceDriftMetric,
                       PerformanceSnapshot)
 

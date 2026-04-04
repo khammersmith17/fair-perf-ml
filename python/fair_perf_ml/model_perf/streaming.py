@@ -15,14 +15,15 @@ from collections.abc import Sequence
 from typing import Protocol, Self
 
 import numpy as np
+from fair_perf_ml._internal import cast_floating_point_slice
+from fair_perf_ml.models import (ClassificationDriftMetric, DriftReport,
+                                 DriftSnapshot, LinearRegressionDriftMetric,
+                                 ModelPerformanceDriftMetric,
+                                 PerformanceSnapshot)
 
 from .._fair_perf_ml import (PyBinaryClassificationStreaming,
                              PyLinearRegressionStreaming,
                              PyLogisticRegressionStreaming)
-from .._internal import cast_floating_point_slice
-from ..models import (ClassificationDriftMetric, DriftReport, DriftSnapshot,
-                      LinearRegressionDriftMetric, ModelPerformanceDriftMetric,
-                      PerformanceSnapshot)
 
 
 class LabelBound(Protocol):

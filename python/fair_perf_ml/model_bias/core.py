@@ -26,7 +26,10 @@ def model_bias_perform_analysis_explicit_segmentation[
     prediction: BiasDataPayload[P],
 ) -> AnalysisReport:
     """
-    Method to provide explicit segmentation criteria for ad hoc data bias analysis.
+    Method to provide explicit segmentation criteria for ad hoc data bias analysis as opposed
+    to using the default derivation logic in Rust core to determine segmentation logic from
+    heurisitcs.
+    Segmentation and data are passed as a single unit in BiasDataPayload.
 
     args:
         feature: DataBiasPayload[F]
