@@ -8,6 +8,7 @@ pub(crate) enum DriftContainerType {
     Categorical,
 }
 
+/// Statistical distance measures supported for data drift detection.
 #[derive(Debug, PartialEq, Copy, Clone)]
 #[non_exhaustive]
 pub enum DataDriftType {

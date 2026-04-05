@@ -11,6 +11,12 @@ use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::time::{Duration, Instant};
 
+/// Selects the window management strategy for streaming drift detectors.
+///
+/// - `Flush`: accumulates data until a sample count (`size`) or time (`cadence`) threshold is
+///   reached, then hard-resets the stream window.
+/// - `ExponentialDecay`: applies α = 0.5^(1/half_life) to bin counts on each drift computation,
+///   giving a recency-weighted view with no hard reset.
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum StreamingDriftMode {
@@ -805,6 +811,7 @@ impl<T: Hash + Ord + Clone> CategoricalDataDrift<T> {
         self.baseline.export_baseline()
     }
 
+    /// Returns the total number of histogram bins, including the reserved "other" bin.
     pub fn num_bins(&self) -> usize {
         self.rt_bins.len()
     }

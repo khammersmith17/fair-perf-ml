@@ -1,3 +1,5 @@
+/// Rule used to select the optimal number of histogram bins when building a continuous
+/// distribution baseline. Defaults to `FreedmanDiaconis`.
 #[non_exhaustive]
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub enum QuantileType {

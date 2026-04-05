@@ -89,6 +89,9 @@ impl AdHocSegmentation {
 }
 
 // Publicly exposed methods for ad hoc use
+
+/// Computes the difference in the proportion of positive predicted labels between the
+/// advantaged and disadvantaged facets. A value near zero indicates parity.
 pub fn diff_in_pos_proportion_in_pred_labels<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -110,6 +113,8 @@ where
     Ok(q_prime_a - q_prime_d)
 }
 
+/// Computes the ratio of positive prediction rates between the advantaged and disadvantaged
+/// facets. A value of 1.0 indicates no disparate impact; values below 0.8 are commonly flagged.
 pub fn disparate_impact<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -135,6 +140,8 @@ where
     Ok(q_prime_a / q_prime_d)
 }
 
+/// Computes the difference in conditional acceptance rates between the advantaged and
+/// disadvantaged facets (true positive rate given a positive ground truth).
 pub fn diff_in_cond_acceptance<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -160,6 +167,7 @@ where
     Ok(c_facet_a - c_facet_d)
 }
 
+/// Computes the difference in accuracy between the advantaged and disadvantaged facets.
 pub fn accuracy_difference<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -182,6 +190,8 @@ where
     Ok(acc_a - acc_d)
 }
 
+/// Computes the difference in precision (positive predictive value) between the advantaged and
+/// disadvantaged facets.
 pub fn diff_in_acceptance_rate<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -203,6 +213,8 @@ where
     Ok(precision_a - precision_d)
 }
 
+/// Computes the difference in recall (true positive rate) between the advantaged and
+/// disadvantaged facets.
 pub fn recall_difference<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -225,6 +237,8 @@ where
     Ok(recall_a - recall_d)
 }
 
+/// Computes the difference in conditional rejection rates between the disadvantaged and
+/// advantaged facets (ratio of observed negatives to predicted negatives).
 pub fn diff_in_cond_rejection<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -266,6 +280,8 @@ where
     Ok(r_d - r_a)
 }
 
+/// Computes the difference in true negative rate (specificity) between the disadvantaged and
+/// advantaged facets.
 pub fn specailty_difference<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -287,6 +303,8 @@ where
     Ok(true_negative_rate_d - true_negative_rate_a)
 }
 
+/// Computes the difference in negative predictive value (rejection accuracy) between the
+/// disadvantaged and advantaged facets.
 pub fn diff_in_rejection_rate<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -308,6 +326,7 @@ where
     Ok(value_d - value_a)
 }
 
+/// Computes the conditional demographic disparity in predicted labels across the two facets.
 pub fn cond_dem_desp_in_pred_labels<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -358,6 +377,8 @@ where
     Ok(n_prime_d_0 / n_prime_0 - n_prime_d_1 / n_prime_1)
 }
 
+/// Computes the difference in the ratio of false negatives to false positives (treatment equity)
+/// between the disadvantaged and advantaged facets.
 pub fn treatment_equity<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,
@@ -379,6 +400,8 @@ where
     Ok(value_d - value_a)
 }
 
+/// Computes the generalized entropy index across both facets combined, measuring overall
+/// inequality in the distribution of benefits assigned by the model.
 pub fn generalized_entropy<F, P, G>(
     feature: &[F],
     feature_seg: BiasSegmentationCriteria<F>,

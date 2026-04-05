@@ -20,6 +20,10 @@ const DEFAULT_STREAM_FLUSH_CADENCE: u64 = 3600 * 24;
 const DEFAULT_MAX_STREAM_SIZE: u64 = 1_000_000_u64;
 const DEFAULT_DECAY_HALF_LIFE: u64 = 86400; // Defaul half life 1 day
 
+/// Computes drift between a continuous baseline distribution and a candidate distribution.
+/// Returns one score per requested `drift_metrics` entry, in the same order.
+/// `quantile_type` controls how histogram bins are determined; defaults to
+/// `QuantileType::FreedmanDiaconis` when `None`.
 pub fn compute_drift_continuous_distribution(
     baseline_distribution: &[f64],
     candidate_distribution: &[f64],
@@ -33,6 +37,9 @@ pub fn compute_drift_continuous_distribution(
     Ok(drift_res)
 }
 
+/// Computes drift between a categorical baseline distribution and a candidate distribution.
+/// Labels must implement `Hash + Ord + Clone`. Unseen labels in `candidate_distribution` are
+/// bucketed into an overflow category. Returns one score per requested `drift_metrics` entry.
 pub fn compute_drift_categorical_distribution<T: Hash + Ord + Clone>(
     baseline_distribution: &[T],
     candidate_distribution: &[T],

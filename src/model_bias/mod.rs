@@ -15,6 +15,9 @@ use core::post_training_bias;
 pub(crate) mod python_impl;
 pub mod streaming;
 
+/// Performs a full model bias runtime check across all supported metrics.
+/// Compares `latest` against `baseline` and flags any metric whose absolute drift exceeds
+/// `threshold` (expressed as a fractional percentage, e.g. `0.10` for 10%).
 pub fn model_bias_runtime_check(
     baseline: ModelBiasAnalysisReport,
     latest: ModelBiasAnalysisReport,
@@ -30,6 +33,9 @@ pub fn model_bias_runtime_check(
     Ok(drift_report)
 }
 
+/// Performs a model bias runtime check restricted to a specific subset of metrics.
+/// Compares `latest` against `baseline` for only the metrics listed in `metrics`, flagging any
+/// that exceed `threshold` (expressed as a fractional percentage, e.g. `0.10` for 10%).
 pub fn model_bias_partial_runtime_check<V>(
     baseline: ModelBiasAnalysisReport,
     latest: ModelBiasAnalysisReport,
@@ -46,6 +52,10 @@ pub fn model_bias_partial_runtime_check<V>(
     Ok(drift_report)
 }
 
+/// Computes all post-training model bias metrics for a dataset.
+/// Accepts feature, prediction, and ground-truth data wrapped in `BiasDataPayload`, which
+/// carries the segmentation criteria used to split data into advantaged and disadvantaged groups.
+/// Returns a `ModelBiasAnalysisReport` containing all 12 supported model bias metrics.
 pub fn model_bias_analyzer<'a, F, P, G>(
     feature: BiasDataPayload<'a, F>,
     predictions: BiasDataPayload<'a, P>,

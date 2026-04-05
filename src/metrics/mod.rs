@@ -63,6 +63,8 @@ impl TryFrom<&[String]> for DataBiasMetricVec {
     }
 }
 
+/// New type wrapper for `Vec<ClassificationEvaluationMetric>` used specifically for logistic
+/// regression contexts, allowing `LogLoss` as a valid metric.
 #[derive(Debug)]
 pub struct LogisticRegressionMetricVec(Vec<ClassificationEvaluationMetric>);
 impl AsRef<[ClassificationEvaluationMetric]> for LogisticRegressionMetricVec {
@@ -96,6 +98,8 @@ impl TryFrom<&[String]> for LogisticRegressionMetricVec {
         Ok(LogisticRegressionMetricVec(map))
     }
 }
+/// New type wrapper for `Vec<LinearRegressionEvaluationMetric>`, used to validate and carry a
+/// set of linear regression metrics for runtime analysis.
 #[derive(Debug)]
 pub struct LinearRegressionMetricVec(Vec<LinearRegressionEvaluationMetric>);
 impl AsRef<[LinearRegressionEvaluationMetric]> for LinearRegressionMetricVec {
@@ -129,6 +133,8 @@ impl TryFrom<&[String]> for LinearRegressionMetricVec {
         Ok(LinearRegressionMetricVec(map))
     }
 }
+/// New type wrapper for `Vec<ClassificationEvaluationMetric>` for binary classification
+/// contexts. Rejects `LogLoss` as it is not applicable outside logistic regression.
 #[derive(Debug)]
 pub struct ClassificationMetricVec(Vec<ClassificationEvaluationMetric>);
 impl AsRef<[ClassificationEvaluationMetric]> for ClassificationMetricVec {
@@ -169,6 +175,8 @@ impl TryFrom<&[String]> for ClassificationMetricVec {
         Ok(ClassificationMetricVec(map))
     }
 }
+/// New type wrapper for `Vec<ModelBiasMetric>`, used to validate and carry a set of model bias
+/// metrics for runtime analysis.
 #[derive(Debug)]
 pub struct ModelBiasMetricVec(Vec<ModelBiasMetric>);
 impl AsRef<[ModelBiasMetric]> for ModelBiasMetricVec {
@@ -203,6 +211,7 @@ impl TryFrom<&[String]> for ModelBiasMetricVec {
     }
 }
 
+/// Pre-training data bias metrics supported by the crate.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub enum DataBiasMetric {
     ClassImbalance,
@@ -228,6 +237,8 @@ impl std::fmt::Display for DataBiasMetric {
     }
 }
 
+/// All supported data bias metrics. Useful when a full analysis is desired without manually
+/// specifying each variant.
 pub const FULL_DATA_BIAS_METRICS: [DataBiasMetric; 7] = [
     DataBiasMetric::ClassImbalance,
     DataBiasMetric::DifferenceInProportionOfLabels,
@@ -254,6 +265,7 @@ impl TryFrom<&str> for DataBiasMetric {
     }
 }
 
+/// Post-training model bias metrics supported by the crate.
 #[derive(Deserialize, Serialize, Hash, Eq, PartialEq, Debug)]
 pub enum ModelBiasMetric {
     DifferenceInPositivePredictedLabels,
@@ -295,6 +307,8 @@ impl std::fmt::Display for ModelBiasMetric {
     }
 }
 
+/// All supported model bias metrics. Useful when a full analysis is desired without manually
+/// specifying each variant.
 pub const FULL_MODEL_BIAS_METRICS: [ModelBiasMetric; 12] = [
     ModelBiasMetric::DifferenceInPositivePredictedLabels,
     ModelBiasMetric::DisparateImpact,
@@ -333,6 +347,7 @@ impl TryFrom<&str> for ModelBiasMetric {
     }
 }
 
+/// All supported linear regression evaluation metrics.
 pub const FULL_REGRESSION_METRICS: [LinearRegressionEvaluationMetric; 8] = [
     LinearRegressionEvaluationMetric::RootMeanSquaredError,
     LinearRegressionEvaluationMetric::MeanSquaredError,
@@ -344,6 +359,7 @@ pub const FULL_REGRESSION_METRICS: [LinearRegressionEvaluationMetric; 8] = [
     LinearRegressionEvaluationMetric::MeanAbsolutePercentageError,
 ];
 
+/// All supported logistic regression evaluation metrics, including `LogLoss`.
 pub const FULL_LOGISTIC_REGRESSION_METRICS: [ClassificationEvaluationMetric; 8] = [
     ClassificationEvaluationMetric::BalancedAccuracy,
     ClassificationEvaluationMetric::PrecisionPositive,
@@ -355,6 +371,7 @@ pub const FULL_LOGISTIC_REGRESSION_METRICS: [ClassificationEvaluationMetric; 8] 
     ClassificationEvaluationMetric::LogLoss,
 ];
 
+/// All supported binary classification evaluation metrics. Does not include `LogLoss`.
 pub const FULL_BINARY_CLASSIFICATION_METRICS: [ClassificationEvaluationMetric; 7] = [
     ClassificationEvaluationMetric::BalancedAccuracy,
     ClassificationEvaluationMetric::PrecisionPositive,
@@ -365,6 +382,8 @@ pub const FULL_BINARY_CLASSIFICATION_METRICS: [ClassificationEvaluationMetric; 7
     ClassificationEvaluationMetric::F1Score,
 ];
 
+/// Evaluation metrics for binary classification and logistic regression models.
+/// `LogLoss` is only valid for logistic regression.
 #[derive(Serialize, Deserialize, PartialEq, Hash, Eq, Debug)]
 pub enum ClassificationEvaluationMetric {
     BalancedAccuracy,
@@ -377,6 +396,7 @@ pub enum ClassificationEvaluationMetric {
     LogLoss,
 }
 
+/// Evaluation metrics for linear regression models.
 #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Debug)]
 pub enum LinearRegressionEvaluationMetric {
     RootMeanSquaredError,

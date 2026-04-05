@@ -3,6 +3,7 @@ use thiserror::Error;
 /// Result type for any operation that may return a `ModelPerformanceError`.
 pub type ModelPerfResult<T> = Result<T, ModelPerformanceError>;
 
+/// Errors that can occur during bias analysis and data segmentation.
 #[derive(Debug, Error, PartialEq)]
 pub enum BiasError {
     #[error("No deviation in behavior between facets")]
@@ -27,6 +28,7 @@ impl From<ModelPerformanceError> for BiasError {
     }
 }
 
+/// Errors that can occur during drift computation or streaming drift operations.
 #[derive(Debug, Error)]
 pub enum DriftError {
     #[error("Data used for runtime drift analysis must be non empty")]
@@ -47,6 +49,7 @@ pub enum DriftError {
     UnsupportedConfig,
 }
 
+/// Errors returned when an unrecognised metric name is passed to a metric conversion.
 #[derive(Debug, Error)]
 pub enum InvalidMetricError {
     #[error("Metrics: {0:?} are not supported")]
@@ -59,6 +62,7 @@ pub enum InvalidMetricError {
     RegressionMetricError(Vec<String>),
 }
 
+/// Errors returned when a required data bias metric is missing from a runtime report.
 #[derive(Debug, Error)]
 pub enum DataBiasRuntimeError {
     #[error("ClassImbalance not present")]
@@ -77,6 +81,7 @@ pub enum DataBiasRuntimeError {
     LpNorm,
 }
 
+/// Errors returned when a required model bias metric is missing from a runtime report.
 #[derive(Debug, Error)]
 pub enum ModelBiasRuntimeError {
     #[error("DifferenceInPositivePredictedLabels not present")]
@@ -105,6 +110,7 @@ pub enum ModelBiasRuntimeError {
     GeneralizedEntropy,
 }
 
+/// Errors that can occur during model performance analysis or runtime comparison.
 #[derive(Debug, Error)]
 pub enum ModelPerformanceError {
     #[error("Metric cannot be computed with given data")]

@@ -13,10 +13,9 @@ use crate::{
 };
 use std::collections::HashMap;
 
-/// Method to perform the runtime analysis against the baseline set for logisitc regression models.
-/// Takes in the baseline report, the runtime report, the metrics you are interested in evaluating on,
-/// and an acceptable drift percentage threshold. When a threshold is not passed, it defaults to 0.10,
-/// or a 10% drift threshold.
+/// Performs a runtime drift analysis for binary classification models against a stored baseline.
+/// Takes the baseline report, the latest report, the metrics to evaluate, and an acceptable drift
+/// percentage threshold. Defaults to 10% when no threshold is provided.
 pub fn classification_performance_runtime(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
@@ -32,10 +31,9 @@ pub fn classification_performance_runtime(
     ))
 }
 
-/// Method to perform the runtime analysis against the baseline set for logisitc regression models.
-/// Takes in the baseline report, the runtime report, the metrics you are interested in evaluating on,
-/// and an acceptable drift percentage threshold. When a threshold is not passed, it defaults to 0.10,
-/// or a 10% drift threshold.
+/// Performs a runtime drift analysis for logistic regression models against a stored baseline.
+/// Takes the baseline report, the latest report, the metrics to evaluate, and an acceptable drift
+/// percentage threshold. Defaults to 10% when no threshold is provided.
 pub fn logistic_performance_runtime(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
@@ -49,10 +47,9 @@ pub fn logistic_performance_runtime(
     Ok(DriftReport::from_runtime(res))
 }
 
-/// Method to perform the runtime analysis against the baseline set for linear regression models.
-/// Takes in the baseline report, the runtime report, the metrics you are interested in evaluating on,
-/// and an acceptable drift percentage threshold. When a threshold is not passed, it defaults to 0.10,
-/// or a 10% drift threshold.
+/// Performs a runtime drift analysis for linear regression models against a stored baseline.
+/// Takes the baseline report, the latest report, the metrics to evaluate, and an acceptable drift
+/// percentage threshold. Defaults to 10% when no threshold is provided.
 pub fn regression_performance_runtime(
     baseline: HashMap<String, f32>,
     latest: HashMap<String, f32>,
@@ -82,6 +79,8 @@ where
     Ok(report.into())
 }
 
+/// Computes all supported linear regression evaluation metrics for the provided true and predicted
+/// values. Both slices must be the same non-empty length.
 pub fn model_perf_linear_regression_analysis<T>(
     y_true: &[T],
     y_pred: &[T],
@@ -93,6 +92,10 @@ where
     Ok(report.into())
 }
 
+/// Computes all supported logistic regression evaluation metrics including `LogLoss`.
+/// `y_proba` should contain predicted probabilities in `[0, 1]`. `threshold` is used to convert
+/// probabilities to binary class predictions for threshold-dependent metrics. Both slices must be
+/// the same non-empty length.
 pub fn model_perf_logistic_regression_analysis(
     y_true: &[f32],
     y_proba: &[f32],

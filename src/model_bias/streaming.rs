@@ -255,6 +255,9 @@ where
         Ok(report)
     }
 
+    /// Generates a point in time drift report across all model bias metrics. Any metric whose
+    /// drift magnitude meets or exceeds the threshold (default `DEFAULT_DRIFT_THRESHOLD`) will be
+    /// included in the failed report. Returns an error when the runtime stream is empty.
     pub fn drift_report(
         &self,
         drift_threshold_opt: Option<f32>,
@@ -274,6 +277,8 @@ where
         ))
     }
 
+    /// Same as [`StreamingModelBias::drift_report`] but restricted to the provided subset of
+    /// metrics. Returns an error when the runtime stream is empty.
     pub fn drift_report_partial_metrics(
         &self,
         metrics: &[ModelBiasMetric],

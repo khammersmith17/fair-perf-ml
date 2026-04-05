@@ -412,6 +412,9 @@ impl LinearRegressionStreaming {
         let drift_report = rt.runtime_drift_report(&self.bl);
         Ok(drift_report)
     }
+    /// Generates a pass/fail drift report across all linear regression metrics. Any metric whose
+    /// drift meets or exceeds the threshold (default `DEFAULT_DRIFT_THRESHOLD`) is included in
+    /// the failed report. Returns an error when no runtime data has been accumulated.
     pub fn drift_report(
         &self,
         drift_threshold_opt: Option<f32>,
@@ -427,6 +430,8 @@ impl LinearRegressionStreaming {
         ))
     }
 
+    /// Same as [`LinearRegressionStreaming::drift_report`] but restricted to the provided subset
+    /// of metrics. Returns an error when no runtime data has been accumulated.
     pub fn drift_report_partial_metrics(
         &self,
         metrics: &[LinearRegressionEvaluationMetric],
@@ -546,6 +551,9 @@ where
         Ok(report)
     }
 
+    /// Generates a pass/fail drift report across all binary classification metrics. Any metric
+    /// whose drift meets or exceeds the threshold (default `DEFAULT_DRIFT_THRESHOLD`) is included
+    /// in the failed report. Returns an error when no runtime data has been accumulated.
     pub fn drift_report(
         &self,
         drift_threshold_opt: Option<f32>,
@@ -564,6 +572,8 @@ where
                 .collect(),
         ))
     }
+    /// Same as [`BinaryClassificationStreaming::drift_report`] but restricted to the provided
+    /// subset of metrics. Returns an error when no runtime data has been accumulated.
     pub fn drift_report_partial_metrics(
         &self,
         metrics: &[ClassificationEvaluationMetric],
@@ -712,6 +722,10 @@ impl LogisticRegressionStreaming {
         let report = rt.runtime_drift_report(&self.bl);
         Ok(report)
     }
+    /// Generates a pass/fail drift report across all logistic regression metrics including
+    /// `LogLoss`. Any metric whose drift meets or exceeds the threshold (default
+    /// `DEFAULT_DRIFT_THRESHOLD`) is included in the failed report. Returns an error when no
+    /// runtime data has been accumulated.
     pub fn drift_report(
         &self,
         drift_threshold_opt: Option<f32>,
@@ -732,6 +746,8 @@ impl LogisticRegressionStreaming {
                 .collect(),
         ))
     }
+    /// Same as [`LogisticRegressionStreaming::drift_report`] but restricted to the provided subset
+    /// of metrics. Returns an error when no runtime data has been accumulated.
     pub fn drift_report_partial_metrics(
         &self,
         metrics: &[ClassificationEvaluationMetric],

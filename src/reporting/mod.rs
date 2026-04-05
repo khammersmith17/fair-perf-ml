@@ -18,27 +18,32 @@ pub type BinaryClassificationAnalysisReport = HashMap<metrics::ClassificationEva
 pub type LinearRegressionAnalysisReport = HashMap<metrics::LinearRegressionEvaluationMetric, f32>;
 pub type LogisticRegressionAnalysisReport = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 
+/// Type aliases for drift snapshot payloads — point-in-time metric values captured before or
+/// after a runtime check, used as the inputs to runtime comparison functions.
 pub type ModelBiasDriftSnapshot = HashMap<metrics::ModelBiasMetric, f32>;
 pub type DataBiasDriftSnapshot = HashMap<metrics::DataBiasMetric, f32>;
 pub type BinaryClassificationDriftSnapshot = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 pub type LinearRegressionDriftSnapshot = HashMap<metrics::LinearRegressionEvaluationMetric, f32>;
 pub type LogisticRegressionDriftSnapshot = HashMap<metrics::ClassificationEvaluationMetric, f32>;
 
+/// Default drift threshold used when no explicit threshold is supplied (10% relative drift).
 pub const DEFAULT_DRIFT_THRESHOLD: f32 = 0.10;
 
+/// A single metric that drifted outside the acceptable threshold, paired with the magnitude
+/// of the drift observed.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct MetricDrift<T: metrics::MachineLearningMetric> {
     pub metric: T,
     pub drift: f32,
 }
 
-/// Type to return the results of a runtime "check". Runtime check is where the runtime data passed
-/// into any of the utilities is evaluted against the baseline set. This type contains a boolean
-/// pass/fail flag, which will be flipped true when any of the metrics drift outside the defined
-/// threshold, and false when all metrics are within the allowable drift threshold from the
-/// baseline. The failed_report will contain the metrics that drifted outside the allowable bounds
-/// and will contian the degree of drift. This type implements 'serde::Serialize' and
-/// 'serde::Deserialize' so the drift report payloads can be sent or loaded from external sources.
+/// Result of a runtime "check". A runtime check evaluates the runtime data passed into any of
+/// the utilities against the baseline set. This type contains a boolean pass/fail flag, which is
+/// `false` when any of the metrics drift outside the defined threshold, and `true` when all
+/// metrics are within the allowable drift threshold from the baseline. The `failed_report` field
+/// will contain the metrics that drifted outside the allowable bounds and the degree of drift.
+/// Implements `serde::Serialize` and `serde::Deserialize` so drift report payloads can be sent
+/// or loaded from external sources.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct DriftReport<T: metrics::MachineLearningMetric> {
     pub passed: bool,
