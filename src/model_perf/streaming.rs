@@ -400,7 +400,7 @@ impl LinearRegressionStreaming {
     /// flush or, in other words, when runtime state is empty.
     pub fn performance_snapshot(&self) -> ModelPerfResult<LinearRegressionAnalysisReport> {
         let rt = LinearRegressionRuntime::runtime_from_parts(&self.rt_buckets)?;
-        Ok(rt.generate_report())
+        Ok(rt.into())
     }
 
     /// Compute a point in time snapshot, describing the drift across all built in metrics. Returns
@@ -592,7 +592,7 @@ where
             return Err(ModelPerformanceError::EmptyDataVector);
         }
         let rt = BinaryClassificationRuntime::runtime_from_parts(&self.confusion_rt);
-        Ok(rt.generate_report())
+        Ok(rt.into())
     }
 
     /// Clear the runtime stream.
@@ -763,7 +763,7 @@ impl LogisticRegressionStreaming {
 
         let log_loss = self.log_penalties.compute(n);
         let rt = LogisticRegressionRuntime::runtime_from_parts(&self.confusion_rt, log_loss)?;
-        Ok(rt.generate_report())
+        Ok(rt.into())
     }
 
     /// Reset the baseline state in the stream with new baseline examples. This will leverage the same
@@ -1062,7 +1062,7 @@ mod test_perf_streaming {
 
         let mut streaming = LinearRegressionStreaming::new(&y_true, &y_pred).unwrap();
         streaming.push_batch(&y_true, &y_pred).unwrap();
-        let base = TestLinearRegressionReport(true_bl.generate_report());
+        let base = TestLinearRegressionReport(true_bl.clone().into());
         let test = TestLinearRegressionReport(streaming.performance_snapshot().unwrap());
         assert_eq!(base, test);
     }
@@ -1109,7 +1109,7 @@ mod test_perf_streaming {
             accuracy: 0.6875,
             f1_score: 0.70588235,
         };
-        let base = TestBinaryClassificationAnalysisReport(true_bl.generate_report());
+        let base = TestBinaryClassificationAnalysisReport(true_bl.clone().into());
         let test =
             TestBinaryClassificationAnalysisReport(streaming.performance_snapshot().unwrap());
         assert_eq!(base, test);
@@ -1164,21 +1164,38 @@ mod test_perf_streaming {
         };
 
         streaming.push_batch(&y_true, &y_pred).unwrap();
-        let base = TestLogisticRegressionAnalysisReport(true_bl.generate_report());
+        let base = TestLogisticRegressionAnalysisReport(true_bl.clone().into());
         let test = TestLogisticRegressionAnalysisReport(streaming.performance_snapshot().unwrap());
         assert_eq!(base, test);
     }
 
     // Shared data helpers
 
-    fn bin_true() -> Vec<i32> { vec![1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1] }
-    fn bin_pred() -> Vec<i32> { vec![1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1] }
+    fn bin_true() -> Vec<i32> {
+        vec![1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1]
+    }
+    fn bin_pred() -> Vec<i32> {
+        vec![1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1]
+    }
 
-    fn reg_true() -> Vec<f32> { vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6] }
-    fn reg_pred() -> Vec<f32> { vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0] }
+    fn reg_true() -> Vec<f32> {
+        vec![11.0, 12.5, 14.0, 11.7, 15.1, 15.4, 13.2, 11.5, 11.6]
+    }
+    fn reg_pred() -> Vec<f32> {
+        vec![11.1, 12.2, 13.4, 10.7, 15.8, 16.3, 14.5, 12.3, 11.0]
+    }
 
-    fn log_true() -> Vec<f32> { vec![0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0] }
-    fn log_pred() -> Vec<f32> { vec![0.7, 0.3, 0.65, 0.55, 0.1, 0.2, 0.25, 0.66, 0.12, 0.98, 0.23, 0.34, 0.67, 0.77, 0.45, 0.88] }
+    fn log_true() -> Vec<f32> {
+        vec![
+            0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0,
+        ]
+    }
+    fn log_pred() -> Vec<f32> {
+        vec![
+            0.7, 0.3, 0.65, 0.55, 0.1, 0.2, 0.25, 0.66, 0.12, 0.98, 0.23, 0.34, 0.67, 0.77, 0.45,
+            0.88,
+        ]
+    }
 
     // --- LinearRegressionStreaming ---
 
@@ -1237,7 +1254,9 @@ mod test_perf_streaming {
         use crate::metrics::LinearRegressionEvaluationMetric as LRM;
         let mut s = LinearRegressionStreaming::new(&reg_true(), &reg_pred()).unwrap();
         s.push_batch(&reg_true(), &reg_pred()).unwrap();
-        let report = s.drift_report_partial_metrics(&[LRM::MeanAbsoluteError], Some(1e6)).unwrap();
+        let report = s
+            .drift_report_partial_metrics(&[LRM::MeanAbsoluteError], Some(1e6))
+            .unwrap();
         assert!(report.passed);
     }
 
@@ -1311,7 +1330,9 @@ mod test_perf_streaming {
         use crate::metrics::ClassificationEvaluationMetric as CM;
         let mut s = BinaryClassificationStreaming::new(1, &bin_true(), &bin_pred()).unwrap();
         s.push_batch(&bin_true(), &bin_pred()).unwrap();
-        let report = s.drift_report_partial_metrics(&[CM::Accuracy], Some(1e6)).unwrap();
+        let report = s
+            .drift_report_partial_metrics(&[CM::Accuracy], Some(1e6))
+            .unwrap();
         assert!(report.passed);
     }
 
@@ -1373,7 +1394,9 @@ mod test_perf_streaming {
         use crate::metrics::ClassificationEvaluationMetric as CM;
         let mut s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), None).unwrap();
         s.push_batch(&log_true(), &log_pred()).unwrap();
-        let report = s.drift_report_partial_metrics(&[CM::Accuracy], Some(1e6)).unwrap();
+        let report = s
+            .drift_report_partial_metrics(&[CM::Accuracy], Some(1e6))
+            .unwrap();
         assert!(report.passed);
     }
 
@@ -1392,6 +1415,8 @@ mod test_perf_streaming {
     #[test]
     fn log_reg_reset_baseline_and_decision_threshold() {
         let mut s = LogisticRegressionStreaming::new(&log_true(), &log_pred(), Some(0.5)).unwrap();
-        assert!(s.reset_baseline_and_decision_threshold(&log_true(), &log_pred(), 0.6).is_ok());
+        assert!(s
+            .reset_baseline_and_decision_threshold(&log_true(), &log_pred(), 0.6)
+            .is_ok());
     }
 }

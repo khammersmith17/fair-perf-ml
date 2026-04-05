@@ -23,6 +23,7 @@ python = [
   "numpy",
   "rust-numpy",
 ]
+rust = []
 
 [dependencies]
 ahash = "0.8.12"

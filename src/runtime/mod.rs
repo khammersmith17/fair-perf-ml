@@ -22,6 +22,14 @@ use std::collections::HashMap;
 
 pub(crate) const EQUALITY_ERROR_ALLOWANCE: f32 = 1e-5;
 
+/// Struct for all offered Data Bias Observability metrics.
+/// ci: Class Imbalance [-1, 1]
+/// dpl: Difference in Proportion of labels [-1, 1
+/// kl: Kullback-Leibler Divergence [0, inf)
+/// js: Jensen-Shannon Divergence [0, inf)
+/// lpnorm: p Norm [0, inf)
+/// tvd: Total Variation Distance [0, inf)
+/// ks: Kolmogorov-Smirnov [0, 1]
 #[derive(Debug, PartialEq, Clone)]
 pub struct DataBiasRuntime {
     pub(crate) ci: f32,
@@ -77,6 +85,20 @@ impl TryFrom<HashMap<String, f32>> for DataBiasRuntime {
     }
 }
 
+impl Into<DataBiasAnalysisReport> for DataBiasRuntime {
+    fn into(self) -> DataBiasAnalysisReport {
+        let mut result = DataBiasAnalysisReport::with_capacity(7);
+        result.insert(DataBiasMetric::ClassImbalance, self.ci);
+        result.insert(DataBiasMetric::DifferenceInProportionOfLabels, self.dpl);
+        result.insert(DataBiasMetric::KlDivergence, self.kl);
+        result.insert(DataBiasMetric::JsDivergence, self.js);
+        result.insert(DataBiasMetric::LpNorm, self.lpnorm);
+        result.insert(DataBiasMetric::TotalVariationDistance, self.tvd);
+        result.insert(DataBiasMetric::KolmogorovSmirnov, self.ks);
+        result
+    }
+}
+
 impl TryFrom<DataBiasAnalysisReport> for DataBiasRuntime {
     type Error = DataBiasRuntimeError;
     fn try_from(data: DataBiasAnalysisReport) -> Result<Self, Self::Error> {
@@ -122,11 +144,6 @@ impl TryFrom<DataBiasAnalysisReport> for DataBiasRuntime {
     }
 }
 
-/*
-* TODO: for class imbalance, dpl
-*
-* need to decide if absolute magnitude or drift is the condition to check on
-* */
 impl DataBiasRuntime {
     pub(crate) fn new_from_pre_training(
         pre_training: &PreTraining,
@@ -142,6 +159,11 @@ impl DataBiasRuntime {
             ks: metrics::kolmogorov_smirnov(pre_training)?,
         })
     }
+
+    /// Perform a runtime check. Evaluates the runtime data against the baseline date to derive
+    /// drift for the metrics provided.
+    /// Drift is determine by the percent difference in absolute magnitude of the metric being considered
+    /// relative to the provided threshold.
     pub fn runtime_check(
         &self,
         baseline: DataBiasRuntime,
@@ -200,6 +222,10 @@ impl DataBiasRuntime {
         result
     }
 
+    /// Perform a runtime check. Evaluates the runtime data against the baseline date to derive
+    /// drift for all supported drift metrics.
+    /// Drift is determine by the percent difference in absolute magnitude of the metric being considered
+    /// relative to the provided threshold.
     pub fn runtime_drift_report(&self, baseline: &DataBiasRuntime) -> DataBiasRuntimeReport {
         let eps = crate::metrics::get_stability_eps() as f32;
         let mut result = DataBiasRuntimeReport::with_capacity(7);
@@ -234,27 +260,30 @@ impl DataBiasRuntime {
 
         result
     }
-
-    pub(crate) fn generate_report(&self) -> DataBiasAnalysisReport {
-        let mut result = DataBiasAnalysisReport::with_capacity(7);
-        result.insert(DataBiasMetric::ClassImbalance, self.ci);
-        result.insert(DataBiasMetric::DifferenceInProportionOfLabels, self.dpl);
-        result.insert(DataBiasMetric::KlDivergence, self.kl);
-        result.insert(DataBiasMetric::JsDivergence, self.js);
-        result.insert(DataBiasMetric::LpNorm, self.lpnorm);
-        result.insert(DataBiasMetric::TotalVariationDistance, self.tvd);
-        result.insert(DataBiasMetric::KolmogorovSmirnov, self.ks);
-        result
-    }
 }
 
+/// Struct to hold metric computations for Model Bias supported metrics.
+/// ddpl: Difference in Positive Proportions in Predicted Labels - [-1, 1] for labeled data, [-inf,
+/// inf] for continuous data
+/// di: Disparate Impact [0, inf)
+/// ad: Accuracy Difference [-1, 1]
+/// ccdpl: Conditional Demographic Disparity in Predicted Labels - [-1, 1]
+/// rd: Recall Difference - [-1, 1]
+/// dcacc: Difference in Conditional Acceptance - (-inf, inf)
+/// dar: Differnce in Accpetance Rate - [-1, 1]
+/// sd: Speciality Difference - [-1, 1]
+/// dcr: Difference in Conditional Rejection - (-inf, inf)
+/// drr: Difference in Rejection Rate - [-1, 1]
+/// te: Treatment Equity - (-inf, inf)
+/// ccdpl: Conditional Demographic Disparity in Predicted Labels - [-1, 1]
+/// ge: Generalized Entropy - (0, 0.5)
 #[derive(Debug, Clone)]
 pub struct ModelBiasRuntime {
     ddpl: f32,
     di: f32,
     ad: f32,
     rd: f32,
-    cdacc: f32,
+    dcacc: f32,
     dar: f32,
     sd: f32,
     dcr: f32,
@@ -276,7 +305,7 @@ impl ModelBiasRuntime {
             di: stats::disparate_impact(post_training)?,
             ad: stats::accuracy_difference(post_training),
             rd: stats::recall_difference(post_training),
-            cdacc: stats::diff_in_cond_acceptance(post_training)?,
+            dcacc: stats::diff_in_cond_acceptance(post_training)?,
             dar: stats::diff_in_acceptance_rate(post_training),
             sd: stats::specailty_difference(post_training),
             dcr: stats::diff_in_cond_rejection(post_training)?,
@@ -287,6 +316,10 @@ impl ModelBiasRuntime {
         })
     }
 
+    /// Perform a runtime check. Evaluates the runtime data against the baseline date to derive
+    /// drift for all supported drift metrics.
+    /// Drift is determine by the percent difference in absolute magnitude of the metric being considered
+    /// relative to the provided threshold.
     pub(crate) fn runtime_drift_report(&self, bl: &Self) -> ModelBiasRuntimeReport {
         let mut report = ModelBiasRuntimeReport::with_capacity(12);
         report.insert(
@@ -307,7 +340,7 @@ impl ModelBiasRuntime {
         );
         report.insert(
             ModelBiasMetric::DifferenceInConditionalAcceptance,
-            (self.cdacc - bl.cdacc).abs() / bl.cdacc.abs(),
+            (self.dcacc - bl.dcacc).abs() / bl.dcacc.abs(),
         );
         report.insert(
             ModelBiasMetric::DifferenceInAcceptanceRate,
@@ -340,36 +373,10 @@ impl ModelBiasRuntime {
         report
     }
 
-    pub(crate) fn generate_report(&self) -> ModelBiasAnalysisReport {
-        let mut report = ModelBiasAnalysisReport::with_capacity(12);
-        report.insert(
-            ModelBiasMetric::DifferenceInPositivePredictedLabels,
-            self.ddpl,
-        );
-        report.insert(ModelBiasMetric::DisparateImpact, self.di);
-        report.insert(ModelBiasMetric::AccuracyDifference, self.ad);
-        report.insert(ModelBiasMetric::RecallDifference, self.rd);
-        report.insert(
-            ModelBiasMetric::DifferenceInConditionalAcceptance,
-            self.cdacc,
-        );
-        report.insert(ModelBiasMetric::DifferenceInAcceptanceRate, self.dar);
-        report.insert(ModelBiasMetric::SpecialityDifference, self.sd);
-        report.insert(ModelBiasMetric::DifferenceInConditionalRejection, self.dcr);
-        report.insert(ModelBiasMetric::DifferenceInRejectionRate, self.drr);
-        report.insert(ModelBiasMetric::TreatmentEquity, self.te);
-        report.insert(
-            ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels,
-            self.ccdpl,
-        );
-        report.insert(ModelBiasMetric::GeneralizedEntropy, self.ge);
-        report
-    }
-    /*
-     * TODO: for dppl, cddpl, ad, rd, cdacc, dar, sd, dcr, drr, te
-     *
-     * need to decide if absolute magnitude or drift is the condition to check on
-     * */
+    /// Perform a runtime check. Evaluates the runtime data against the baseline date to derive
+    /// drift for provided drift metrics.
+    /// Drift is determine by the percent difference in absolute magnitude of the metric being considered
+    /// relative to the provided threshold.
     pub fn runtime_check(
         &self,
         baseline: ModelBiasRuntime,
@@ -410,10 +417,10 @@ impl ModelBiasRuntime {
                     }
                 }
                 ModelBiasMetric::DifferenceInConditionalAcceptance => {
-                    if self.cdacc.abs() > baseline.cdacc.abs() * (1_f32 + threshold) {
+                    if self.dcacc.abs() > baseline.dcacc.abs() * (1_f32 + threshold) {
                         result.insert(
                             M::DifferenceInConditionalAcceptance,
-                            (self.cdacc.abs() - baseline.cdacc.abs()).abs(),
+                            (self.dcacc.abs() - baseline.dcacc.abs()).abs(),
                         );
                     }
                 }
@@ -477,6 +484,34 @@ impl ModelBiasRuntime {
     }
 }
 
+impl Into<ModelBiasAnalysisReport> for ModelBiasRuntime {
+    fn into(self) -> ModelBiasAnalysisReport {
+        let mut report = ModelBiasAnalysisReport::with_capacity(12);
+        report.insert(
+            ModelBiasMetric::DifferenceInPositivePredictedLabels,
+            self.ddpl,
+        );
+        report.insert(ModelBiasMetric::DisparateImpact, self.di);
+        report.insert(ModelBiasMetric::AccuracyDifference, self.ad);
+        report.insert(ModelBiasMetric::RecallDifference, self.rd);
+        report.insert(
+            ModelBiasMetric::DifferenceInConditionalAcceptance,
+            self.dcacc,
+        );
+        report.insert(ModelBiasMetric::DifferenceInAcceptanceRate, self.dar);
+        report.insert(ModelBiasMetric::SpecialityDifference, self.sd);
+        report.insert(ModelBiasMetric::DifferenceInConditionalRejection, self.dcr);
+        report.insert(ModelBiasMetric::DifferenceInRejectionRate, self.drr);
+        report.insert(ModelBiasMetric::TreatmentEquity, self.te);
+        report.insert(
+            ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels,
+            self.ccdpl,
+        );
+        report.insert(ModelBiasMetric::GeneralizedEntropy, self.ge);
+        report
+    }
+}
+
 impl TryFrom<ModelBiasAnalysisReport> for ModelBiasRuntime {
     type Error = ModelBiasRuntimeError;
     fn try_from(data: ModelBiasAnalysisReport) -> Result<Self, Self::Error> {
@@ -497,7 +532,7 @@ impl TryFrom<ModelBiasAnalysisReport> for ModelBiasRuntime {
             Some(val) => *val,
             None => return Err(ModelBiasRuntimeError::RecallDifference),
         };
-        let cdacc = match data.get(&M::DifferenceInConditionalAcceptance) {
+        let dcacc = match data.get(&M::DifferenceInConditionalAcceptance) {
             Some(val) => *val,
             None => return Err(ModelBiasRuntimeError::DifferenceInConditionalAcceptance),
         };
@@ -536,7 +571,7 @@ impl TryFrom<ModelBiasAnalysisReport> for ModelBiasRuntime {
             di,
             ad,
             rd,
-            cdacc,
+            dcacc,
             dar,
             sd,
             dcr,
@@ -567,7 +602,7 @@ impl TryFrom<HashMap<String, f32>> for ModelBiasRuntime {
             Some(val) => *val,
             None => return Err(ModelBiasRuntimeError::RecallDifference),
         };
-        let cdacc = match data.get("DifferenceInConditionalAcceptance") {
+        let dcacc = match data.get("DifferenceInConditionalAcceptance") {
             Some(val) => *val,
             None => return Err(ModelBiasRuntimeError::DifferenceInConditionalAcceptance),
         };
@@ -606,7 +641,7 @@ impl TryFrom<HashMap<String, f32>> for ModelBiasRuntime {
             di,
             ad,
             rd,
-            cdacc,
+            dcacc,
             dar,
             sd,
             dcr,
@@ -801,8 +836,8 @@ impl BinaryClassificationRuntime {
     }
 }
 
-impl BinaryClassificationRuntime {
-    pub fn generate_report(&self) -> BinaryClassificationAnalysisReport {
+impl Into<BinaryClassificationAnalysisReport> for BinaryClassificationRuntime {
+    fn into(self) -> BinaryClassificationAnalysisReport {
         use ClassificationEvaluationMetric as C;
         let mut map: HashMap<C, f32> = HashMap::with_capacity(7);
         map.insert(C::BalancedAccuracy, self.balanced_accuracy);
@@ -1014,8 +1049,8 @@ impl LogisticRegressionRuntime {
     }
 }
 
-impl LogisticRegressionRuntime {
-    pub fn generate_report(&self) -> LogisticRegressionAnalysisReport {
+impl Into<LogisticRegressionAnalysisReport> for LogisticRegressionRuntime {
+    fn into(self) -> LogisticRegressionAnalysisReport {
         use ClassificationEvaluationMetric as M;
         let mut map: HashMap<M, f32> = HashMap::with_capacity(8);
         map.insert(M::BalancedAccuracy, self.balanced_accuracy);
@@ -1325,8 +1360,9 @@ impl LinearRegressionRuntime {
         result.insert(L::MeanAbsolutePercentageError, (bl.mape - self.mape).abs());
         result
     }
-
-    pub fn generate_report(&self) -> LinearRegressionAnalysisReport {
+}
+impl Into<LinearRegressionAnalysisReport> for LinearRegressionRuntime {
+    fn into(self) -> LinearRegressionAnalysisReport {
         use LinearRegressionEvaluationMetric as L;
         let mut map: HashMap<L, f32> = HashMap::with_capacity(8);
         map.insert(L::RootMeanSquaredError, self.rmse);
@@ -1438,7 +1474,7 @@ mod runtime_container_tests {
             tvd: 0.6_f32,
             ks: 0.7_f32,
         };
-        let report = rt.generate_report();
+        let report: DataBiasAnalysisReport = rt.clone().into();
         let rt2 = DataBiasRuntime::try_from(report).unwrap();
         assert_eq!(rt, rt2);
     }
@@ -1571,7 +1607,7 @@ mod runtime_container_tests {
             accuracy: 0.84_f32,
             f1_score: 0.79_f32,
         };
-        let report = rt.generate_report();
+        let report = rt.clone().into();
         let rt2 = BinaryClassificationRuntime::try_from(&report).unwrap();
         assert_eq!(rt, rt2);
     }
@@ -1689,7 +1725,7 @@ mod runtime_container_tests {
             rmsle: 0.17_f32,
             mape: 0.06_f32,
         };
-        let report = rt.generate_report();
+        let report: LinearRegressionAnalysisReport = rt.clone().into();
         let rt2 = LinearRegressionRuntime::try_from(&report).unwrap();
         assert_eq!(rt, rt2);
     }
@@ -1982,7 +2018,7 @@ mod runtime_coverage_tests {
     #[test]
     fn model_bias_runtime_generate_report_round_trip() {
         let rt = ModelBiasRuntime::try_from(model_bias_report(0.4)).unwrap();
-        let report = rt.generate_report();
+        let report: ModelBiasAnalysisReport = rt.clone().into();
         let rt2 = ModelBiasRuntime::try_from(report).unwrap();
         assert_eq!(rt.ddpl, rt2.ddpl);
         assert_eq!(rt.ge, rt2.ge);
@@ -2038,7 +2074,8 @@ mod runtime_coverage_tests {
 
     #[test]
     fn binary_classification_runtime_from_report_missing_key_returns_error() {
-        let mut report = binary_classification_runtime(0.8).generate_report();
+        let mut report: BinaryClassificationAnalysisReport =
+            binary_classification_runtime(0.8).into();
         report.remove(&C::F1Score);
         assert!(BinaryClassificationRuntime::try_from(&report).is_err());
     }
@@ -2075,14 +2112,14 @@ mod runtime_coverage_tests {
     #[test]
     fn logistic_regression_runtime_generate_report_round_trip() {
         let rt = logistic_regression_runtime(0.7);
-        let report = rt.generate_report();
+        let report = rt.clone().into();
         let rt2 = LogisticRegressionRuntime::try_from(&report).unwrap();
         assert_eq!(rt, rt2);
     }
 
     #[test]
     fn logistic_regression_runtime_from_report_missing_key_returns_error() {
-        let mut report = logistic_regression_runtime(0.7).generate_report();
+        let mut report: LogisticRegressionAnalysisReport = logistic_regression_runtime(0.7).into();
         report.remove(&C::LogLoss);
         assert!(LogisticRegressionRuntime::try_from(&report).is_err());
     }
@@ -2130,7 +2167,7 @@ mod runtime_coverage_tests {
 
     #[test]
     fn linear_regression_runtime_from_report_missing_key_returns_error() {
-        let mut report = linear_regression_runtime(0.5).generate_report();
+        let mut report: LinearRegressionAnalysisReport = linear_regression_runtime(0.5).into();
         report.remove(&L::MaxError);
         assert!(LinearRegressionRuntime::try_from(&report).is_err());
     }
@@ -2198,7 +2235,7 @@ mod test_runtime_containers {
         assert_eq!(mb_rt.di, 1.184210526_f32);
         assert_eq!(mb_rt.ad, (10_f32 / 19_f32) - (9_f32 / 18_f32));
         assert_eq!(mb_rt.rd, (4_f32 / 8_f32) - (5_f32 / 11_f32));
-        assert_eq!(mb_rt.cdacc, (10_f32 / 8_f32) - 1_f32);
+        assert_eq!(mb_rt.dcacc, (10_f32 / 8_f32) - 1_f32);
         assert_eq!(mb_rt.dar, (4_f32 / 9_f32) - (5_f32 / 8_f32));
         assert_eq!(mb_rt.sd, (6_f32 / 11_f32) - (4_f32 / 7_f32));
     }

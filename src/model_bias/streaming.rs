@@ -303,7 +303,7 @@ where
         }
         let rt_ge = self.ge.ge_snapshot();
         let rt_snapshot = ModelBiasRuntime::new_from_post_training(&self.rt, rt_ge)?;
-        Ok(rt_snapshot.generate_report())
+        Ok(rt_snapshot.into())
     }
 }
 
@@ -507,7 +507,7 @@ mod model_bias_strming_tests {
             .push_batch(&feat_bl_data, &pred_bl_data, &gt_bl_data)
             .unwrap();
 
-        let base = TestModelBiasAnalysisReport(stream.bl.generate_report());
+        let base = TestModelBiasAnalysisReport(stream.bl.clone().into());
         let test = TestModelBiasAnalysisReport(stream.performance_snapshot().unwrap());
         assert_eq!(base, test);
     }
@@ -653,7 +653,7 @@ mod model_bias_strming_tests {
             .push_batch(&feat_bl_data, &pred_bl_data, &gt_bl_data)
             .unwrap();
 
-        let base = TestModelBiasAnalysisReport(stream.bl.generate_report());
+        let base = TestModelBiasAnalysisReport(stream.bl.clone().into());
         let test = TestModelBiasAnalysisReport(stream.performance_snapshot().unwrap());
         assert_eq!(base, test);
     }

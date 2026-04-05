@@ -79,7 +79,7 @@ where
     T: PartialOrd,
 {
     let report = BinaryClassificationRuntime::new::<T>(y_true, y_pred, &positive_label)?;
-    Ok(report.generate_report())
+    Ok(report.into())
 }
 
 pub fn model_perf_linear_regression_analysis<T>(
@@ -90,7 +90,7 @@ where
     T: Into<f64> + Copy,
 {
     let report: LinearRegressionRuntime = LinearRegressionRuntime::new(y_true, y_pred)?;
-    Ok(report.generate_report())
+    Ok(report.into())
 }
 
 pub fn model_perf_logistic_regression_analysis(
@@ -100,7 +100,7 @@ pub fn model_perf_logistic_regression_analysis(
 ) -> Result<LogisticRegressionAnalysisReport, ModelPerformanceError> {
     let lr_report: LogisticRegressionRuntime =
         LogisticRegressionRuntime::new(y_true, y_proba, threshold)?;
-    Ok(lr_report.generate_report())
+    Ok(lr_report.into())
 }
 
 #[cfg(test)]

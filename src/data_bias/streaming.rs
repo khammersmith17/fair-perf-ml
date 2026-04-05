@@ -261,7 +261,7 @@ where
             return Err(ModelPerformanceError::EmptyDataVector);
         }
         let curr_rt = DataBiasRuntime::new_from_pre_training(&self.rt)?;
-        Ok(curr_rt.generate_report())
+        Ok(curr_rt.into())
     }
 }
 
