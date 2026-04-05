@@ -44,7 +44,7 @@ source = "https://github.com/khammersmith17/fair-perf-ml"
 documentation = "https://github.com/khammersmith17/fair-perf-ml"
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+features = ["python"]
 python-source = "python"
 module-name = "fair_perf_ml._fair_perf_ml"
 

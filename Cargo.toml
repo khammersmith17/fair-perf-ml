@@ -12,7 +12,7 @@ repository = "https://github.com/khammersmith17/fair-perf-ml"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "fair_perf_ml"
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib"]
 
 
 [features]
@@ -23,7 +23,6 @@ python = [
   "numpy",
   "rust-numpy",
 ]
-rust = []
 
 [dependencies]
 ahash = "0.8.12"
