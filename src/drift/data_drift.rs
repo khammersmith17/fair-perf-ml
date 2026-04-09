@@ -11,28 +11,6 @@ use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::time::{Duration, Instant};
 
-/// Selects the window management strategy for streaming drift detectors.
-///
-/// - `Flush`: accumulates data until a sample count (`size`) or time (`cadence`) threshold is
-///   reached, then hard-resets the stream window.
-/// - `ExponentialDecay`: applies α = 0.5^(1/half_life) to bin counts on each drift computation,
-///   giving a recency-weighted view with no hard reset.
-#[non_exhaustive]
-#[derive(Debug)]
-pub enum StreamingDriftMode {
-    Flush { size: u64, cadence: u64 },
-    ExponentialDecay(NonZeroU64),
-}
-
-impl Default for StreamingDriftMode {
-    fn default() -> StreamingDriftMode {
-        StreamingDriftMode::Flush {
-            size: DEFAULT_MAX_STREAM_SIZE,
-            cadence: DEFAULT_STREAM_FLUSH_CADENCE,
-        }
-    }
-}
-
 #[derive(Debug)]
 enum StreamModeInner {
     Flush {
@@ -41,22 +19,6 @@ enum StreamModeInner {
         last_flush_ts: Instant,
     },
     ExponentialDecay(f64),
-}
-
-impl From<StreamingDriftMode> for StreamModeInner {
-    fn from(mode: StreamingDriftMode) -> StreamModeInner {
-        match mode {
-            StreamingDriftMode::Flush { size, cadence } => StreamModeInner::Flush {
-                size: size as f64,
-                cadence: Duration::new(cadence, 0),
-                last_flush_ts: Instant::now(),
-            },
-            StreamingDriftMode::ExponentialDecay(half_life) => {
-                let hl = half_life.get();
-                StreamModeInner::ExponentialDecay(0.5_f64.powf(1_f64 / hl as f64))
-            }
-        }
-    }
 }
 
 impl StreamModeInner {
