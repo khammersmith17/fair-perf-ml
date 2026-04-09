@@ -100,7 +100,7 @@ def model_bias_perform_analysis[
 
 
 def model_bias_runtime_comparison(
-    baseline: AnalysisReport, comparison: AnalysisReport, threshold: float | None = 0.10
+    baseline: AnalysisReport, comparison: AnalysisReport, threshold: float = 0.10
 ) -> DriftReport:
     """
     Evaluates a runtime analysis report for drift relative to the baseline, on all metrics

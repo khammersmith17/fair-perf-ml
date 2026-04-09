@@ -81,7 +81,7 @@ def _cast_to_numpy_float_arr(arr: FloatingPointDataSlice) -> NDArray:
     return arr
 
 
-def _cast_to_string_iterable(arr: Sequence[StringBound]) -> Sequence[str]:
+def _cast_to_string_iterable(arr: Sequence[StringBound]) -> list[str]:
     """
     Iterable of something that can be casted to a string to a Iterable[str].
     """

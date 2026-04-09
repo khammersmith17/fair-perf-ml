@@ -186,11 +186,11 @@ pub(crate) mod py_api {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (y_pred_src, y_true_src))]
+    #[pyo3(signature = (y_true_src, y_pred_src))]
     pub fn py_model_perf_linear_regression<'py>(
         py: Python<'py>,
-        y_pred_src: &Bound<'_, PyUntypedArray>,
         y_true_src: &Bound<'_, PyUntypedArray>,
+        y_pred_src: &Bound<'_, PyUntypedArray>,
     ) -> PyResult<Bound<'py, PyDict>> {
         let Ok((y_true, y_pred)) = validate_and_cast_regression(py, y_true_src, y_pred_src) else {
             return Err(PyValueError::new_err("Invalid types passed"));

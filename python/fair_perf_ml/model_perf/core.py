@@ -94,7 +94,7 @@ def linear_regression_analysis(
 def logistic_regression_analysis(
     y_true: FloatingPointDataSlice,
     y_pred: FloatingPointDataSlice,
-    decision_threshold: float | None = 0.5,
+    decision_threshold: float = 0.5,
 ) -> ModelPerformanceReport:
     """
     Analysis for a logistic regression model type.
