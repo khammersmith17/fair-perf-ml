@@ -153,8 +153,8 @@ pub(crate) mod py_api {
         y_true_src: &Bound<'_, PyUntypedArray>,
         y_pred_src: &Bound<'_, PyUntypedArray>,
     ) -> Result<(Vec<f32>, Vec<f32>), PyErr> {
-        let y_true: Vec<f32> = convert_f32(py, y_pred_src, determine_type(py, y_true_src))?;
-        let y_pred: Vec<f32> = convert_f32(py, y_true_src, determine_type(py, y_pred_src))?;
+        let y_true: Vec<f32> = convert_f32(py, y_true_src, determine_type(py, y_true_src))?;
+        let y_pred: Vec<f32> = convert_f32(py, y_pred_src, determine_type(py, y_pred_src))?;
         Ok((y_true, y_pred))
     }
 
