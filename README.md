@@ -39,93 +39,21 @@ When I have more time, I will write a better wiki as documentation, but for now 
 
 Batch pre-training bias analysis on feature and ground truth data.
 
-- **`perform_analysis(feature, ground_truth, feature_label_or_threshold, ground_truth_label_or_threshold) -> dict[str, float]`**
-    - `feature: list[str | float | int] | NDArray` — feature values
-    - `ground_truth: list[str | float | int] | NDArray` — ground truth values
-    - `feature_label_or_threshold: str | float | int` — segmentation parameter for the feature
-    - `ground_truth_label_or_threshold: str | float | int` — segmentation parameter for the ground truth
-
-- **`runtime_comparison(baseline, latest, threshold=0.10) -> DriftReport`**
-    - `baseline: dict[str, float]` — result from `perform_analysis` on baseline data
-    - `latest: dict[str, float]` — result from `perform_analysis` on runtime data
-    - `threshold: float | None` — maximum allowable per-metric drift
-
-- **`partial_runtime_comparison(baseline, latest, metrics, threshold=0.10) -> DriftReport`**
-    - Same as `runtime_comparison` but scoped to `metrics: list[DataBiasDriftMetric]`
-
 ---
 
 ### bias.model_bias
 
 Batch post-training bias analysis on feature, ground truth, and prediction data.
-
-- **`perform_analysis(feature, ground_truth, predictions, feature_label_or_threshold, ground_truth_label_or_threshold, prediction_label_or_threshold) -> dict[str, float]`**
-    - `feature: list[str | float | int] | NDArray`
-    - `ground_truth: list[str | float | int] | NDArray`
-    - `predictions: list[str | float | int] | NDArray`
-    - `feature_label_or_threshold: str | float | int`
-    - `ground_truth_label_or_threshold: str | float | int`
-    - `prediction_label_or_threshold: str | float | int`
-
-- **`runtime_comparison(baseline, comparison, threshold=0.10) -> DriftReport`**
-    - `baseline: dict` — result from `perform_analysis` on baseline data
-    - `comparison: dict` — result from `perform_analysis` on runtime data
-    - `threshold: float | None` — maximum allowable per-metric drift
-
-- **`partial_runtime_comparison(baseline, comparison, metrics, threshold=0.10) -> DriftReport`**
-    - Same as `runtime_comparison` but scoped to `metrics: list[ModelBiasDriftMetric]`
-
 ---
 
 ### bias.streaming
 
 Stateful streaming bias monitors for long-running services. Data is accumulated incrementally and evaluated against a fixed baseline.
 
-**`BiasSegmentationCriteria[P]`** — defines how a value is assigned to the advantaged or disadvantaged group.
-- `BiasSegmentationType.Label` — equality-based segmentation
-- `BiasSegmentationType.Threshold` — comparison-based segmentation, requires a `BiasSegmentationThresholdType`
-
-**`DataBiasStreaming[F, G]`** — streaming data bias monitor.
-- `push(feature_value, ground_truth_value)` — accumulate a single example
-- `push_batch(feature_data, ground_truth_data)` — accumulate a batch
-- `reset_baseline(feature_data, ground_truth_data)` — replace baseline, keep segmentation criteria
-- `reset_baseline_and_segmentation_criteria(...)` — replace baseline and segmentation criteria
-- `flush()` — discard runtime state, preserve baseline
-- `performance_snapshot() -> PerformanceSnapshot`
-- `drift_snapshot() -> DriftSnapshot`
-- `drift_report(drift_threshold) -> DriftReport`
-- `drift_report_partial_metrics(drift_metrics, drift_threshold) -> DriftReport`
-
-**`ModelBiasStreaming[F, P, G]`** — streaming model bias monitor. Same interface as `DataBiasStreaming` with an additional `prediction_segment_criteria` and `prediction_data` in the constructor and push methods.
-
----
 
 ### drift.base
 
 Batch distributional drift detection. Computes a drift score by comparing a runtime dataset against a fixed baseline distribution.
-
-**`ContinuousDataDrift`** — for floating-point features. The baseline is summarized as a histogram; bin count is derived from the data using the chosen quantile rule.
-- `__init__(baseline_data, quantile_type=None)`
-    - `quantile_type`: `"FreedmanDiaconis"` (default), `"Scott"`, or `"Sturges"`. Accepts `QuantileType` enum values.
-- `compute_drift(runtime_data, drift_metric) -> float`
-- `compute_drift_multiple_criteria(runtime_data, drift_metrics) -> list[float]`
-- `reset_baseline(new_baseline)`
-- `export_baseline() -> list[float]`
-- `num_bins: int` — number of histogram bins
-
-**`CategoricalDataDrift`** — for categorical features. The baseline is summarized as a label frequency distribution. Unseen runtime labels are collected in an overflow bin.
-- `__init__(baseline_data)`
-- `compute_drift(runtime_data, drift_metric) -> float`
-- `compute_drift_multiple_criteria(runtime_data, drift_metrics) -> list[float]`
-- `reset_baseline(new_baseline)`
-- `export_baseline() -> list[float]`
-- `num_bins: int`
-
-Accepted `drift_metric` values (`DataDriftType` enum or string):
-- `"JensenShannon"`
-- `"PopulationStabilityIndex"`
-- `"WassersteinDistance"`
-- `"KullbackLeibler"`
 
 ---
 
@@ -159,25 +87,6 @@ Flush variants additionally expose:
 ### model_perf
 
 Batch model performance analysis and runtime drift evaluation.
-
-- **`linear_regression_analysis(y_true, y_pred) -> dict`**
-- **`logistic_regression_analysis(y_true, y_pred, decision_threshold=0.5) -> dict`**
-- **`binary_classification_analysis(y_true, y_pred) -> dict`**
-    - `y_true: NDArray | list[int | float]`
-    - `y_pred: NDArray | list[int | float]`
-    - Returns a `ModelPerformanceReport`-shaped dict (see schemas below)
-
-- **`runtime_check_full(latest, baseline, threshold=0.10) -> DriftReport`**
-    - `latest: ModelPerformanceReport | dict`
-    - `baseline: ModelPerformanceReport | dict`
-    - `threshold: float`
-
-- **`partial_runtime_check(latest, baseline, metrics, threshold=0.10) -> DriftReport`**
-    - Same as `runtime_check_full` but scoped to `metrics: list[str]`
-    - Accepted metric values by model type:
-        - **LinearRegression**: `RootMeanSquaredError`, `MeanSquaredError`, `MeanAbsoluteError`, `RSquared`, `MaxError`, `MeanSquaredLogError`, `RootMeanSquaredLogError`, `MeanAbsolutePercentageError`
-        - **BinaryClassification**: `BalancedAccuracy`, `PrecisionPositive`, `PrecisionNegative`, `RecallPositive`, `RecallNegative`, `Accuracy`, `F1Score`
-        - **LogisticRegression**: `BalancedAccuracy`, `PrecisionPositive`, `PrecisionNegative`, `RecallPositive`, `RecallNegative`, `Accuracy`, `F1Score`, `LogLoss`
 
 ---
 
