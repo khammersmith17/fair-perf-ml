@@ -7,7 +7,7 @@ name = "fair_perf_ml"
 version = "0.2.0"
 description = """
 A package for evalutating machine learning models for pre training and post training bias
-in addition to evaluting the model for performance at training time and runtime. New versions include
+in addition to evaluting the model for performance at training time and runtime. New version includes
 streaming style variants, and data drift functionality.
 """
 readme = "README.md"
@@ -15,7 +15,6 @@ requires-python = ">=3.11,<=3.14"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
