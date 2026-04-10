@@ -1,0 +1,63 @@
+site_name: fair_perf_ml
+site_description: ML observability — performance, fairness, and drift metrics for production models.
+site_author: Kilian Hammersmith
+repo_url: https://github.com/khammersmith17/fair-perf-ml
+repo_name: khammersmith17/fair-perf-ml
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+            show_root_heading: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting_started.md
+  - API Reference:
+    - Segmentation: segmentation.md
+    - Data Bias: data_bias.md
+    - Model Bias: model_bias.md
+    - Model Performance: model_perf.md
+    - Drift: drift.md
+    - Types: models.md
+  - Roadmap: roadmap.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - admonition
+  - pymdownx.details
+  - attr_list
