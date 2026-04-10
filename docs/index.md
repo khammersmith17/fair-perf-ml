@@ -1,6 +1,6 @@
 # fair_perf_ml
 
-A high-performance ML observability library written in Rust with Python bindings.
+A high-performance ML observability library written in Rust with Python bindings. Written to be easy to use and composable.
 
 Provides a unified API for **pre-training data bias**, **post-training model bias**,
 **model performance**, and **data drift** — in both batch and stateful streaming settings.
