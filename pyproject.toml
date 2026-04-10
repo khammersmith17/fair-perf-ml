@@ -41,7 +41,7 @@ test = [
 
 [project.urls]
 source = "https://github.com/khammersmith17/fair-perf-ml"
-documentation = "https://github.com/khammersmith17/fair-perf-ml"
+documentation = "https://khammersmith17.github.io/fair-perf-ml/"
 
 [tool.maturin]
 features = ["python"]
