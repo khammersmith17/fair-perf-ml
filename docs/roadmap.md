@@ -32,7 +32,7 @@ plug-and-play integration for existing ML pipelines (SageMaker, Airflow, Kafka, 
 
 ## Roadmap
 
-### **Phase 1 – Drift Metrics (Q4 2025)**
+### **Phase 1 – Drift Metrics **
 
 **Goal:** introduce a first-class `fair_perf_ml.drift` module with standard metrics.
 
@@ -41,21 +41,20 @@ plug-and-play integration for existing ML pipelines (SageMaker, Airflow, Kafka, 
 - [X] `KSTestDrift` — two-sample Kolmogorov–Smirnov test.
 - [X] `JensenShannonDrift` — symmetric divergence [0, 1].
 - [ ] `WassersteinDrift` — Earth-Mover’s distance for continuous features.
-- [ ] Unified base class `BaseDriftMetric` with `compute(baseline, current)`.
+- [X] Unified base class `BaseDriftMetric` with `compute(baseline, current)`.
 
 #### Deliverables
-- [ ] Comprehensive unit tests for numeric / categorical inputs.
-- [ ] Documentation & usage examples (`drift_examples.ipynb`).
-- [ ] Serialization for baseline histograms (`.json`, `.parquet`).
+- [X] Comprehensive unit tests for numeric / categorical inputs.
+- [X] Serialization for baseline histograms (`.json`).
 
 ---
 
-### **Phase 2 – Real-Time Monitoring Engine (Q1 2026)**
+### **Phase 2 – Real-Time Monitoring Engine **
 
 **Goal:** make drift and fairness metrics stream-aware and incremental.
 
 #### Features
-- [ ] `DriftMonitor` class for rolling window updates.
+- [X] `DriftMonitor` class for rolling window updates.
 - [ ] Online statistics via Welford’s algorithm / T-Digest summaries.
 - [ ] Config-driven thresholds and per-feature policies.
 - [ ] Aggregation & alert logic (e.g., drift detected in ≥ K % of features).
@@ -68,7 +67,7 @@ plug-and-play integration for existing ML pipelines (SageMaker, Airflow, Kafka, 
 
 ---
 
-### **Phase 3 – Fairness Drift & Group Analytics (Q2 2026)**
+### **Phase 3 – Fairness Drift & Group Analytics **
 
 **Goal:** extend drift detection to subgroup and fairness metrics.
 
@@ -104,7 +103,7 @@ plug-and-play integration for existing ML pipelines (SageMaker, Airflow, Kafka, 
 
 ---
 
-### **Phase 5 – Continuous Evaluation & Ground-Truth Integration (Q4 2026)**
+### **Phase 5 – Continuous Evaluation & Ground-Truth Integration **
 
 **Goal:** combine real-time proxy metrics with delayed ground-truth metrics.
 
