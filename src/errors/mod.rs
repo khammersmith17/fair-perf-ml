@@ -45,6 +45,14 @@ pub enum DriftError {
     UnsupportedOperation,
     #[error("Configuration not supported in current drift mode")]
     UnsupportedConfig,
+    #[error("IO error using disk backend: {0:?}")]
+    IOError(std::io::Error),
+}
+
+impl From<std::io::Error> for DriftError {
+    fn from(err: std::io::Error) -> DriftError {
+        DriftError::IOError(err)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -163,9 +171,9 @@ pub(crate) mod py_errors {
                 | DriftError::UnsupportedOperation => {
                     exceptions::PyValueError::new_err(err_message)
                 }
-                DriftError::DateTimeError | DriftError::MalformedRuntimeData => {
-                    exceptions::PySystemError::new_err(err_message)
-                }
+                DriftError::DateTimeError
+                | DriftError::MalformedRuntimeData
+                | DriftError::IOError(_) => exceptions::PySystemError::new_err(err_message),
             }
         }
     }

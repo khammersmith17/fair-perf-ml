@@ -154,32 +154,20 @@ pub(crate) fn continuous_wasserstein_distance(
     runtime_bins: &[f64],
     n: f64,
 ) -> f64 {
-    debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
-
-    let eps = get_stability_eps();
-    let mut w_dist = 0_f64;
-
-    let n_bins = baseline_hist.len();
-
     // Outer 2 bins are effectively overflow on the tails.
     // Skipping those quantiole bins here.
-    for i in 1..(n_bins - 1) {
-        let p = (baseline_hist[i] + eps).max(eps);
-        let q = ((runtime_bins[i] / n) + eps).max(eps);
-        w_dist += (p - q).abs();
-    }
+    let n_bins = baseline_hist.len();
+    let w_dist = wasserstein_inner(
+        &baseline_hist[1..n_bins - 1],
+        &runtime_bins[1..n_bins - 1],
+        n,
+    );
 
     w_dist / (baseline_hist.len() - 2).max(1_usize) as f64
 }
 
 #[inline]
-pub(crate) fn categorical_wasserstein_distance(
-    baseline_hist: &[f64],
-    runtime_bins: &[f64],
-    n: f64,
-) -> f64 {
-    // bins are effectively unit width for categorical distributions
-    // this effectively turns into total variation distance
+fn wasserstein_inner(baseline_hist: &[f64], runtime_bins: &[f64], n: f64) -> f64 {
     debug_assert_eq!(runtime_bins.len(), baseline_hist.len());
 
     let eps = get_stability_eps();
@@ -191,6 +179,18 @@ pub(crate) fn categorical_wasserstein_distance(
 
         w_dist += (p - q).abs();
     }
+    w_dist
+}
+
+#[inline]
+pub(crate) fn categorical_wasserstein_distance(
+    baseline_hist: &[f64],
+    runtime_bins: &[f64],
+    n: f64,
+) -> f64 {
+    // bins are effectively unit width for categorical distributions
+    // this effectively turns into total variation distance
+    let w_dist = wasserstein_inner(&baseline_hist, &runtime_bins, n);
 
     w_dist * 0.5_f64
 }
