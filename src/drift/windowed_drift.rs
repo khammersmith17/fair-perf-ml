@@ -105,9 +105,10 @@ pub trait WindowCoreBackend {
     fn push(&mut self, bin: usize, global_window: &mut [f64]) -> Result<(), DriftError>;
 }
 
-struct DiskBackedBackend {
+pub struct DiskBackedBackend {
     mem_buf: Vec<u8>,
-    disk_buf: NamedTempFile,
+    write_disk_buf: NamedTempFile,
+    read_disk_buf: NamedTempFile,
     epoch_size: usize,
     epoch_count: usize,
     live_window: Vec<f64>,
@@ -124,9 +125,14 @@ impl WindowCoreBackend for DiskBackedBackend {
 
         // Seek back to the front when the window rolls.
         if self.epoch_offset() == 0 {
-            self.disk_buf.seek(SeekFrom::Start(0))?;
+            self.write_disk_buf.seek(SeekFrom::Start(0))?;
+            // Swap the write disk buffer with a fresh copy.
+            // Set read buf to old write buf, and drop stale read buf.
+            // First cycle drops an empty file: OK pay this cost for lowered complexity.
+            let swap_buf = std::mem::replace(&mut self.write_disk_buf, NamedTempFile::new()?);
+            self.read_disk_buf = swap_buf;
         }
-        self.disk_buf.read_exact(&mut self.mem_buf)?;
+        self.read_disk_buf.read_exact(&mut self.mem_buf)?;
         let (_, f_slice, _) = unsafe { self.mem_buf.align_to::<f64>() };
         debug_assert_eq!(f_slice.len(), global_window.len());
         for i in 0..self.epoch_size {
@@ -138,12 +144,14 @@ impl WindowCoreBackend for DiskBackedBackend {
 
     fn flush_window(&mut self, global_window: &mut [f64]) -> Result<(), DriftError> {
         let (_, flush_buff, _) = unsafe { self.live_window.align_to::<u8>() };
-        self.disk_buf.write_all(flush_buff)?;
+        self.write_disk_buf.write_all(flush_buff)?;
         self.forward_offset();
         if self.is_saturated() {
             self.evict_window(global_window)?;
-            self.live_window.fill(0_f64);
         }
+
+        self.live_window.fill(0_f64);
+        self.live_ex_count = 0;
         Ok(())
     }
 
@@ -182,22 +190,28 @@ impl WindowCoreBackend for DiskBackedBackend {
 // then clear the live window
 
 impl DiskBackedBackend {
-    fn new(epoch_size: usize, epoch_count: usize) -> std::io::Result<DiskBackedBackend> {
-        let disk_buf = NamedTempFile::new()?;
-        let mem_buf_size = epoch_size * epoch_count * 8_usize;
+    fn new(
+        epoch_size: usize,
+        epoch_count: usize,
+        n_bins: usize,
+    ) -> std::io::Result<DiskBackedBackend> {
+        let write_disk_buf = NamedTempFile::new()?;
+        let read_disk_buf = NamedTempFile::new()?;
+        let mem_buf_size = n_bins * 8_usize;
         Ok(DiskBackedBackend {
-            disk_buf,
+            write_disk_buf,
+            read_disk_buf,
             mem_buf: vec![0_u8; mem_buf_size],
             epoch_size,
             epoch_count,
-            live_window: vec![0_f64; epoch_size],
+            live_window: vec![0_f64; n_bins],
             epoch_inc: 0,
             live_ex_count: 0,
         })
     }
 }
 
-struct InMemoryWindowBackend {
+pub struct InMemoryWindowBackend {
     window_buffer: Vec<f64>, // contiguous allocation of all the windows
     epoch_count: usize,      // the "index" of the current epoch
     epoch_inc: usize,        // the current saturation of the current epoch
@@ -231,6 +245,7 @@ impl WindowCoreBackend for InMemoryWindowBackend {
                 self.window_buffer[i] = 0_f64;
             }
         }
+        self.live_ex_count = 0;
         Ok(())
     }
 
@@ -258,13 +273,14 @@ impl WindowCoreBackend for InMemoryWindowBackend {
         let bin_offset = self.window_base_offset() + bin;
         global_window[bin] += 1_f64;
         self.window_buffer[bin_offset] += 1_f64;
+        self.live_ex_count += 1;
         Ok(())
     }
 }
 
 impl InMemoryWindowBackend {
-    fn new(epoch_size: usize, epoch_count: usize) -> InMemoryWindowBackend {
-        let window_buffer = vec![0_f64; epoch_size * epoch_count];
+    fn new(epoch_size: usize, epoch_count: usize, n_bins: usize) -> InMemoryWindowBackend {
+        let window_buffer = vec![0_f64; n_bins * epoch_count];
 
         InMemoryWindowBackend {
             window_buffer,
@@ -308,7 +324,7 @@ impl<S: WindowCoreBackend> DriftContainer for WindowedContinuousDrift<S> {
     }
 
     fn num_examples(&self) -> f64 {
-        self.global_bins.len() as f64
+        self.global_bins.iter().sum()
     }
 
     fn container_type(&self) -> DriftContainerType {
@@ -328,9 +344,10 @@ impl WindowedContinuousDrift<InMemoryWindowBackend> {
         } = config;
         let baseline_bins =
             BaselineContinuousBins::new(baseline_dataset, quantile_type.unwrap_or_default())?;
-        let backend = InMemoryWindowBackend::new(epoch_size.into(), epoch_count.into());
+        let n_bins = baseline_bins.n_bins;
+        let backend = InMemoryWindowBackend::new(epoch_size.into(), epoch_count.into(), n_bins);
         Ok(WindowedContinuousDrift {
-            global_bins: vec![0_f64; epoch_size.into()],
+            global_bins: vec![0_f64; n_bins],
             baseline_bins,
             backend,
         })
@@ -349,9 +366,10 @@ impl WindowedContinuousDrift<DiskBackedBackend> {
         } = config;
         let baseline_bins =
             BaselineContinuousBins::new(baseline_dataset, quantile_type.unwrap_or_default())?;
-        let backend = DiskBackedBackend::new(epoch_size.into(), epoch_count.into())?;
+        let n_bins = baseline_bins.n_bins;
+        let backend = DiskBackedBackend::new(epoch_size.into(), epoch_count.into(), n_bins)?;
         Ok(WindowedContinuousDrift {
-            global_bins: vec![0_f64; epoch_size.into()],
+            global_bins: vec![0_f64; n_bins],
             baseline_bins,
             backend,
         })
