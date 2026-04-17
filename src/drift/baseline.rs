@@ -246,6 +246,10 @@ impl<T: Hash + Ord + Clone> BaselineCategoricalBins<T> {
         Ok(())
     }
 
+    pub(crate) fn n_bins(&self) -> usize {
+        self.baseline_bins.len()
+    }
+
     /// Redefine the baseline.
     pub(crate) fn reset(&mut self, baseline_data: &[T]) -> Result<(), DriftError> {
         self.define_bins(baseline_data)

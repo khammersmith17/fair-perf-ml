@@ -4,6 +4,7 @@ use super::{
     drift_metrics::{global_compute_drift, DataDriftType, DriftContainer, DriftContainerType},
 };
 use crate::errors::DriftError;
+use std::hash::Hash;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::num::NonZeroUsize;
 use tempfile::NamedTempFile;
@@ -103,6 +104,9 @@ pub trait WindowCoreBackend {
 
     // Push into the live window and global window.
     fn push(&mut self, bin: usize, global_window: &mut [f64]) -> Result<(), DriftError>;
+
+    // Derive histogram size.
+    fn n_bins(&self) -> usize;
 }
 
 pub struct DiskBackedBackend {
@@ -135,7 +139,7 @@ impl WindowCoreBackend for DiskBackedBackend {
         self.read_disk_buf.read_exact(&mut self.mem_buf)?;
         let (_, f_slice, _) = unsafe { self.mem_buf.align_to::<f64>() };
         debug_assert_eq!(f_slice.len(), global_window.len());
-        for i in 0..self.epoch_size {
+        for i in 0..self.n_bins() {
             global_window[i] -= f_slice[i];
         }
 
@@ -182,6 +186,10 @@ impl WindowCoreBackend for DiskBackedBackend {
         self.live_ex_count += 1;
         Ok(())
     }
+
+    fn n_bins(&self) -> usize {
+        self.live_window.len()
+    }
 }
 
 // after buffer saturation...
@@ -224,7 +232,7 @@ impl WindowCoreBackend for InMemoryWindowBackend {
         // Remove the examples captured in the global buffer that are to be flushed.
         debug_assert!(self.is_saturated());
         let offset_start = self.window_base_offset();
-        let offset_end = offset_start + self.epoch_size;
+        let offset_end = offset_start + self.n_bins();
         for i in offset_start..offset_end {
             global_window[i - offset_start] -= self.window_buffer[i];
         }
@@ -240,7 +248,7 @@ impl WindowCoreBackend for InMemoryWindowBackend {
             self.evict_window(global_window)?;
 
             let offset_start = self.window_base_offset();
-            let offset_end = offset_start + self.epoch_size;
+            let offset_end = offset_start + self.n_bins();
             for i in offset_start..offset_end {
                 self.window_buffer[i] = 0_f64;
             }
@@ -263,7 +271,7 @@ impl WindowCoreBackend for InMemoryWindowBackend {
 
     fn live_window(&self) -> &[f64] {
         let offset_start = self.window_base_offset();
-        &self.window_buffer[offset_start..offset_start + self.epoch_size]
+        &self.window_buffer[offset_start..offset_start + self.n_bins()]
     }
 
     fn push(&mut self, bin: usize, global_window: &mut [f64]) -> Result<(), DriftError> {
@@ -275,6 +283,11 @@ impl WindowCoreBackend for InMemoryWindowBackend {
         self.window_buffer[bin_offset] += 1_f64;
         self.live_ex_count += 1;
         Ok(())
+    }
+
+    fn n_bins(&self) -> usize {
+        // Total size / number of epochs = bins per epoch
+        self.window_buffer.len() / self.epoch_count
     }
 }
 
@@ -293,7 +306,7 @@ impl InMemoryWindowBackend {
 
     #[inline]
     fn window_base_offset(&self) -> usize {
-        self.epoch_size * self.epoch_offset()
+        self.n_bins() * self.epoch_offset()
     }
 }
 
@@ -386,6 +399,99 @@ impl<S: WindowCoreBackend> WindowedContinuousDrift<S> {
     pub fn push_batch(&mut self, examples: &[f64]) -> Result<(), DriftError> {
         for ex in examples {
             let bin = self.baseline_bins.resolve_bin(*ex);
+            self.backend.push(bin, &mut self.global_bins)?;
+        }
+        Ok(())
+    }
+
+    pub fn compute_drift(&self, drift_type: DataDriftType) -> f64 {
+        global_compute_drift(self, drift_type)
+    }
+
+    pub fn compute_drift_multiple_criteria(&self, drift_types: &[DataDriftType]) -> Vec<f64> {
+        drift_types
+            .into_iter()
+            .map(|drift_type| global_compute_drift(self, *drift_type))
+            .collect()
+    }
+}
+
+pub struct WindowedCategoricalDrift<S: WindowCoreBackend, T: Hash + Ord + Clone> {
+    global_bins: Vec<f64>,
+    backend: S,
+    baseline_bins: BaselineCategoricalBins<T>,
+}
+
+impl<S: WindowCoreBackend, T: Hash + Ord + Clone> DriftContainer
+    for WindowedCategoricalDrift<S, T>
+{
+    fn get_baseline_hist(&self) -> &[f64] {
+        &self.baseline_bins.baseline_bins
+    }
+
+    fn get_runtime_bins(&self) -> &[f64] {
+        &self.global_bins
+    }
+
+    fn num_examples(&self) -> f64 {
+        self.global_bins.iter().sum()
+    }
+
+    fn container_type(&self) -> DriftContainerType {
+        DriftContainerType::Continuous
+    }
+}
+
+impl<T: Hash + Ord + Clone> WindowedCategoricalDrift<InMemoryWindowBackend, T> {
+    pub fn new_in_memory_backend(
+        config: CategoricalWindowedDriftConfig,
+        baseline_dataset: &[T],
+    ) -> Result<WindowedCategoricalDrift<InMemoryWindowBackend, T>, DriftError> {
+        let CategoricalWindowedDriftConfig {
+            epoch_size,
+            epoch_count,
+        } = config;
+        let baseline_bins = BaselineCategoricalBins::new(baseline_dataset)?;
+        let n_bins = baseline_bins.n_bins();
+        let backend = InMemoryWindowBackend::new(epoch_size.into(), epoch_count.into(), n_bins);
+        Ok(WindowedCategoricalDrift {
+            global_bins: vec![0_f64; n_bins],
+            baseline_bins,
+            backend,
+        })
+    }
+}
+
+impl<T: Hash + Ord + Clone> WindowedCategoricalDrift<DiskBackedBackend, T> {
+    pub fn new_disk_backend(
+        config: CategoricalWindowedDriftConfig,
+        baseline_dataset: &[T],
+    ) -> Result<WindowedCategoricalDrift<DiskBackedBackend, T>, DriftError> {
+        let CategoricalWindowedDriftConfig {
+            epoch_size,
+            epoch_count,
+        } = config;
+        let baseline_bins = BaselineCategoricalBins::new(baseline_dataset)?;
+        let n_bins = baseline_bins.n_bins();
+        let backend = DiskBackedBackend::new(epoch_size.into(), epoch_count.into(), n_bins)?;
+        Ok(WindowedCategoricalDrift {
+            global_bins: vec![0_f64; n_bins],
+            baseline_bins,
+            backend,
+        })
+    }
+}
+
+impl<S: WindowCoreBackend, T: Ord + Hash + Clone> WindowedCategoricalDrift<S, T> {
+    #[inline]
+    pub fn push(&mut self, example: &T) -> Result<(), DriftError> {
+        let bin = self.baseline_bins.get_bin(example);
+        self.backend.push(bin, &mut self.global_bins)
+    }
+
+    pub fn push_batch(&mut self, examples: &[T]) -> Result<(), DriftError> {
+        for ex in examples {
+            let bin = self.baseline_bins.get_bin(ex);
             self.backend.push(bin, &mut self.global_bins)?;
         }
         Ok(())
