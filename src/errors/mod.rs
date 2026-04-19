@@ -28,6 +28,20 @@ impl From<ModelPerformanceError> for BiasError {
 }
 
 #[derive(Debug, Error)]
+pub enum DriftExportLoadError {
+    #[error("Data shapes in baseline are invalid")]
+    InvalidDataShape,
+    #[error("Invalid type")]
+    InvalidType,
+}
+
+impl From<serde_json::Error> for DriftExportLoadError {
+    fn from(_err: serde_json::Error) -> DriftExportLoadError {
+        DriftExportLoadError::InvalidType
+    }
+}
+
+#[derive(Debug, Error)]
 pub enum DriftError {
     #[error("Data used for runtime drift analysis must be non empty")]
     EmptyRuntimeData,

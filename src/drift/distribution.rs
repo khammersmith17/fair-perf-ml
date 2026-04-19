@@ -1,5 +1,6 @@
+use serde::{Deserialize, Serialize};
 #[non_exhaustive]
-#[derive(Default, Debug, PartialEq, Eq, Clone)]
+#[derive(Default, Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub enum QuantileType {
     #[default]
     FreedmanDiaconis,
@@ -30,7 +31,7 @@ impl QuantileType {
 }
 
 const SCOTT_CONSTANT: f64 = 3.49;
-const MIN_BIN_CLAMP: usize = 3_usize;
+pub(crate) const MIN_BIN_CLAMP: usize = 3_usize;
 
 /// Compute the optimal number of bins using Scott's method.
 /// Assumes data is sorted

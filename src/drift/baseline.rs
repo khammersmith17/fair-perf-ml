@@ -1,8 +1,11 @@
-use super::distribution::QuantileType;
-use crate::errors::DriftError;
+use super::{
+    distribution::{QuantileType, MIN_BIN_CLAMP},
+    export::{CategoricalDriftBaselineExport, ContinuousDriftBaselineExport},
+};
+use crate::errors::{DriftError, DriftExportLoadError};
 use ahash::{HashMap, HashMapExt};
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hash;
 
 // Take the baseline bin counts and compute the proportional bin sizes based on total population
@@ -26,6 +29,45 @@ pub(crate) struct BaselineContinuousBins {
     pub bin_edges: Vec<f64>,
     pub baseline_hist: Vec<f64>,
     q_type: QuantileType,
+}
+
+impl TryFrom<ContinuousDriftBaselineExport> for BaselineContinuousBins {
+    type Error = DriftExportLoadError;
+    fn try_from(export: ContinuousDriftBaselineExport) -> Result<Self, Self::Error> {
+        let ContinuousDriftBaselineExport {
+            bin_edges,
+            baseline_hist,
+            quantile_type: q_type,
+        } = export;
+        let n_bins = baseline_hist.len();
+        if bin_edges.len() != n_bins - 2 || n_bins < MIN_BIN_CLAMP {
+            return Err(DriftExportLoadError::InvalidDataShape);
+        }
+
+        Ok(BaselineContinuousBins {
+            n_bins,
+            bin_edges,
+            baseline_hist,
+            q_type,
+        })
+    }
+}
+
+impl From<BaselineContinuousBins> for ContinuousDriftBaselineExport {
+    fn from(baseline: BaselineContinuousBins) -> ContinuousDriftBaselineExport {
+        let BaselineContinuousBins {
+            bin_edges,
+            baseline_hist,
+            q_type: quantile_type,
+            ..
+        } = baseline;
+
+        ContinuousDriftBaselineExport {
+            bin_edges,
+            baseline_hist,
+            quantile_type,
+        }
+    }
 }
 
 impl BaselineContinuousBins {
@@ -178,6 +220,38 @@ impl BaselineContinuousBins {
 pub(crate) struct BaselineCategoricalBins<T: Hash + Ord + Clone> {
     pub(crate) idx_map: HashMap<T, usize>,
     pub(crate) baseline_bins: Vec<f64>,
+}
+
+impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> TryFrom<CategoricalDriftBaselineExport>
+    for BaselineCategoricalBins<T>
+{
+    type Error = DriftExportLoadError;
+    fn try_from(export: CategoricalDriftBaselineExport) -> Result<Self, Self::Error> {
+        let CategoricalDriftBaselineExport {
+            baseline_hist,
+            baseline_values,
+        } = export;
+
+        if baseline_hist.len() - 1 != baseline_values.len() {
+            return Err(DriftExportLoadError::InvalidDataShape);
+        }
+        let mut labels: BTreeSet<T> = BTreeSet::new();
+
+        for v in baseline_values.into_iter() {
+            labels.insert(serde_json::from_value(v)?);
+        }
+
+        let idx_map: HashMap<T, usize> = labels
+            .into_iter()
+            .enumerate()
+            .map(|(i, label)| (label, i))
+            .collect();
+
+        Ok(BaselineCategoricalBins {
+            baseline_bins: baseline_hist,
+            idx_map,
+        })
+    }
 }
 
 /*

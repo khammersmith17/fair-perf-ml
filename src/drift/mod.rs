@@ -8,6 +8,7 @@ pub mod baseline;
 pub mod data_drift;
 pub mod distribution;
 pub mod drift_metrics;
+pub mod export;
 #[cfg(feature = "python")]
 pub(crate) mod python_impl;
 pub mod windowed_drift;
