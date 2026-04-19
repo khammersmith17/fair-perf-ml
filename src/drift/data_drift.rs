@@ -2,7 +2,7 @@ use super::{
     baseline::{BaselineCategoricalBins, BaselineContinuousBins},
     distribution::QuantileType,
     drift_metrics::{global_compute_drift, DataDriftType, DriftContainer, DriftContainerType},
-    DEFAULT_DECAY_HALF_LIFE, DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
+    export, DEFAULT_DECAY_HALF_LIFE, DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
 };
 use crate::errors::DriftError;
 use ahash::{HashMap, HashMapExt};
@@ -288,6 +288,10 @@ impl ContinuousDataDrift {
     pub fn export_baseline(&self) -> Vec<f64> {
         self.baseline.export_baseline()
     }
+
+    pub fn export_baseline_state(self) -> export::ContinuousDriftBaselineExport {
+        self.baseline.into()
+    }
 }
 
 /// Streaming drift detector for continuous (floating-point) features. Maintains a running
@@ -462,6 +466,25 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
 
         Ok(())
     }
+
+    pub fn export_baseline_state(self) -> export::StreamingContinuousBaseExport {
+        let baseline: export::ContinuousDriftBaselineExport = self.baseline.into();
+
+        export::StreamingContinuousBaseExport {
+            baseline,
+            streaming_type: export::StreamingType::Decay,
+        }
+    }
+
+    pub fn export_stream_state(self) -> export::StreamingContinuousStatefulExport {
+        let baseline: export::ContinuousDriftBaselineExport = self.baseline.into();
+
+        export::StreamingContinuousStatefulExport {
+            baseline,
+            streaming_type: export::StreamingType::Decay,
+            stream_bins: self.stream_bins,
+        }
+    }
 }
 
 impl StreamingContinuousDataDrift<FlushModeMark> {
@@ -586,6 +609,25 @@ impl StreamingContinuousDataDrift<FlushModeMark> {
     /// Returns the number of seconds elapsed since the last flush.
     pub fn last_flush(&self) -> u64 {
         self.mode.last_flush()
+    }
+
+    pub fn export_baseline_state(self) -> export::StreamingContinuousBaseExport {
+        let baseline: export::ContinuousDriftBaselineExport = self.baseline.into();
+
+        export::StreamingContinuousBaseExport {
+            baseline,
+            streaming_type: export::StreamingType::Flush,
+        }
+    }
+
+    pub fn export_stream_state(self) -> export::StreamingContinuousStatefulExport {
+        let baseline: export::ContinuousDriftBaselineExport = self.baseline.into();
+
+        export::StreamingContinuousStatefulExport {
+            baseline,
+            streaming_type: export::StreamingType::Flush,
+            stream_bins: self.stream_bins,
+        }
     }
 }
 
@@ -810,6 +852,14 @@ impl<T: Hash + Ord + Clone> CategoricalDataDrift<T> {
     }
 }
 
+impl<T: Hash + Ord + Clone + serde::Serialize> CategoricalDataDrift<T> {
+    pub fn export_baseline_state(
+        self,
+    ) -> Result<export::CategoricalDriftBaselineExport, serde_json::Error> {
+        self.baseline.try_into()
+    }
+}
+
 /// Streaming drift detector for categorical (label) features. Maintains a running histogram of
 /// observed runtime labels that is compared against a fixed baseline distribution.
 ///
@@ -970,6 +1020,52 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, FlushModeMark> {
     pub fn flush(&mut self) {
         self.flush_runtime_stream();
         self.mode.perform_flush();
+    }
+}
+
+impl<T: Hash + Ord + Clone + serde::Serialize> StreamingCategoricalDataDrift<T, FlushModeMark> {
+    pub fn export_baseline_state(
+        self,
+    ) -> Result<export::StreamingCategoricalBaseExport, serde_json::Error> {
+        let baseline: export::CategoricalDriftBaselineExport = self.baseline.try_into()?;
+        Ok(export::StreamingCategoricalBaseExport {
+            baseline,
+            streaming_type: export::StreamingType::Flush,
+        })
+    }
+
+    pub fn export_stream_state(
+        self,
+    ) -> Result<export::StreamingCategoricalStatefulExport, serde_json::Error> {
+        let baseline: export::CategoricalDriftBaselineExport = self.baseline.try_into()?;
+        Ok(export::StreamingCategoricalStatefulExport {
+            baseline,
+            streaming_type: export::StreamingType::Decay,
+            stream_bins: self.stream_bins,
+        })
+    }
+}
+
+impl<T: Hash + Ord + Clone + serde::Serialize> StreamingCategoricalDataDrift<T, DecayModeMark> {
+    pub fn export_baseline_state(
+        self,
+    ) -> Result<export::StreamingCategoricalBaseExport, serde_json::Error> {
+        let baseline: export::CategoricalDriftBaselineExport = self.baseline.try_into()?;
+        Ok(export::StreamingCategoricalBaseExport {
+            baseline,
+            streaming_type: export::StreamingType::Decay,
+        })
+    }
+
+    pub fn export_stream_state(
+        self,
+    ) -> Result<export::StreamingCategoricalStatefulExport, serde_json::Error> {
+        let baseline: export::CategoricalDriftBaselineExport = self.baseline.try_into()?;
+        Ok(export::StreamingCategoricalStatefulExport {
+            baseline,
+            streaming_type: export::StreamingType::Decay,
+            stream_bins: self.stream_bins,
+        })
     }
 }
 

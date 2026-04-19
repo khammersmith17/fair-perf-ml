@@ -71,6 +71,12 @@ impl From<BaselineContinuousBins> for ContinuousDriftBaselineExport {
 }
 
 impl BaselineContinuousBins {
+    pub(crate) fn new_from_export(
+        export: ContinuousDriftBaselineExport,
+    ) -> Result<BaselineContinuousBins, DriftExportLoadError> {
+        Self::try_from(export)
+    }
+
     // Constructor on a baseline dataset. Allocates then hyrdates with the provided baseline
     // dataset.
     pub(crate) fn new(
@@ -222,6 +228,29 @@ pub(crate) struct BaselineCategoricalBins<T: Hash + Ord + Clone> {
     pub(crate) baseline_bins: Vec<f64>,
 }
 
+impl<T: Hash + Ord + Clone + serde::Serialize> TryInto<CategoricalDriftBaselineExport>
+    for BaselineCategoricalBins<T>
+{
+    type Error = serde_json::Error;
+    fn try_into(self) -> Result<CategoricalDriftBaselineExport, Self::Error> {
+        let BaselineCategoricalBins {
+            idx_map,
+            baseline_bins: baseline_hist,
+        } = self;
+
+        let value_set: BTreeSet<T> = idx_map.into_iter().map(|(key, _)| key).collect();
+        let mut baseline_values: Vec<serde_json::Value> = Vec::with_capacity(value_set.len());
+        for value in value_set.into_iter() {
+            baseline_values.push(serde_json::to_value(value)?);
+        }
+
+        Ok(CategoricalDriftBaselineExport {
+            baseline_hist,
+            baseline_values,
+        })
+    }
+}
+
 impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> TryFrom<CategoricalDriftBaselineExport>
     for BaselineCategoricalBins<T>
 {
@@ -251,6 +280,14 @@ impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> TryFrom<CategoricalDri
             baseline_bins: baseline_hist,
             idx_map,
         })
+    }
+}
+
+impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> BaselineCategoricalBins<T> {
+    pub(crate) fn new_from_export(
+        export: CategoricalDriftBaselineExport,
+    ) -> Result<BaselineCategoricalBins<T>, DriftExportLoadError> {
+        Self::try_from(export)
     }
 }
 
