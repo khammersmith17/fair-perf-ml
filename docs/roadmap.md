@@ -40,11 +40,11 @@ plug-and-play integration for existing ML pipelines (SageMaker, Airflow, Kafka, 
 - [X] `PopulationStabilityIndex` (PSI) — categorical + numeric.
 - [X] `KSTestDrift` — two-sample Kolmogorov–Smirnov test.
 - [X] `JensenShannonDrift` — symmetric divergence [0, 1].
-- [ ] `WassersteinDrift` — Earth-Mover’s distance for continuous features.
-- [ ] Unified base class `BaseDriftMetric` with `compute(baseline, current)`.
+- [X] `WassersteinDrift` — Earth-Mover’s distance for continuous features.
+- [X] Unified base class `BaseDriftMetric` with `compute(baseline, current)`.
 
 #### Deliverables
-- [ ] Comprehensive unit tests for numeric / categorical inputs.
+- [X] Comprehensive unit tests for numeric / categorical inputs.
 - [ ] Documentation & usage examples (`drift_examples.ipynb`).
 - [ ] Serialization for baseline histograms (`.json`, `.parquet`).
 
@@ -55,7 +55,7 @@ plug-and-play integration for existing ML pipelines (SageMaker, Airflow, Kafka, 
 **Goal:** make drift and fairness metrics stream-aware and incremental.
 
 #### Features
-- [ ] `DriftMonitor` class for rolling window updates.
+- [X] `DriftMonitor` class for rolling window updates.
 - [ ] Online statistics via Welford’s algorithm / T-Digest summaries.
 - [ ] Config-driven thresholds and per-feature policies.
 - [ ] Aggregation & alert logic (e.g., drift detected in ≥ K % of features).
