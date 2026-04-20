@@ -33,6 +33,8 @@ pub enum DriftExportLoadError {
     InvalidDataShape,
     #[error("Invalid type")]
     InvalidType,
+    #[error("Invalid drift mode")]
+    InvalidDriftMode,
 }
 
 impl From<serde_json::Error> for DriftExportLoadError {

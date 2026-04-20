@@ -1,12 +1,6 @@
-use super::distribution::QuantileType;
+use super::{data_drift::StreamingDriftMode, distribution::QuantileType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-#[derive(Debug, Deserialize, Serialize)]
-pub enum StreamingType {
-    Decay,
-    Flush,
-}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ContinuousDriftBaselineExport {
@@ -17,15 +11,15 @@ pub struct ContinuousDriftBaselineExport {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StreamingContinuousBaseExport {
-    pub streaming_type: StreamingType,
     pub baseline: ContinuousDriftBaselineExport,
+    pub stream_mode: StreamingDriftMode,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StreamingContinuousStatefulExport {
-    pub streaming_type: StreamingType,
     pub stream_bins: Vec<f64>,
     pub baseline: ContinuousDriftBaselineExport,
+    pub stream_mode: StreamingDriftMode,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -36,13 +30,14 @@ pub struct CategoricalDriftBaselineExport {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StreamingCategoricalBaseExport {
-    pub streaming_type: StreamingType,
     pub baseline: CategoricalDriftBaselineExport,
+    pub stream_mode: StreamingDriftMode,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StreamingCategoricalStatefulExport {
-    pub streaming_type: StreamingType,
     pub stream_bins: Vec<f64>,
     pub baseline: CategoricalDriftBaselineExport,
+
+    pub stream_mode: StreamingDriftMode,
 }

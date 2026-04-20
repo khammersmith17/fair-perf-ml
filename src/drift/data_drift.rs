@@ -4,18 +4,19 @@ use super::{
     drift_metrics::{global_compute_drift, DataDriftType, DriftContainer, DriftContainerType},
     export, DEFAULT_DECAY_HALF_LIFE, DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
 };
-use crate::errors::DriftError;
+use crate::errors::{DriftError, DriftExportLoadError};
 use ahash::{HashMap, HashMapExt};
+use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::time::{Duration, Instant};
 
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum StreamingDriftMode {
     Flush { size: u64, cadence: u64 },
-    ExponentialDecay(NonZeroU64),
+    ExponentialDecay(f64),
 }
 
 impl Default for StreamingDriftMode {
@@ -37,17 +38,30 @@ enum StreamModeInner {
     ExponentialDecay(f64),
 }
 
+impl From<StreamModeInner> for StreamingDriftMode {
+    fn from(mode: StreamModeInner) -> StreamingDriftMode {
+        match mode {
+            StreamModeInner::Flush { size, cadence, .. } => StreamingDriftMode::Flush {
+                size: size as u64,
+                cadence: cadence.as_secs(),
+            },
+            StreamModeInner::ExponentialDecay(decay_factor) => {
+                StreamingDriftMode::ExponentialDecay(decay_factor)
+            }
+        }
+    }
+}
+
 impl From<StreamingDriftMode> for StreamModeInner {
     fn from(mode: StreamingDriftMode) -> StreamModeInner {
         match mode {
             StreamingDriftMode::Flush { size, cadence } => StreamModeInner::Flush {
                 size: size as f64,
-                cadence: Duration::new(cadence, 0),
+                cadence: Duration::from_secs(cadence),
                 last_flush_ts: Instant::now(),
             },
-            StreamingDriftMode::ExponentialDecay(half_life) => {
-                let hl = half_life.get();
-                StreamModeInner::ExponentialDecay(0.5_f64.powf(1_f64 / hl as f64))
+            StreamingDriftMode::ExponentialDecay(decay_factor) => {
+                StreamModeInner::ExponentialDecay(decay_factor)
             }
         }
     }
@@ -172,6 +186,13 @@ impl DriftContainer for ContinuousDataDrift {
 }
 
 impl ContinuousDataDrift {
+    pub fn new_from_export(
+        export: export::ContinuousDriftBaselineExport,
+    ) -> Result<ContinuousDataDrift, DriftExportLoadError> {
+        let baseline = BaselineContinuousBins::new_from_export(export)?;
+        let rt_bins = vec![0_f64; baseline.n_bins];
+        Ok(ContinuousDataDrift { baseline, rt_bins })
+    }
     /// Construct a new instance from a baseline dataset. The baseline is sorted and used to
     /// define histogram bin edges.
     ///
@@ -348,6 +369,51 @@ impl<M> DriftContainer for StreamingContinuousDataDrift<M> {
 }
 
 impl StreamingContinuousDataDrift<DecayModeMark> {
+    pub fn new_from_base_export(
+        export: export::StreamingContinuousBaseExport,
+    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportLoadError> {
+        let export::StreamingContinuousBaseExport {
+            baseline: baseline_export,
+            stream_mode,
+        } = export;
+        let mode: StreamModeInner = stream_mode.into();
+        let baseline = BaselineContinuousBins::new_from_export(baseline_export)?;
+
+        if matches!(mode, StreamModeInner::Flush { .. }) {
+            return Err(DriftExportLoadError::InvalidDriftMode);
+        }
+        let n_bins = baseline.n_bins;
+        Ok(StreamingContinuousDataDrift {
+            baseline,
+            stream_bins: vec![0_f64; n_bins],
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
+        })
+    }
+
+    pub fn new_from_statefule_export(
+        export: export::StreamingContinuousStatefulExport,
+    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportLoadError> {
+        let export::StreamingContinuousStatefulExport {
+            baseline: baseline_export,
+            stream_mode,
+            stream_bins,
+        } = export;
+        let mode: StreamModeInner = stream_mode.into();
+        let baseline = BaselineContinuousBins::new_from_export(baseline_export)?;
+
+        if matches!(mode, StreamModeInner::Flush { .. }) {
+            return Err(DriftExportLoadError::InvalidDriftMode);
+        }
+        Ok(StreamingContinuousDataDrift {
+            baseline,
+            stream_bins,
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
+        })
+    }
     /// Construct a decay-mode stream. On each [`compute_drift`] or
     /// [`compute_drift_multiple_criteria`] call, all bin counts and `total_stream_size` are
     /// multiplied by α = 0.5^(1/`half_life`), where `half_life` is the number of seconds after
@@ -472,7 +538,7 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
 
         export::StreamingContinuousBaseExport {
             baseline,
-            streaming_type: export::StreamingType::Decay,
+            stream_mode: self.mode.into(),
         }
     }
 
@@ -481,13 +547,58 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
 
         export::StreamingContinuousStatefulExport {
             baseline,
-            streaming_type: export::StreamingType::Decay,
             stream_bins: self.stream_bins,
+            stream_mode: self.mode.into(),
         }
     }
 }
 
 impl StreamingContinuousDataDrift<FlushModeMark> {
+    pub fn new_from_base_export(
+        export: export::StreamingContinuousBaseExport,
+    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportLoadError> {
+        let export::StreamingContinuousBaseExport {
+            baseline: baseline_export,
+            stream_mode,
+        } = export;
+        let mode: StreamModeInner = stream_mode.into();
+        let baseline = BaselineContinuousBins::new_from_export(baseline_export)?;
+
+        if matches!(mode, StreamModeInner::ExponentialDecay(_)) {
+            return Err(DriftExportLoadError::InvalidDriftMode);
+        }
+        let n_bins = baseline.n_bins;
+        Ok(StreamingContinuousDataDrift {
+            baseline,
+            stream_bins: vec![0_f64; n_bins],
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
+        })
+    }
+
+    pub fn new_from_statefule_export(
+        export: export::StreamingContinuousStatefulExport,
+    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportLoadError> {
+        let export::StreamingContinuousStatefulExport {
+            baseline: baseline_export,
+            stream_mode,
+            stream_bins,
+        } = export;
+        let mode: StreamModeInner = stream_mode.into();
+        let baseline = BaselineContinuousBins::new_from_export(baseline_export)?;
+
+        if matches!(mode, StreamModeInner::ExponentialDecay(_)) {
+            return Err(DriftExportLoadError::InvalidDriftMode);
+        }
+        Ok(StreamingContinuousDataDrift {
+            baseline,
+            stream_bins,
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
+        })
+    }
     /// Construct a flush-mode stream. The stream accumulates data until either `flush_size_opt`
     /// samples have been observed or `flush_cadence_opt` has elapsed since the last flush —
     /// whichever is reached first — at which point all accumulated runtime data is cleared and
@@ -616,7 +727,7 @@ impl StreamingContinuousDataDrift<FlushModeMark> {
 
         export::StreamingContinuousBaseExport {
             baseline,
-            streaming_type: export::StreamingType::Flush,
+            stream_mode: self.mode.into(),
         }
     }
 
@@ -625,8 +736,8 @@ impl StreamingContinuousDataDrift<FlushModeMark> {
 
         export::StreamingContinuousStatefulExport {
             baseline,
-            streaming_type: export::StreamingType::Flush,
             stream_bins: self.stream_bins,
+            stream_mode: self.mode.into(),
         }
     }
 }
@@ -745,6 +856,16 @@ impl<T: Hash + Ord + Clone> DriftContainer for CategoricalDataDrift<T> {
 
     fn container_type(&self) -> DriftContainerType {
         DriftContainerType::Categorical
+    }
+}
+
+impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> CategoricalDataDrift<T> {
+    pub fn new_from_export(
+        export: export::CategoricalDriftBaselineExport,
+    ) -> Result<CategoricalDataDrift<T>, DriftExportLoadError> {
+        let baseline: BaselineCategoricalBins<T> = BaselineCategoricalBins::try_from(export)?;
+        let rt_bins = vec![0_f64; baseline.n_bins()];
+        Ok(CategoricalDataDrift { baseline, rt_bins })
     }
 }
 
@@ -1030,7 +1151,7 @@ impl<T: Hash + Ord + Clone + serde::Serialize> StreamingCategoricalDataDrift<T, 
         let baseline: export::CategoricalDriftBaselineExport = self.baseline.try_into()?;
         Ok(export::StreamingCategoricalBaseExport {
             baseline,
-            streaming_type: export::StreamingType::Flush,
+            stream_mode: self.mode.into(),
         })
     }
 
@@ -1040,8 +1161,8 @@ impl<T: Hash + Ord + Clone + serde::Serialize> StreamingCategoricalDataDrift<T, 
         let baseline: export::CategoricalDriftBaselineExport = self.baseline.try_into()?;
         Ok(export::StreamingCategoricalStatefulExport {
             baseline,
-            streaming_type: export::StreamingType::Decay,
             stream_bins: self.stream_bins,
+            stream_mode: self.mode.into(),
         })
     }
 }
@@ -1053,7 +1174,7 @@ impl<T: Hash + Ord + Clone + serde::Serialize> StreamingCategoricalDataDrift<T, 
         let baseline: export::CategoricalDriftBaselineExport = self.baseline.try_into()?;
         Ok(export::StreamingCategoricalBaseExport {
             baseline,
-            streaming_type: export::StreamingType::Decay,
+            stream_mode: self.mode.into(),
         })
     }
 
@@ -1063,8 +1184,8 @@ impl<T: Hash + Ord + Clone + serde::Serialize> StreamingCategoricalDataDrift<T, 
         let baseline: export::CategoricalDriftBaselineExport = self.baseline.try_into()?;
         Ok(export::StreamingCategoricalStatefulExport {
             baseline,
-            streaming_type: export::StreamingType::Decay,
             stream_bins: self.stream_bins,
+            stream_mode: self.mode.into(),
         })
     }
 }
