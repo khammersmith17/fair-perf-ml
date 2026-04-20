@@ -4,7 +4,7 @@ use super::{
     drift_metrics::{global_compute_drift, DataDriftType, DriftContainer, DriftContainerType},
     export, DEFAULT_DECAY_HALF_LIFE, DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
 };
-use crate::errors::{DriftError, DriftExportLoadError};
+use crate::errors::{DriftError, DriftExportError};
 use ahash::{HashMap, HashMapExt};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
@@ -188,7 +188,7 @@ impl DriftContainer for ContinuousDataDrift {
 impl ContinuousDataDrift {
     pub fn new_from_export(
         export: export::ContinuousDriftBaselineExport,
-    ) -> Result<ContinuousDataDrift, DriftExportLoadError> {
+    ) -> Result<ContinuousDataDrift, DriftExportError> {
         let baseline = BaselineContinuousBins::new_from_export(export)?;
         let rt_bins = vec![0_f64; baseline.n_bins];
         Ok(ContinuousDataDrift { baseline, rt_bins })
@@ -371,7 +371,7 @@ impl<M> DriftContainer for StreamingContinuousDataDrift<M> {
 impl StreamingContinuousDataDrift<DecayModeMark> {
     pub fn new_from_base_export(
         export: export::StreamingContinuousBaseExport,
-    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportLoadError> {
+    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportError> {
         let export::StreamingContinuousBaseExport {
             baseline: baseline_export,
             stream_mode,
@@ -380,7 +380,7 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
         let baseline = BaselineContinuousBins::new_from_export(baseline_export)?;
 
         if matches!(mode, StreamModeInner::Flush { .. }) {
-            return Err(DriftExportLoadError::InvalidDriftMode);
+            return Err(DriftExportError::InvalidDriftMode);
         }
         let n_bins = baseline.n_bins;
         Ok(StreamingContinuousDataDrift {
@@ -394,7 +394,7 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
 
     pub fn new_from_statefule_export(
         export: export::StreamingContinuousStatefulExport,
-    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportLoadError> {
+    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportError> {
         let export::StreamingContinuousStatefulExport {
             baseline: baseline_export,
             stream_mode,
@@ -404,7 +404,7 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
         let baseline = BaselineContinuousBins::new_from_export(baseline_export)?;
 
         if matches!(mode, StreamModeInner::Flush { .. }) {
-            return Err(DriftExportLoadError::InvalidDriftMode);
+            return Err(DriftExportError::InvalidDriftMode);
         }
         Ok(StreamingContinuousDataDrift {
             baseline,
@@ -556,7 +556,7 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
 impl StreamingContinuousDataDrift<FlushModeMark> {
     pub fn new_from_base_export(
         export: export::StreamingContinuousBaseExport,
-    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportLoadError> {
+    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportError> {
         let export::StreamingContinuousBaseExport {
             baseline: baseline_export,
             stream_mode,
@@ -565,7 +565,7 @@ impl StreamingContinuousDataDrift<FlushModeMark> {
         let baseline = BaselineContinuousBins::new_from_export(baseline_export)?;
 
         if matches!(mode, StreamModeInner::ExponentialDecay(_)) {
-            return Err(DriftExportLoadError::InvalidDriftMode);
+            return Err(DriftExportError::InvalidDriftMode);
         }
         let n_bins = baseline.n_bins;
         Ok(StreamingContinuousDataDrift {
@@ -579,7 +579,7 @@ impl StreamingContinuousDataDrift<FlushModeMark> {
 
     pub fn new_from_statefule_export(
         export: export::StreamingContinuousStatefulExport,
-    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportLoadError> {
+    ) -> Result<StreamingContinuousDataDrift<DecayModeMark>, DriftExportError> {
         let export::StreamingContinuousStatefulExport {
             baseline: baseline_export,
             stream_mode,
@@ -589,7 +589,7 @@ impl StreamingContinuousDataDrift<FlushModeMark> {
         let baseline = BaselineContinuousBins::new_from_export(baseline_export)?;
 
         if matches!(mode, StreamModeInner::ExponentialDecay(_)) {
-            return Err(DriftExportLoadError::InvalidDriftMode);
+            return Err(DriftExportError::InvalidDriftMode);
         }
         Ok(StreamingContinuousDataDrift {
             baseline,
@@ -862,7 +862,7 @@ impl<T: Hash + Ord + Clone> DriftContainer for CategoricalDataDrift<T> {
 impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> CategoricalDataDrift<T> {
     pub fn new_from_export(
         export: export::CategoricalDriftBaselineExport,
-    ) -> Result<CategoricalDataDrift<T>, DriftExportLoadError> {
+    ) -> Result<CategoricalDataDrift<T>, DriftExportError> {
         let baseline: BaselineCategoricalBins<T> = BaselineCategoricalBins::try_from(export)?;
         let rt_bins = vec![0_f64; baseline.n_bins()];
         Ok(CategoricalDataDrift { baseline, rt_bins })
@@ -1144,6 +1144,56 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, FlushModeMark> {
     }
 }
 
+impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned>
+    StreamingCategoricalDataDrift<T, FlushModeMark>
+{
+    pub fn new_from_base_export(
+        export: export::StreamingCategoricalBaseExport,
+    ) -> Result<StreamingCategoricalDataDrift<T, FlushModeMark>, DriftExportError> {
+        let export::StreamingCategoricalBaseExport {
+            baseline: baseline_export,
+            stream_mode,
+        } = export;
+        let mode: StreamModeInner = stream_mode.into();
+        let baseline = BaselineCategoricalBins::new_from_export(baseline_export)?;
+
+        if matches!(mode, StreamModeInner::ExponentialDecay(_)) {
+            return Err(DriftExportError::InvalidDriftMode);
+        }
+        let n_bins = baseline.n_bins();
+        Ok(StreamingCategoricalDataDrift {
+            baseline,
+            stream_bins: vec![0_f64; n_bins],
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
+        })
+    }
+
+    pub fn new_from_statefule_export(
+        export: export::StreamingCategoricalStatefulExport,
+    ) -> Result<StreamingCategoricalDataDrift<T, FlushModeMark>, DriftExportError> {
+        let export::StreamingCategoricalStatefulExport {
+            baseline: baseline_export,
+            stream_mode,
+            stream_bins,
+        } = export;
+        let mode: StreamModeInner = stream_mode.into();
+        let baseline = BaselineCategoricalBins::new_from_export(baseline_export)?;
+
+        if matches!(mode, StreamModeInner::ExponentialDecay(_)) {
+            return Err(DriftExportError::InvalidDriftMode);
+        }
+        Ok(StreamingCategoricalDataDrift {
+            baseline,
+            stream_bins,
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
+        })
+    }
+}
+
 impl<T: Hash + Ord + Clone + serde::Serialize> StreamingCategoricalDataDrift<T, FlushModeMark> {
     pub fn export_baseline_state(
         self,
@@ -1163,6 +1213,56 @@ impl<T: Hash + Ord + Clone + serde::Serialize> StreamingCategoricalDataDrift<T, 
             baseline,
             stream_bins: self.stream_bins,
             stream_mode: self.mode.into(),
+        })
+    }
+}
+
+impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned>
+    StreamingCategoricalDataDrift<T, DecayModeMark>
+{
+    pub fn new_from_base_export(
+        export: export::StreamingCategoricalBaseExport,
+    ) -> Result<StreamingCategoricalDataDrift<T, FlushModeMark>, DriftExportError> {
+        let export::StreamingCategoricalBaseExport {
+            baseline: baseline_export,
+            stream_mode,
+        } = export;
+        let mode: StreamModeInner = stream_mode.into();
+        let baseline = BaselineCategoricalBins::new_from_export(baseline_export)?;
+
+        if matches!(mode, StreamModeInner::Flush { .. }) {
+            return Err(DriftExportError::InvalidDriftMode);
+        }
+        let n_bins = baseline.n_bins();
+        Ok(StreamingCategoricalDataDrift {
+            baseline,
+            stream_bins: vec![0_f64; n_bins],
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
+        })
+    }
+
+    pub fn new_from_statefule_export(
+        export: export::StreamingCategoricalStatefulExport,
+    ) -> Result<StreamingCategoricalDataDrift<T, FlushModeMark>, DriftExportError> {
+        let export::StreamingCategoricalStatefulExport {
+            baseline: baseline_export,
+            stream_mode,
+            stream_bins,
+        } = export;
+        let mode: StreamModeInner = stream_mode.into();
+        let baseline = BaselineCategoricalBins::new_from_export(baseline_export)?;
+
+        if matches!(mode, StreamModeInner::Flush { .. }) {
+            return Err(DriftExportError::InvalidDriftMode);
+        }
+        Ok(StreamingCategoricalDataDrift {
+            baseline,
+            stream_bins,
+            total_stream_size: 0_f64,
+            mode,
+            _mark: PhantomData,
         })
     }
 }

@@ -2,7 +2,7 @@ use super::{
     distribution::{QuantileType, MIN_BIN_CLAMP},
     export::{CategoricalDriftBaselineExport, ContinuousDriftBaselineExport},
 };
-use crate::errors::{DriftError, DriftExportLoadError};
+use crate::errors::{DriftError, DriftExportError};
 use ahash::{HashMap, HashMapExt};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,7 +32,7 @@ pub(crate) struct BaselineContinuousBins {
 }
 
 impl TryFrom<ContinuousDriftBaselineExport> for BaselineContinuousBins {
-    type Error = DriftExportLoadError;
+    type Error = DriftExportError;
     fn try_from(export: ContinuousDriftBaselineExport) -> Result<Self, Self::Error> {
         let ContinuousDriftBaselineExport {
             bin_edges,
@@ -41,7 +41,7 @@ impl TryFrom<ContinuousDriftBaselineExport> for BaselineContinuousBins {
         } = export;
         let n_bins = baseline_hist.len();
         if bin_edges.len() != n_bins - 2 || n_bins < MIN_BIN_CLAMP {
-            return Err(DriftExportLoadError::InvalidDataShape);
+            return Err(DriftExportError::InvalidDataShape);
         }
 
         Ok(BaselineContinuousBins {
@@ -73,7 +73,7 @@ impl From<BaselineContinuousBins> for ContinuousDriftBaselineExport {
 impl BaselineContinuousBins {
     pub(crate) fn new_from_export(
         export: ContinuousDriftBaselineExport,
-    ) -> Result<BaselineContinuousBins, DriftExportLoadError> {
+    ) -> Result<BaselineContinuousBins, DriftExportError> {
         Self::try_from(export)
     }
 
@@ -254,7 +254,7 @@ impl<T: Hash + Ord + Clone + serde::Serialize> TryInto<CategoricalDriftBaselineE
 impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> TryFrom<CategoricalDriftBaselineExport>
     for BaselineCategoricalBins<T>
 {
-    type Error = DriftExportLoadError;
+    type Error = DriftExportError;
     fn try_from(export: CategoricalDriftBaselineExport) -> Result<Self, Self::Error> {
         let CategoricalDriftBaselineExport {
             baseline_hist,
@@ -262,7 +262,7 @@ impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> TryFrom<CategoricalDri
         } = export;
 
         if baseline_hist.len() - 1 != baseline_values.len() {
-            return Err(DriftExportLoadError::InvalidDataShape);
+            return Err(DriftExportError::InvalidDataShape);
         }
         let mut labels: BTreeSet<T> = BTreeSet::new();
 
@@ -286,7 +286,7 @@ impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> TryFrom<CategoricalDri
 impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> BaselineCategoricalBins<T> {
     pub(crate) fn new_from_export(
         export: CategoricalDriftBaselineExport,
-    ) -> Result<BaselineCategoricalBins<T>, DriftExportLoadError> {
+    ) -> Result<BaselineCategoricalBins<T>, DriftExportError> {
         Self::try_from(export)
     }
 }

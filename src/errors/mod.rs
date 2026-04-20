@@ -28,18 +28,26 @@ impl From<ModelPerformanceError> for BiasError {
 }
 
 #[derive(Debug, Error)]
-pub enum DriftExportLoadError {
+pub enum DriftExportError {
     #[error("Data shapes in baseline are invalid")]
     InvalidDataShape,
-    #[error("Invalid type")]
-    InvalidType,
     #[error("Invalid drift mode")]
     InvalidDriftMode,
+    #[error("Unable to deserialize export: {0:?}")]
+    DeserializationError(serde_json::Error),
+    #[error("Could not read export file")]
+    IOError(std::io::Error),
 }
 
-impl From<serde_json::Error> for DriftExportLoadError {
-    fn from(_err: serde_json::Error) -> DriftExportLoadError {
-        DriftExportLoadError::InvalidType
+impl From<serde_json::Error> for DriftExportError {
+    fn from(err: serde_json::Error) -> DriftExportError {
+        DriftExportError::DeserializationError(err)
+    }
+}
+
+impl From<std::io::Error> for DriftExportError {
+    fn from(err: std::io::Error) -> DriftExportError {
+        DriftExportError::IOError(err)
     }
 }
 
