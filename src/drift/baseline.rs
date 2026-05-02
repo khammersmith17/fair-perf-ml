@@ -4,23 +4,11 @@ use super::{
     export::{CategoricalDriftBaselineExport, ContinuousDriftBaselineExport},
 };
 use crate::errors::{DriftError, DriftExportError};
-use ahash::{HashMap, HashMapExt};
+use ahash::HashMap;
 use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::hash::Hash;
-
-// Take the baseline bin counts and compute the proportional bin sizes based on total population
-// size.
-#[inline]
-fn compute_new_hist_prob(num_items: usize, hist: &[f64]) -> Result<Vec<f64>, DriftError> {
-    let total_n = num_items as f64;
-    if total_n == 0_f64 {
-        return Err(DriftError::EmptyRuntimeData);
-    }
-    let bl_hist = hist.iter().map(|n| *n / total_n).collect::<Vec<f64>>();
-    Ok(bl_hist)
-}
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub(crate) struct ContinuousBinEdges {
@@ -176,7 +164,7 @@ impl BaselineContinuousBins {
             quantile_resolution,
         );
 
-        let baseline_hist = compute_new_hist_prob(
+        let baseline_hist = core::compute_new_hist_prob(
             baseline_data.len(),
             &core::compute_dataset_from_bins_continuous(baseline_data, &bin_edges),
         )?;
@@ -229,7 +217,7 @@ impl BaselineContinuousBins {
             self.quantile_type,
         );
 
-        self.baseline_hist = compute_new_hist_prob(
+        self.baseline_hist = core::compute_new_hist_prob(
             baseline_data.len(),
             &core::compute_dataset_from_bins_continuous(baseline_data, &self.bin_edges),
         )?;
@@ -314,36 +302,6 @@ impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> BaselineCategoricalBin
     }
 }
 
-/// Defines the lookup map for categorical fields, and constructs the baseline histogram for drift
-/// at "runtime".
-fn categorical_derive_baseline_state<T: Hash + Ord + Clone>(
-    baseline_dataset: &[T],
-) -> Result<(HashMap<T, usize>, Vec<f64>), DriftError> {
-    if baseline_dataset.is_empty() {
-        return Err(DriftError::EmptyBaselineData);
-    }
-    let n = baseline_dataset.len() as f64;
-
-    let mut initial_bins: BTreeMap<T, f64> = BTreeMap::new();
-    for cat in baseline_dataset.iter() {
-        if let Some(count) = initial_bins.get_mut(cat) {
-            *count += 1_f64;
-        } else {
-            initial_bins.insert(cat.clone(), 1_f64);
-        }
-    }
-
-    // Preallocate space for cardinatity of the dataset + 1
-    // The additional bin is reserved for data values not observed in the baseline dataset
-    let mut baseline_bins = vec![0_f64; initial_bins.len() + 1_usize];
-    let mut idx_map: HashMap<T, usize> = HashMap::with_capacity(initial_bins.len());
-    for (i, (key, count)) in initial_bins.into_iter().enumerate() {
-        idx_map.insert(key, i);
-        baseline_bins[i] = count / n;
-    }
-    Ok((idx_map, baseline_bins))
-}
-
 /*
 * Each value present in the baseline dataset is mapped to a bin in the histogram Vec.
 * The furthest right, ie len(set(baseline data)) index in the histogram Vec is reserved for
@@ -353,7 +311,7 @@ fn categorical_derive_baseline_state<T: Hash + Ord + Clone>(
 impl<T: Hash + Ord + Clone> BaselineCategoricalBins<T> {
     // bins and index map, allocated bins, fill histogram with counts.
     pub(crate) fn new(baseline_data: &[T]) -> Result<BaselineCategoricalBins<T>, DriftError> {
-        let (idx_map, baseline_bins) = categorical_derive_baseline_state(baseline_data)?;
+        let (idx_map, baseline_bins) = core::categorical_derive_baseline_state(baseline_data)?;
         Ok(BaselineCategoricalBins {
             idx_map,
             baseline_bins,
@@ -401,7 +359,7 @@ mod test {
     fn test_new_hist_prob() {
         let bl_hist = vec![10.0, 20.0, 30.0, 40.0];
         let base: Vec<f64> = vec![0.10, 0.20, 0.30, 0.40];
-        let test_bins = compute_new_hist_prob(100, &bl_hist).unwrap();
+        let test_bins = core::compute_new_hist_prob(100, &bl_hist).unwrap();
         assert_eq!(base, test_bins);
     }
 
