@@ -4,83 +4,11 @@ use super::{
     drift_metrics::{global_compute_drift, DataDriftType, DriftContainer, DriftContainerType},
 };
 use crate::errors::DriftError;
+use std::borrow::Borrow;
 use std::hash::Hash;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::num::NonZeroUsize;
 use tempfile::NamedTempFile;
-/*
-* The goal with this module is to allow for a smooth transition between drift windows.
-*
-* This will be more space and computationally intensive, but is able to have more elegant
-* transition from one window to the next.
-*
-* Each window will be held in seperate buckets, determined by a configuration. The number of
-* captured windows will be statically determined, then all windows will be preallocated.
-*
-* Every time the total count of examples in the container rolls passed WINDOW_SIZE, or in other
-* words after an insert total_count % WINDOW_SIZE crosses rolls back to 0, then a window will be
-* cleaned up in the stream.
-*
-* Stored global histogram. When a window is cleaned up, clean up the stale window, then resolve the
-* global state.
-*
-* On each insert, if the current bin is maxed out, then clean up the previous flow state.
-*
-* 2 options here
-* 1. check on each insert
-* 2. determine before if there needs to be a reset, and add a break point on a batch insert
-*
-*
-* I think that spilling to disk should happen internally, and dynamically. There should be some
-* threshold where the cached windows should be spilled to disk. Could this be available process
-* memory relative to dataset size, it num items * size >= some threshold.
-*
-*
-* Implementation details
-* - increment epoch counter
-*   - allows for easy is saturated computation and current buffer offset
-* - Keep live window count
-*   - increment live window count every push
-*   - when window is saturated, forward backend pointer
-* - When forwarding epoch pointer
-*   - call evict window every time
-*   - within the evict window method, take in mut global window
-*   - if buffer is not saturated, then it is a no op
-*   - when it is saturated, clear the evicted window from backend buffer
-*   - zero out live window
-* - the backend owns the live window
-* - outer type owns the global window
-* - methods needed on backend
-*   - push
-*       - internally handles backend ops when windows roll
-*       - when saturated
-*           - calls into flush window, flush window from global
-*           - evicts stale window
-*
-*   - epoch_offset
-*       - compute current epoch offset
-*       - window offset in buffer
-*   - bin_offset
-*       - only on in memory backend
-*       - compute offset into buffer of bin based on epoch offset and bin offset
-*   - is_saturated
-*       - determine if entire backend buffer has been saturated
-*   - forward_offset
-*       - increment epoch offset pointer
-*   - offset_tail
-*       - get the tail window
-*   - live_window
-*       - get a ref to the live window
-*       - for in memory backend this will be the slab for the current window
-*       - a seperate live window will be stored for the disk backed buffer
-* */
-
-/*
-* Statically sized container to hold the window buckets.
-* Both the buckets container and the bin buckets themselves are allocated upfront.
-*
-* the current bucket is represented by head.
-* */
 
 pub trait WindowCoreBackend {
     // Evict a stale window from the buffer. Update global state window.
@@ -110,14 +38,15 @@ pub trait WindowCoreBackend {
 }
 
 pub struct DiskBackedBackend {
-    mem_buf: Vec<u8>,
-    write_disk_buf: NamedTempFile,
-    read_disk_buf: NamedTempFile,
-    epoch_size: usize,
+    mem_buf: Vec<f64>, // reusable buffer to read from disk. Using 8 byte aligned type
+    // for reliable alignment
+    write_disk_buf: NamedTempFile, // current disk buff for live window flush
+    read_disk_buf: NamedTempFile,  // read buf for global window evictions
+    epoch_size: usize,             // count of examples per epoch
     epoch_count: usize,
-    live_window: Vec<f64>,
-    epoch_inc: usize,
-    live_ex_count: usize,
+    live_window: Vec<f64>, // current epoch window
+    epoch_inc: usize,      // increasing increment of epoch
+    live_ex_count: usize,  // number of examples observed in current live window
 }
 
 impl WindowCoreBackend for DiskBackedBackend {
@@ -132,15 +61,19 @@ impl WindowCoreBackend for DiskBackedBackend {
             self.write_disk_buf.seek(SeekFrom::Start(0))?;
             // Swap the write disk buffer with a fresh copy.
             // Set read buf to old write buf, and drop stale read buf.
-            // First cycle drops an empty file: OK pay this cost for lowered complexity.
+            // First cycle drops an empty file: OK pay this cost for lowered complexity, and mostly
+            // sequential reads/writes to disk.
             let swap_buf = std::mem::replace(&mut self.write_disk_buf, NamedTempFile::new()?);
             self.read_disk_buf = swap_buf;
         }
-        self.read_disk_buf.read_exact(&mut self.mem_buf)?;
-        let (_, f_slice, _) = unsafe { self.mem_buf.align_to::<f64>() };
-        debug_assert_eq!(f_slice.len(), global_window.len());
+
+        // Safety: Get a mutable u8 slice from the mem buf. Safe as Vec<f64> (8) can be safely
+        // represented as alignment of Vec<u8> (1)
+        let (_, mut read_buf, _) = unsafe { self.mem_buf.align_to_mut::<u8>() };
+        self.read_disk_buf.read_exact(&mut read_buf)?;
+
         for i in 0..self.n_bins() {
-            global_window[i] -= f_slice[i];
+            global_window[i] -= self.mem_buf[i];
         }
 
         Ok(())
@@ -192,11 +125,6 @@ impl WindowCoreBackend for DiskBackedBackend {
     }
 }
 
-// after buffer saturation...
-// when a window gets saturated, then
-// read in the buffer to be evicted, resolve global state,
-// then clear the live window
-
 impl DiskBackedBackend {
     fn new(
         epoch_size: usize,
@@ -205,11 +133,10 @@ impl DiskBackedBackend {
     ) -> std::io::Result<DiskBackedBackend> {
         let write_disk_buf = NamedTempFile::new()?;
         let read_disk_buf = NamedTempFile::new()?;
-        let mem_buf_size = n_bins * 8_usize;
         Ok(DiskBackedBackend {
             write_disk_buf,
             read_disk_buf,
-            mem_buf: vec![0_u8; mem_buf_size],
+            mem_buf: vec![0_f64; n_bins],
             epoch_size,
             epoch_count,
             live_window: vec![0_f64; n_bins],
@@ -224,7 +151,7 @@ pub struct InMemoryWindowBackend {
     epoch_count: usize,      // the "index" of the current epoch
     epoch_inc: usize,        // the current saturation of the current epoch
     epoch_size: usize,       // size of a single window epoch
-    live_ex_count: usize,
+    live_ex_count: usize,    // running count of examples in current epoch window
 }
 
 impl WindowCoreBackend for InMemoryWindowBackend {
@@ -357,7 +284,7 @@ impl WindowedContinuousDrift<InMemoryWindowBackend> {
         } = config;
         let baseline_bins =
             BaselineContinuousBins::new(baseline_dataset, quantile_type.unwrap_or_default())?;
-        let n_bins = baseline_bins.n_bins;
+        let n_bins = baseline_bins.n_bins();
         let backend = InMemoryWindowBackend::new(epoch_size.into(), epoch_count.into(), n_bins);
         Ok(WindowedContinuousDrift {
             global_bins: vec![0_f64; n_bins],
@@ -379,7 +306,7 @@ impl WindowedContinuousDrift<DiskBackedBackend> {
         } = config;
         let baseline_bins =
             BaselineContinuousBins::new(baseline_dataset, quantile_type.unwrap_or_default())?;
-        let n_bins = baseline_bins.n_bins;
+        let n_bins = baseline_bins.n_bins();
         let backend = DiskBackedBackend::new(epoch_size.into(), epoch_count.into(), n_bins)?;
         Ok(WindowedContinuousDrift {
             global_bins: vec![0_f64; n_bins],
@@ -484,14 +411,18 @@ impl<T: Hash + Ord + Clone> WindowedCategoricalDrift<DiskBackedBackend, T> {
 
 impl<S: WindowCoreBackend, T: Ord + Hash + Clone> WindowedCategoricalDrift<S, T> {
     #[inline]
-    pub fn push(&mut self, example: &T) -> Result<(), DriftError> {
-        let bin = self.baseline_bins.get_bin(example);
+    pub fn push<Q>(&mut self, example: &Q) -> Result<(), DriftError>
+    where
+        T: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let bin = self.baseline_bins.resolve_bin(example);
         self.backend.push(bin, &mut self.global_bins)
     }
 
     pub fn push_batch(&mut self, examples: &[T]) -> Result<(), DriftError> {
         for ex in examples {
-            let bin = self.baseline_bins.get_bin(ex);
+            let bin = self.baseline_bins.resolve_bin(ex);
             self.backend.push(bin, &mut self.global_bins)?;
         }
         Ok(())

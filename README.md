@@ -152,6 +152,44 @@ Flush variants additionally expose:
 
 ---
 
+### drift.windowed
+
+Windowed drift detection for continuous and categorical features. The goal of this module is to allow smooth transitions between drift windows — rather than a hard reset of all accumulated data, overlapping windows are maintained so that each window expiration evicts only the stale slice while the global histogram reflects the remaining live data.
+
+This comes at higher memory and compute cost than the flush-based streaming types, but avoids the discontinuity that occurs when the entire stream is cleared at once.
+
+#### Design
+
+Each windowed detector maintains a fixed number of windows, determined at construction and fully pre-allocated. Internally, data is tracked in two places:
+
+- A **global histogram** representing all currently active windows combined.
+- A **per-window slab** (the backend buffer) tracking the contribution of each individual window.
+
+Every time the total example count within the live window reaches `epoch_size`, the window is flushed: its counts are subtracted from the global histogram (eviction) and the slab is zeroed out. The backend pointer is then advanced to the next window slot. When the entire buffer has been saturated (i.e. every slot has been used at least once), eviction is live and the global histogram always reflects exactly `epoch_count * epoch_size` of the most recent examples.
+
+Two storage backends are provided, selectable at construction:
+
+- **`InMemoryWindowBackend`** — a single contiguous allocation of `n_bins * epoch_count` floats. Each window occupies a fixed-size slice; the current slot is computed from the epoch counter modulo the epoch count.
+- **`DiskBackedBackend`** — spills window data to a temporary file pair (one for writes, one for reads) when the in-memory epoch buffer would be too large. On each window eviction the tail window is read back from disk and subtracted from the global histogram, then the write cursor wraps on saturation.
+
+Both backends implement the `WindowCoreBackend` trait, which is the type parameter on `WindowedContinuousDrift<S>` and `WindowedCategoricalDrift<S, T>`. Backend selection is a zero-cost compile-time choice; no virtual dispatch is involved.
+
+**`WindowedContinuousDrift<S>`** — windowed histogram drift for floating-point features.
+- `new_in_memory_backend(config, baseline_dataset)`
+- `new_disk_backend(config, baseline_dataset)`
+- `push(example) -> Result<(), DriftError>`
+- `push_batch(examples) -> Result<(), DriftError>`
+- `compute_drift(drift_type) -> f64`
+- `compute_drift_multiple_criteria(drift_types) -> Vec<f64>`
+
+**`WindowedCategoricalDrift<S, T>`** — windowed drift for categorical features. Same interface as above, with `push(example: &T)`.
+
+Configuration structs:
+- `ContinuousWindowedDriftConfig { epoch_size: NonZeroUsize, epoch_count: NonZeroUsize, quantile_type: Option<QuantileType> }`
+- `CategoricalWindowedDriftConfig { epoch_size: NonZeroUsize, epoch_count: NonZeroUsize }`
+
+---
+
 ### model_perf
 
 Batch model performance analysis and runtime drift evaluation.

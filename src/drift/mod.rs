@@ -17,6 +17,9 @@ use data_drift::{CategoricalDataDrift, ContinuousDataDrift};
 use distribution::QuantileType;
 use drift_metrics::DataDriftType;
 use std::hash::Hash;
+pub mod core;
+pub mod drift_group;
+pub(crate) mod opt;
 
 const DEFAULT_STREAM_FLUSH_CADENCE: u64 = 3600 * 24;
 const DEFAULT_MAX_STREAM_SIZE: u64 = 1_000_000_u64;

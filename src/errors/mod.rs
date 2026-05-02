@@ -71,6 +71,8 @@ pub enum DriftError {
     UnsupportedConfig,
     #[error("IO error using disk backend: {0:?}")]
     IOError(std::io::Error),
+    #[error("No entry found")]
+    NoEntryFound,
 }
 
 impl From<std::io::Error> for DriftError {
@@ -192,9 +194,8 @@ pub(crate) mod py_errors {
                 | DriftError::NaNValueError
                 | DriftError::UnsupportedDriftType
                 | DriftError::UnsupportedConfig
-                | DriftError::UnsupportedOperation => {
-                    exceptions::PyValueError::new_err(err_message)
-                }
+                | DriftError::UnsupportedOperation
+                | DriftError::NoEntryFound => exceptions::PyValueError::new_err(err_message),
                 DriftError::DateTimeError
                 | DriftError::MalformedRuntimeData
                 | DriftError::IOError(_) => exceptions::PySystemError::new_err(err_message),

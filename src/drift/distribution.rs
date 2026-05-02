@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 #[non_exhaustive]
-#[derive(Default, Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+#[derive(Default, Debug, PartialEq, Eq, Clone, Copy, Deserialize, Serialize)]
 pub enum QuantileType {
     #[default]
     FreedmanDiaconis,
@@ -34,20 +34,24 @@ const SCOTT_CONSTANT: f64 = 3.49;
 pub(crate) const MIN_BIN_CLAMP: usize = 3_usize;
 
 /// Compute the optimal number of bins using Scott's method.
-/// Assumes data is sorted
+/// Assumes data is sorted. Also assumes that dataset is nonempty.
 fn scott(dataset: &[f64]) -> usize {
-    let n = dataset.len() as f64;
-    let mean = dataset.iter().sum::<f64>() / n;
+    let n = dataset.len();
+    let n_f64 = n as f64;
+    let mean = dataset.iter().sum::<f64>() / n_f64;
     let deviation_term: f64 = dataset.iter().map(|v| (*v - mean).powi(2)).sum::<f64>();
+
     // use the sample standard deviation
-    let std_dev = (1_f64 / (n - 1.0) * deviation_term).sqrt();
-    let bin_width = SCOTT_CONSTANT * std_dev * n.powf(-1_f64 / 3_f64);
-    // Upstream private methods ensure these unwraps are safe
-    let max = dataset.last().unwrap();
-    let min = dataset.first().unwrap();
+    let std_dev = (1_f64 / (n_f64 - 1.0) * deviation_term).sqrt();
+    let bin_width = SCOTT_CONSTANT * std_dev * n_f64.powf(-1_f64 / 3_f64);
+
+    let max = dataset[n - 1];
+    let min = dataset[0];
+
     if max == min {
         return MIN_BIN_CLAMP;
     }
+
     (((max - min) / bin_width).ceil() as usize).max(MIN_BIN_CLAMP)
 }
 
@@ -59,18 +63,21 @@ fn sturges(dataset: &[f64]) -> usize {
 /// Compute the optimal number of bins using Freedman Diaconis method.
 /// Assumes data is sorted.
 fn freedman_diaconis(sorted_data: &[f64]) -> usize {
-    let n = sorted_data.len() as f64;
-    if n == 1_f64 {
+    let n = sorted_data.len();
+    let n_f64 = n as f64;
+    if n == 1 {
         return 1;
     }
 
-    let p75 = sorted_data[((0.75 * n).floor() as usize).min(sorted_data.len() - 1)];
-    let p25 = sorted_data[(0.25 * n).floor().max(0_f64) as usize];
+    let p75 = sorted_data[((0.75 * n_f64).floor() as usize).min(sorted_data.len() - 1)];
+    let p25 = sorted_data[(0.25 * n_f64).floor().max(0_f64) as usize];
     let iqr = p75 - p25;
+
     if iqr == 0_f64 {
         return MIN_BIN_CLAMP;
     }
-    let width = 2_f64 * iqr * n.powf(-1_f64 / 3_f64);
+
+    let width = 2_f64 * iqr * n_f64.powf(-1_f64 / 3_f64);
     let max = sorted_data[n as usize - 1];
     let min = sorted_data[0];
     // clamp to [3, ...)
@@ -80,8 +87,6 @@ fn freedman_diaconis(sorted_data: &[f64]) -> usize {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    // --- TryFrom<&str> ---
 
     #[test]
     fn quantile_type_try_from_valid() {
@@ -106,8 +111,6 @@ mod test {
         assert!(QuantileType::try_from("freedmandiaconis").is_err()); // case sensitive
     }
 
-    // --- Sturges ---
-
     #[test]
     fn sturges_known_value() {
         // n=8: log2(8).floor() + 1 = 3 + 1 = 4
@@ -121,8 +124,6 @@ mod test {
         let data = vec![0.0_f64, 1.0];
         assert_eq!(sturges(&data), MIN_BIN_CLAMP);
     }
-
-    // --- Scott ---
 
     #[test]
     fn scott_constant_data_returns_clamp() {
@@ -145,8 +146,6 @@ mod test {
         let data: Vec<f64> = (0..10).map(|i| i as f64).collect();
         assert!(scott(&data) >= MIN_BIN_CLAMP);
     }
-
-    // --- FreedmanDiaconis ---
 
     #[test]
     fn freedman_diaconis_single_element_returns_one() {

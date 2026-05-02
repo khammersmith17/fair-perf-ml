@@ -2,7 +2,7 @@ use super::{
     baseline::{BaselineCategoricalBins, BaselineContinuousBins},
     distribution::QuantileType,
     drift_metrics::{global_compute_drift, DataDriftType, DriftContainer, DriftContainerType},
-    export, DEFAULT_DECAY_HALF_LIFE, DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
+    export, opt, DEFAULT_DECAY_HALF_LIFE, DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
 };
 use crate::errors::{DriftError, DriftExportError};
 use ahash::{HashMap, HashMapExt};
@@ -190,7 +190,7 @@ impl ContinuousDataDrift {
         export: export::ContinuousDriftBaselineExport,
     ) -> Result<ContinuousDataDrift, DriftExportError> {
         let baseline = BaselineContinuousBins::new_from_export(export)?;
-        let rt_bins = vec![0_f64; baseline.n_bins];
+        let rt_bins = vec![0_f64; baseline.n_bins()];
         Ok(ContinuousDataDrift { baseline, rt_bins })
     }
     /// Construct a new instance from a baseline dataset. The baseline is sorted and used to
@@ -219,12 +219,8 @@ impl ContinuousDataDrift {
         bl_slice: &[f64],
     ) -> Result<ContinuousDataDrift, DriftError> {
         let baseline = BaselineContinuousBins::new(bl_slice, quantile_type.unwrap_or_default())?;
-        let mut obj = ContinuousDataDrift {
-            baseline,
-            rt_bins: Vec::new(),
-        };
-        obj.init_runtime_containers();
-        Ok(obj)
+        let rt_bins = vec![0_f64; baseline.baseline_hist.len()];
+        Ok(ContinuousDataDrift { baseline, rt_bins })
     }
 
     fn clear_rt(&mut self) {
@@ -276,10 +272,9 @@ impl ContinuousDataDrift {
         if runtime_data.is_empty() {
             return Err(DriftError::EmptyRuntimeData);
         }
-        for item in runtime_data {
-            let idx = self.baseline.resolve_bin(*item);
-            self.rt_bins[idx] += 1_f64;
-        }
+        self.rt_bins =
+            opt::continuous::parallel_approx_dataset(runtime_data, &self.baseline.bin_edges);
+
         Ok(())
     }
 
@@ -301,7 +296,7 @@ impl ContinuousDataDrift {
 
     /// The number of histogram bins derived from the baseline dataset.
     pub fn n_bins(&self) -> usize {
-        self.baseline.n_bins
+        self.baseline.n_bins()
     }
 
     /// Export the baseline bin proportions. Each value represents the proportion of baseline
@@ -382,7 +377,7 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
         if matches!(mode, StreamModeInner::Flush { .. }) {
             return Err(DriftExportError::InvalidDriftMode);
         }
-        let n_bins = baseline.n_bins;
+        let n_bins = baseline.n_bins();
         Ok(StreamingContinuousDataDrift {
             baseline,
             stream_bins: vec![0_f64; n_bins],
@@ -567,7 +562,7 @@ impl StreamingContinuousDataDrift<FlushModeMark> {
         if matches!(mode, StreamModeInner::ExponentialDecay(_)) {
             return Err(DriftExportError::InvalidDriftMode);
         }
-        let n_bins = baseline.n_bins;
+        let n_bins = baseline.n_bins();
         Ok(StreamingContinuousDataDrift {
             baseline,
             stream_bins: vec![0_f64; n_bins],
@@ -770,7 +765,7 @@ impl<M: StreamingDataDriftMark> StreamingContinuousDataDrift<M> {
 
     /// The number of histogram bins derived from the baseline dataset.
     pub fn n_bins(&self) -> usize {
-        self.baseline.n_bins
+        self.baseline.n_bins()
     }
 
     /// Export a point-in-time snapshot of the stream state as a map with three keys:
@@ -788,7 +783,8 @@ impl<M: StreamingDataDriftMark> StreamingContinuousDataDrift<M> {
         }
         // determine snapshot shape
         let mut table: HashMap<String, Vec<f64>> = HashMap::with_capacity(3);
-        table.insert("binEdges".into(), self.baseline.bin_edges.clone());
+        let bin_edges_export = self.baseline.export_bin_edges();
+        table.insert("binEdges".into(), bin_edges_export);
         table.insert("baselineBins".into(), self.export_baseline());
         let bin_ratio_snapshot = self
             .stream_bins
@@ -936,7 +932,7 @@ impl<T: Hash + Ord + Clone> CategoricalDataDrift<T> {
             return Err(DriftError::EmptyRuntimeData);
         }
         for cat in runtime_data.iter() {
-            let i = self.baseline.get_bin(cat);
+            let i = self.baseline.resolve_bin(cat);
 
             self.rt_bins[i] += 1_f64;
         }
@@ -1112,7 +1108,7 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, FlushModeMark> {
     /// if the flush size or cadence threshold has been reached, starting a fresh window.
     #[inline]
     pub fn update_stream(&mut self, item: &T) {
-        let idx = self.baseline.get_bin(item);
+        let idx = self.baseline.resolve_bin(item);
         if self.mode.needs_flush(self.total_stream_size) {
             self.flush();
         }
@@ -1383,7 +1379,7 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, DecayModeMark> {
     /// Push a single label into the stream.
     #[inline]
     pub fn update_stream(&mut self, item: &T) {
-        let idx = self.baseline.get_bin(item);
+        let idx = self.baseline.resolve_bin(item);
         self.stream_bins[idx] += 1_f64;
         self.total_stream_size += 1_f64;
     }
@@ -1506,6 +1502,7 @@ mod continuous_tests {
         let drift = psi
             .compute_drift(&runtime, DataDriftType::PopulationStabilityIndex)
             .unwrap();
+        dbg!(drift);
         assert!(drift > 0.5);
     }
 
