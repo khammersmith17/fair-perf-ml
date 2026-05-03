@@ -869,10 +869,11 @@ impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> CategoricalDataDrift<T
 impl<T: Hash + Ord + Clone + Sync> CategoricalDataDrift<T> {
     /// Construct a new instance from a baseline dataset. The baseline is used to build a
     /// label-frequency histogram with one bin per unique value, plus one reserved "other" bin
-    /// for values not present in the baseline.
+    /// for values not present in the baseline. This method requires a T that is Sync, thus
+    /// the seperate method surface from the base method.
     ///
     /// Returns [`DriftError::EmptyBaselineData`] if `baseline_data` is empty.
-    pub fn new_parallel_comp(baseline_data: &[T]) -> Result<CategoricalDataDrift<T>, DriftError> {
+    pub fn new_par(baseline_data: &[T]) -> Result<CategoricalDataDrift<T>, DriftError> {
         if baseline_data.is_empty() {
             return Err(DriftError::EmptyBaselineData);
         }
@@ -894,7 +895,9 @@ impl<T: Hash + Ord + Clone + Sync> CategoricalDataDrift<T> {
         Ok(())
     }
 
-    /// Compute drift between the baseline and the provided runtime dataset. The runtime data is
+    /// Compute drift between the baseline and the provided runtime dataset. This method uses the
+    /// internal implementation to compute the runtime dataset distribution, and thus requires T to
+    /// be sync. If T is not Sync, then the base method can be used. The runtime data is
     /// binned against the baseline label map, drift is computed, and the runtime bins are
     /// cleared. Each call is stateless with respect to prior runtime data.
     ///
@@ -903,7 +906,7 @@ impl<T: Hash + Ord + Clone + Sync> CategoricalDataDrift<T> {
     /// Runtime labels not seen in the baseline are accumulated in the "other" bin.
     ///
     /// Returns [`DriftError::EmptyRuntimeData`] if `runtime_data` is empty.
-    pub fn compute_drift_sync(
+    pub fn compute_drift_par(
         &mut self,
         runtime_data: &[T],
         drift_type: DataDriftType,
@@ -915,8 +918,9 @@ impl<T: Hash + Ord + Clone + Sync> CategoricalDataDrift<T> {
     }
 
     /// Compute drift between the baseline and the provided runtime dataset for multiple drift
-    /// metric types. The runtime data is binned against the baseline label map, drift is computed,
-    /// and the runtime bins are cleared. Each call is stateless with respect to prior runtime data.
+    /// metric types, leveraging the multiple threads to derive the runtime dataset distribution.
+    /// The runtime data is binned against the baseline label map, drift is computed, and the
+    /// runtime bins are cleared. Each call is stateless with respect to prior runtime data.
     ///
     /// This method is much more efficient for computing drift across multiple criteria as it only
     /// requires a single build of the runtime data distribution representation.
@@ -924,7 +928,7 @@ impl<T: Hash + Ord + Clone + Sync> CategoricalDataDrift<T> {
     /// Runtime labels not seen in the baseline are accumulated in the "other" bin.
     ///
     /// Returns [`DriftError::EmptyRuntimeData`] if `runtime_data` is empty.
-    pub fn compute_drift_multiple_criteria_sync(
+    pub fn compute_drift_multiple_criteria_par(
         &mut self,
         runtime_data: &[T],
         drift_types: &[DataDriftType],
