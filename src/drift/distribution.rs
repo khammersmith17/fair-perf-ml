@@ -39,7 +39,9 @@ fn scott(dataset: &[f64]) -> usize {
     let n = dataset.len();
     let n_f64 = n as f64;
     let mean = dataset.iter().sum::<f64>() / n_f64;
-    let deviation_term: f64 = dataset.iter().map(|v| (*v - mean).powi(2)).sum::<f64>();
+    let deviation_term: f64 = dataset
+        .iter()
+        .fold(0_f64, |acc, v| acc + (*v - mean).powi(2));
 
     // use the sample standard deviation
     let std_dev = (1_f64 / (n_f64 - 1.0) * deviation_term).sqrt();

@@ -10,94 +10,12 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::hash::Hash;
 
-#[derive(Debug, Default, PartialEq, Clone)]
-pub(crate) struct ContinuousBinEdges {
-    bin_edges: Vec<f64>,
-    n_bins: usize,
-}
-
-impl ContinuousBinEdges {
-    /// Assumes data is sorted.
-    fn new_from_dataset_with_quantile_type(
-        dataset: &[f64],
-        quantile_type: QuantileType,
-    ) -> ContinuousBinEdges {
-        let n_bins = quantile_type.compute_num_bins(dataset);
-        ContinuousBinEdges::new_from_dataset_with_bin_count(dataset, n_bins)
-    }
-
-    /// Assumes data is sorted.
-    fn new_from_dataset_with_bin_count(dataset: &[f64], n_bins: usize) -> ContinuousBinEdges {
-        /*
-         * - Bin edges will be of size num_bins - 2.
-         * - The outer bins, or tail bins in the distribution will be reserved for values observed in the
-         *  distribution that fall outsde the bounds of the baseline distribution.
-         *  - Bin/quantile size will have its "step" size determined by evenly diving the difference
-         *  between the max and min of the distribution and dividing by the number of bins - 2.
-         *  - A value is assigned to a particular quantile if left <= value < right, otherwise it will
-         *  be assigned to one of the tail quantile bins.
-         * */
-        let mut bin_edges = vec![0_f64; n_bins - 2];
-        let n = dataset.len();
-        let n_0 = dataset[0];
-        let bin_step = (dataset[n - 1] - n_0) / n as f64;
-        let mut edge_value = n_0;
-
-        for edge in bin_edges.iter_mut() {
-            *edge = edge_value;
-            edge_value += bin_step;
-        }
-
-        ContinuousBinEdges { bin_edges, n_bins }
-    }
-
-    pub(crate) fn n_bins(&self) -> usize {
-        self.n_bins
-    }
-
-    #[inline]
-    fn left_bin_edge(&self) -> f64 {
-        self.bin_edges[0]
-    }
-
-    #[inline]
-    fn right_bin_edge(&self) -> f64 {
-        // bin_edges.len == n_bins - 2
-        self.bin_edges[self.len() - 1]
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.bin_edges.len()
-    }
-
-    fn export_edges(&self) -> Vec<f64> {
-        self.bin_edges.clone()
-    }
-
-    #[inline]
-    pub(crate) fn resolve_bin(&self, sample: f64) -> usize {
-        if sample < self.left_bin_edge() {
-            return 0_usize;
-        }
-
-        if sample > self.right_bin_edge() {
-            return self.n_bins - 1;
-        }
-        // find "pivot" point
-        // ie the bin where value >= left and < right
-        // this incorrectly misses the left and right edge currently
-        // as these values would not created a parition within the edges
-        let i = self.bin_edges.partition_point(|edge| sample >= *edge);
-        i.clamp(0, self.n_bins - 1)
-    }
-}
-
 // Break out baseline to have shared logic between the discrete and the streaming variants of drift
 // utilities.
 // Also allows for more elegant composition of different usage
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BaselineContinuousBins {
-    pub bin_edges: ContinuousBinEdges,
+    pub bin_edges: core::ContinuousBinEdges,
     pub baseline_hist: Vec<f64>,
     quantile_type: QuantileType,
 }
@@ -115,11 +33,7 @@ impl TryFrom<ContinuousDriftBaselineExport> for BaselineContinuousBins {
             return Err(DriftExportError::InvalidDataShape);
         }
 
-        let bin_edges = ContinuousBinEdges {
-            bin_edges: raw_bin_edges,
-            n_bins,
-        };
-
+        let bin_edges = core::ContinuousBinEdges::new_from_parts(raw_bin_edges);
         Ok(BaselineContinuousBins {
             bin_edges,
             baseline_hist,
@@ -138,7 +52,7 @@ impl From<BaselineContinuousBins> for ContinuousDriftBaselineExport {
         } = baseline;
 
         ContinuousDriftBaselineExport {
-            bin_edges: bin_edges_outer.bin_edges,
+            bin_edges: bin_edges_outer.take_edges(),
             baseline_hist,
             quantile_type,
         }
@@ -159,7 +73,7 @@ impl BaselineContinuousBins {
         quantile_resolution: QuantileType,
     ) -> Result<BaselineContinuousBins, DriftError> {
         let sorted_baseline = Self::sort_baseline_data(baseline_data)?;
-        let bin_edges = ContinuousBinEdges::new_from_dataset_with_quantile_type(
+        let bin_edges = core::ContinuousBinEdges::new_from_dataset_with_quantile_type(
             &sorted_baseline,
             quantile_resolution,
         );
@@ -192,7 +106,7 @@ impl BaselineContinuousBins {
     }
 
     pub(crate) fn n_bins(&self) -> usize {
-        self.bin_edges.n_bins
+        self.bin_edges.n_bins()
     }
 
     pub fn export_bin_edges(&self) -> Vec<f64> {
@@ -212,7 +126,7 @@ impl BaselineContinuousBins {
     // call into init method
     pub(crate) fn reset(&mut self, baseline_data: &[f64]) -> Result<(), DriftError> {
         let sorted_baseline = Self::sort_baseline_data(baseline_data)?;
-        self.bin_edges = ContinuousBinEdges::new_from_dataset_with_quantile_type(
+        self.bin_edges = core::ContinuousBinEdges::new_from_dataset_with_quantile_type(
             &sorted_baseline,
             self.quantile_type,
         );

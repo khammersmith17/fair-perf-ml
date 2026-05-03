@@ -1,8 +1,10 @@
-use super::baseline::ContinuousBinEdges;
+use super::core::{CategoricalBinEdges, ContinuousBinEdges};
+
+const MIN_EXAMPLES_PER_THREAD: usize = 10_000_usize;
 
 /// Get the available number of threads.
 /// If the dataset size is less than the number of threads, use a single thread.
-fn get_thread_count(n: usize) -> usize {
+pub(crate) fn get_thread_count(n: usize) -> usize {
     let Ok(nz_count) = std::thread::available_parallelism() else {
         return 1;
     };
@@ -11,7 +13,7 @@ fn get_thread_count(n: usize) -> usize {
     if c > n {
         return 1;
     }
-    c
+    c.min((n / MIN_EXAMPLES_PER_THREAD).max(1))
 }
 
 /*
@@ -25,9 +27,9 @@ pub(crate) mod continuous {
     pub(crate) fn parallel_approx_dataset(
         dataset: &[f64],
         bin_edges: &super::ContinuousBinEdges,
+        thread_count: usize,
     ) -> Vec<f64> {
         let n = dataset.len();
-        let thread_count = super::get_thread_count(n);
         let chunk_size = (n + thread_count - 1) / thread_count;
         let n_bins = bin_edges.n_bins();
 
@@ -58,30 +60,9 @@ pub(crate) mod continuous {
 pub(crate) mod categorical {
     use std::hash::Hash;
 
-    pub(crate) struct CategoricalBinEdges<T: Hash + Ord + Clone>(
-        std::collections::HashMap<T, usize>,
-    );
-
-    impl<T: Hash + Ord + Clone> CategoricalBinEdges<T> {
-        fn resolve_bin<Q>(&self, key: &Q) -> usize
-        where
-            T: std::borrow::Borrow<Q>,
-            Q: Hash + Eq + ?Sized,
-        {
-            if let Some(idx) = self.0.get(key) {
-                *idx
-            } else {
-                self.0.len() - 1
-            }
-        }
-
-        fn n_bins(&self) -> usize {
-            self.0.len() + 1
-        }
-    }
     pub(crate) fn parallel_approx_dataset<T: Hash + Ord + Clone + Sync>(
         dataset: &[T],
-        baseline: &CategoricalBinEdges<T>,
+        baseline: &super::CategoricalBinEdges<T>,
     ) -> Vec<f64> {
         let n = dataset.len();
         let thread_count = super::get_thread_count(n);

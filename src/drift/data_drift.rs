@@ -1,8 +1,9 @@
 use super::{
     baseline::{BaselineCategoricalBins, BaselineContinuousBins},
+    core,
     distribution::QuantileType,
     drift_metrics::{global_compute_drift, DataDriftType, DriftContainer, DriftContainerType},
-    export, opt, DEFAULT_DECAY_HALF_LIFE, DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
+    export, DEFAULT_DECAY_HALF_LIFE, DEFAULT_MAX_STREAM_SIZE, DEFAULT_STREAM_FLUSH_CADENCE,
 };
 use crate::errors::{DriftError, DriftExportError};
 use ahash::{HashMap, HashMapExt};
@@ -273,7 +274,7 @@ impl ContinuousDataDrift {
             return Err(DriftError::EmptyRuntimeData);
         }
         self.rt_bins =
-            opt::continuous::parallel_approx_dataset(runtime_data, &self.baseline.bin_edges);
+            core::compute_dataset_from_bins_continuous(runtime_data, &self.baseline.bin_edges);
 
         Ok(())
     }
@@ -865,6 +866,79 @@ impl<T: Hash + Ord + Clone + serde::de::DeserializeOwned> CategoricalDataDrift<T
     }
 }
 
+impl<T: Hash + Ord + Clone + Sync> CategoricalDataDrift<T> {
+    /// Construct a new instance from a baseline dataset. The baseline is used to build a
+    /// label-frequency histogram with one bin per unique value, plus one reserved "other" bin
+    /// for values not present in the baseline.
+    ///
+    /// Returns [`DriftError::EmptyBaselineData`] if `baseline_data` is empty.
+    pub fn new_parallel_comp(baseline_data: &[T]) -> Result<CategoricalDataDrift<T>, DriftError> {
+        if baseline_data.is_empty() {
+            return Err(DriftError::EmptyBaselineData);
+        }
+
+        let baseline = BaselineCategoricalBins::new(baseline_data)?;
+        let num_bins = baseline.baseline_bins.len();
+        let rt_bins: Vec<f64> = vec![0_f64; num_bins];
+
+        Ok(CategoricalDataDrift { baseline, rt_bins })
+    }
+
+    fn build_rt_hist_parallel(&mut self, runtime_data: &[T]) -> Result<(), DriftError> {
+        if runtime_data.is_empty() {
+            return Err(DriftError::EmptyRuntimeData);
+        }
+        let edges = core::CategoricalBinEdges(&self.baseline.idx_map);
+        self.rt_bins = core::compute_dataset_from_bins_categorical_parallel(runtime_data, &edges);
+
+        Ok(())
+    }
+
+    /// Compute drift between the baseline and the provided runtime dataset. The runtime data is
+    /// binned against the baseline label map, drift is computed, and the runtime bins are
+    /// cleared. Each call is stateless with respect to prior runtime data.
+    ///
+    /// To compute drift across multiple criteria, use [`CategoricalDataDrift::compute_drift_multiple_criteria`]
+    ///
+    /// Runtime labels not seen in the baseline are accumulated in the "other" bin.
+    ///
+    /// Returns [`DriftError::EmptyRuntimeData`] if `runtime_data` is empty.
+    pub fn compute_drift_sync(
+        &mut self,
+        runtime_data: &[T],
+        drift_type: DataDriftType,
+    ) -> Result<f64, DriftError> {
+        self.build_rt_hist_parallel(runtime_data)?;
+        let drift = global_compute_drift(self, drift_type);
+        self.clear_rt();
+        Ok(drift)
+    }
+
+    /// Compute drift between the baseline and the provided runtime dataset for multiple drift
+    /// metric types. The runtime data is binned against the baseline label map, drift is computed,
+    /// and the runtime bins are cleared. Each call is stateless with respect to prior runtime data.
+    ///
+    /// This method is much more efficient for computing drift across multiple criteria as it only
+    /// requires a single build of the runtime data distribution representation.
+    ///
+    /// Runtime labels not seen in the baseline are accumulated in the "other" bin.
+    ///
+    /// Returns [`DriftError::EmptyRuntimeData`] if `runtime_data` is empty.
+    pub fn compute_drift_multiple_criteria_sync(
+        &mut self,
+        runtime_data: &[T],
+        drift_types: &[DataDriftType],
+    ) -> Result<Vec<f64>, DriftError> {
+        self.build_rt_hist_parallel(runtime_data)?;
+        let drift = drift_types
+            .iter()
+            .map(|drift_type| global_compute_drift(self, *drift_type))
+            .collect();
+        self.clear_rt();
+        Ok(drift)
+    }
+}
+
 impl<T: Hash + Ord + Clone> CategoricalDataDrift<T> {
     /// Construct a new instance from a baseline dataset. The baseline is used to build a
     /// label-frequency histogram with one bin per unique value, plus one reserved "other" bin
@@ -931,11 +1005,8 @@ impl<T: Hash + Ord + Clone> CategoricalDataDrift<T> {
         if runtime_data.is_empty() {
             return Err(DriftError::EmptyRuntimeData);
         }
-        for cat in runtime_data.iter() {
-            let i = self.baseline.resolve_bin(cat);
-
-            self.rt_bins[i] += 1_f64;
-        }
+        let edges = core::CategoricalBinEdges(&self.baseline.idx_map);
+        self.rt_bins = core::compute_dataset_from_bins_categorical(runtime_data, &edges);
         Ok(())
     }
 

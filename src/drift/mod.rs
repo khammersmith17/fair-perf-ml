@@ -21,9 +21,31 @@ pub mod core;
 pub mod drift_group;
 pub(crate) mod opt;
 
+pub use core::{CategoricalBinEdges, ContinuousBinEdges};
+
 const DEFAULT_STREAM_FLUSH_CADENCE: u64 = 3600 * 24;
 const DEFAULT_MAX_STREAM_SIZE: u64 = 1_000_000_u64;
-const DEFAULT_DECAY_HALF_LIFE: u64 = 86400; // Defaul half life 1 day
+const DEFAULT_DECAY_HALF_LIFE: u64 = 86400; // Default half life 1 day
+
+pub fn compute_approximate_dataset_continuous(
+    dataset: &[f64],
+    quantile_type: Option<QuantileType>,
+) -> Vec<f64> {
+    core::compute_dataset_from_bins_continuous(
+        dataset,
+        &core::ContinuousBinEdges::new_from_dataset_with_quantile_type(
+            dataset,
+            quantile_type.unwrap_or_default(),
+        ),
+    )
+}
+
+pub fn compute_approximate_dataset_continuous_with_bin_edges(
+    dataset: &[f64],
+    bin_edges: &core::ContinuousBinEdges,
+) -> Vec<f64> {
+    core::compute_dataset_from_bins_continuous(dataset, &bin_edges)
+}
 
 pub fn compute_drift_continuous_distribution(
     baseline_distribution: &[f64],
@@ -39,6 +61,20 @@ pub fn compute_drift_continuous_distribution(
 }
 
 pub fn compute_drift_categorical_distribution<T: Hash + Ord + Clone>(
+    baseline_distribution: &[T],
+    candidate_distribution: &[T],
+    drift_metrics: &[DataDriftType],
+) -> Result<Vec<f64>, DriftError> {
+    let mut drift_container = CategoricalDataDrift::new(baseline_distribution)?;
+    let drift_res =
+        drift_container.compute_drift_multiple_criteria(candidate_distribution, drift_metrics)?;
+    Ok(drift_res)
+}
+
+/// Performs the same computation as [`compute_drift_categorical_distribution`], but if the type is
+/// Sync, it can be optimized to perform the bin assignment across many cores. The is method
+/// provides that functionaliy.
+pub fn compute_drift_categorical_distribution_sync<T: Hash + Ord + Clone + Sync>(
     baseline_distribution: &[T],
     candidate_distribution: &[T],
     drift_metrics: &[DataDriftType],
