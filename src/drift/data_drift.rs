@@ -698,10 +698,9 @@ impl StreamingContinuousDataDrift<FlushModeMark> {
         if runtime_slice.is_empty() {
             return Err(DriftError::EmptyRuntimeData);
         }
-
-        for item in runtime_slice {
-            self.update_stream(*item)
-        }
+        runtime_slice
+            .iter()
+            .for_each(|item| self.update_stream(*item));
 
         Ok(())
     }
@@ -1199,10 +1198,7 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, FlushModeMark> {
         if runtime_data.is_empty() {
             return Err(DriftError::EmptyRuntimeData);
         }
-
-        for cat in runtime_data.iter() {
-            self.update_stream(cat)
-        }
+        runtime_data.iter().for_each(|cat| self.update_stream(cat));
 
         Ok(())
     }
@@ -1466,10 +1462,7 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, DecayModeMark> {
         if runtime_data.is_empty() {
             return Err(DriftError::EmptyRuntimeData);
         }
-
-        for cat in runtime_data.iter() {
-            self.update_stream(cat)
-        }
+        runtime_data.iter().for_each(|cat| self.update_stream(cat));
 
         Ok(())
     }

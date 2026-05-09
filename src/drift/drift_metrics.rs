@@ -194,3 +194,14 @@ pub(crate) fn categorical_wasserstein_distance(
 
     w_dist * 0.5_f64
 }
+
+#[inline]
+fn chi_square(baseline_hist: &[f64], runtime_hist: &[f64]) -> f64 {
+    debug_assert_eq!(baseline_hist.len(), runtime_hist.len());
+
+    baseline_hist
+        .iter()
+        .zip(runtime_hist.iter())
+        .map(|(e, o)| (e - o).powi(2) / e)
+        .sum()
+}
