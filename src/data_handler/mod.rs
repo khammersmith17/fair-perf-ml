@@ -330,6 +330,14 @@ pub(crate) struct ConfusionMatrix {
 }
 
 impl ConfusionMatrix {
+    #[inline]
+    pub(crate) fn push_tp_samples(&mut self, t: i16, p: i16) {
+        self.true_p += (t == 1 && p == 1) as usize as f32;
+        self.true_n += (t == 0 && p == 0) as usize as f32;
+        self.false_p += (t == 0 && p == 1) as usize as f32;
+        self.false_n += (t == 1 && p == 0) as usize as f32;
+    }
+
     pub(crate) fn clear(&mut self) {
         self.true_p = 0_f32;
         self.false_p = 0_f32;

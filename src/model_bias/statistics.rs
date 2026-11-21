@@ -73,15 +73,8 @@ impl AdHocSegmentation {
             self.facet_d_true,
             self.facet_d_pred
         ) {
-            confusion_a.true_p += (*at == 1 && *ap == 1) as usize as f32;
-            confusion_a.true_n += (*at == 0 && *ap == 0) as usize as f32;
-            confusion_a.false_p += (*at == 0 && *ap == 1) as usize as f32;
-            confusion_a.false_n += (*at == 1 && *ap == 0) as usize as f32;
-
-            confusion_d.true_p += (*dt == 1 && *dp == 1) as usize as f32;
-            confusion_d.true_n += (*dt == 0 && *dp == 0) as usize as f32;
-            confusion_d.false_p += (*dt == 0 && *dp == 1) as usize as f32;
-            confusion_d.false_n += (*dt == 1 && *dp == 0) as usize as f32;
+            confusion_a.push_tp_samples(*at, *ap);
+            confusion_d.push_tp_samples(*dt, *dp);
         }
 
         (confusion_a, confusion_d)
@@ -596,8 +589,6 @@ mod statistics_tests {
         BiasSegmentationCriteria::new(1_i32, BiasSegmentationType::Label)
     }
 
-    // --- AdHocSegmentation error paths ---
-
     #[test]
     fn mismatched_lengths_returns_data_length_error() {
         // pred is shorter than feature/gt
@@ -621,8 +612,6 @@ mod statistics_tests {
         let result = accuracy_difference(&feat, feat_seg(), &pred, feat_seg(), &gt, feat_seg());
         assert!(result.is_err());
     }
-
-    // --- diff_in_pos_proportion_in_pred_labels ---
 
     #[test]
     fn diff_in_pos_proportion_symmetric_is_zero() {
@@ -651,8 +640,6 @@ mod statistics_tests {
         .is_err());
     }
 
-    // --- disparate_impact ---
-
     #[test]
     fn disparate_impact_symmetric_is_one() {
         let v = disparate_impact(
@@ -680,8 +667,6 @@ mod statistics_tests {
         .is_err());
     }
 
-    // --- diff_in_cond_acceptance ---
-
     #[test]
     fn diff_in_cond_acceptance_symmetric_is_zero() {
         let v = diff_in_cond_acceptance(
@@ -695,8 +680,6 @@ mod statistics_tests {
         .unwrap();
         assert!((v).abs() < 1e-4);
     }
-
-    // --- accuracy_difference ---
 
     #[test]
     fn accuracy_difference_symmetric_is_zero() {
@@ -723,8 +706,6 @@ mod statistics_tests {
         assert!((v - 1.0).abs() < 1e-4);
     }
 
-    // --- diff_in_acceptance_rate ---
-
     #[test]
     fn diff_in_acceptance_rate_symmetric_is_zero() {
         let v = diff_in_acceptance_rate(
@@ -738,8 +719,6 @@ mod statistics_tests {
         .unwrap();
         assert!((v).abs() < 1e-4);
     }
-
-    // --- recall_difference ---
 
     #[test]
     fn recall_difference_symmetric_is_zero() {
@@ -766,8 +745,6 @@ mod statistics_tests {
         assert!((v - 1.0).abs() < 1e-4);
     }
 
-    // --- diff_in_cond_rejection ---
-
     #[test]
     fn diff_in_cond_rejection_symmetric_is_zero() {
         let v = diff_in_cond_rejection(
@@ -781,8 +758,6 @@ mod statistics_tests {
         .unwrap();
         assert!((v).abs() < 1e-4);
     }
-
-    // --- specailty_difference ---
 
     #[test]
     fn specailty_difference_symmetric_is_zero() {
@@ -798,8 +773,6 @@ mod statistics_tests {
         assert!((v).abs() < 1e-4);
     }
 
-    // --- diff_in_rejection_rate ---
-
     #[test]
     fn diff_in_rejection_rate_symmetric_is_zero() {
         let v = diff_in_rejection_rate(
@@ -813,8 +786,6 @@ mod statistics_tests {
         .unwrap();
         assert!((v).abs() < 1e-4);
     }
-
-    // --- cond_dem_desp_in_pred_labels ---
 
     #[test]
     fn cond_dem_desp_in_pred_labels_returns_ok_for_symmetric_data() {
@@ -831,8 +802,6 @@ mod statistics_tests {
         assert!((v).abs() < 1e-4);
     }
 
-    // --- treatment_equity ---
-
     #[test]
     fn treatment_equity_symmetric_is_zero() {
         let v = treatment_equity(
@@ -846,8 +815,6 @@ mod statistics_tests {
         .unwrap();
         assert!((v).abs() < 1e-4);
     }
-
-    // --- generalized_entropy ---
 
     #[test]
     fn generalized_entropy_returns_ok_for_symmetric_data() {
