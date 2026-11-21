@@ -19,11 +19,12 @@ pub(crate) mod py_api {
         BinaryClassificationStreaming, LinearRegressionStreaming, LogisticRegressionStreaming,
     };
     use crate::data_handler::py_types_handler::{
-        report_to_py_dict as perf_report_to_py_dict, PyDictResult,
+        report_to_py_dict as perf_report_to_py_dict, F32NpArray1, I32NpArray1, PyDictResult,
     };
     use crate::metrics::{
         ClassificationMetricVec, LinearRegressionMetricVec, LogisticRegressionMetricVec,
     };
+    use crate::numpy_slice1d;
     use pyo3::prelude::*;
     use pyo3::types::IntoPyDict;
 
@@ -40,8 +41,14 @@ pub(crate) mod py_api {
     #[pymethods]
     impl PyBinaryClassificationStreaming {
         #[new]
-        fn new(y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<PyBinaryClassificationStreaming> {
-            let inner = BinaryClassificationStreaming::new(1_i32, &y_true, &y_pred)?;
+        fn new(
+            y_true: I32NpArray1<'_>,
+            y_pred: I32NpArray1<'_>,
+        ) -> PyResult<PyBinaryClassificationStreaming> {
+            numpy_slice1d!(y_true_ref = y_true);
+            numpy_slice1d!(y_pred_ref = y_pred);
+
+            let inner = BinaryClassificationStreaming::new(1_i32, y_true_ref, y_pred_ref)?;
             Ok(PyBinaryClassificationStreaming { inner })
         }
 
@@ -49,8 +56,11 @@ pub(crate) mod py_api {
             self.inner.flush()
         }
 
-        fn push_batch(&mut self, y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<()> {
-            self.inner.push_batch(&y_true, &y_pred)?;
+        fn push_batch(&mut self, y_true: I32NpArray1<'_>, y_pred: I32NpArray1<'_>) -> PyResult<()> {
+            numpy_slice1d!(y_true_ref = y_true);
+            numpy_slice1d!(y_pred_ref = y_pred);
+
+            self.inner.push_batch(y_true_ref, y_pred_ref)?;
             Ok(())
         }
 
@@ -58,8 +68,15 @@ pub(crate) mod py_api {
             self.inner.push(&y_true, &y_pred)
         }
 
-        fn reset_baseline(&mut self, y_true: Vec<i32>, y_pred: Vec<i32>) -> PyResult<()> {
-            self.inner.reset_baseline(&y_true, &y_pred)?;
+        fn reset_baseline(
+            &mut self,
+            y_true: I32NpArray1<'_>,
+            y_pred: I32NpArray1<'_>,
+        ) -> PyResult<()> {
+            numpy_slice1d!(y_true_ref = y_true);
+            numpy_slice1d!(y_pred_ref = y_pred);
+
+            self.inner.reset_baseline(y_true_ref, y_pred_ref)?;
             Ok(())
         }
 
@@ -100,8 +117,11 @@ pub(crate) mod py_api {
     #[pymethods]
     impl PyLinearRegressionStreaming {
         #[new]
-        fn new(y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<PyLinearRegressionStreaming> {
-            let inner = LinearRegressionStreaming::new(&y_true, &y_pred)?;
+        fn new(y_true: F32NpArray1, y_pred: F32NpArray1) -> PyResult<PyLinearRegressionStreaming> {
+            numpy_slice1d!(y_true_ref = y_true);
+            numpy_slice1d!(y_pred_ref = y_pred);
+
+            let inner = LinearRegressionStreaming::new(y_true_ref, y_pred_ref)?;
 
             Ok(PyLinearRegressionStreaming { inner })
         }
@@ -114,13 +134,19 @@ pub(crate) mod py_api {
             self.inner.push(t, p)
         }
 
-        fn push_batch(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
-            self.inner.push_batch(&y_true, &y_pred)?;
+        fn push_batch(&mut self, y_true: F32NpArray1, y_pred: F32NpArray1) -> PyResult<()> {
+            numpy_slice1d!(y_true_ref = y_true);
+            numpy_slice1d!(y_pred_ref = y_pred);
+
+            self.inner.push_batch(y_true_ref, y_pred_ref)?;
             Ok(())
         }
 
-        fn reset_baseline(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
-            self.inner.reset_baseline(&y_true, &y_pred)?;
+        fn reset_baseline(&mut self, y_true: F32NpArray1, y_pred: F32NpArray1) -> PyResult<()> {
+            numpy_slice1d!(y_true_ref = y_true);
+            numpy_slice1d!(y_pred_ref = y_pred);
+
+            self.inner.reset_baseline(y_true_ref, y_pred_ref)?;
             Ok(())
         }
 
@@ -162,11 +188,14 @@ pub(crate) mod py_api {
     impl PyLogisticRegressionStreaming {
         #[new]
         fn new(
-            y_true: Vec<f32>,
-            y_pred: Vec<f32>,
+            y_true: F32NpArray1,
+            y_pred: F32NpArray1,
             threshold: f32,
         ) -> PyResult<PyLogisticRegressionStreaming> {
-            let inner = LogisticRegressionStreaming::new(&y_true, &y_pred, Some(threshold))?;
+            numpy_slice1d!(y_true_ref = y_true);
+            numpy_slice1d!(y_pred_ref = y_pred);
+
+            let inner = LogisticRegressionStreaming::new(y_true_ref, y_pred_ref, Some(threshold))?;
 
             Ok(PyLogisticRegressionStreaming { inner })
         }
@@ -175,8 +204,11 @@ pub(crate) mod py_api {
             self.inner.push(y_true, y_pred);
         }
 
-        fn push_batch(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
-            self.inner.push_batch(&y_true, &y_pred)?;
+        fn push_batch(&mut self, y_true: F32NpArray1, y_pred: F32NpArray1) -> PyResult<()> {
+            numpy_slice1d!(y_true_ref = y_true);
+            numpy_slice1d!(y_pred_ref = y_pred);
+
+            self.inner.push_batch(y_true_ref, y_pred_ref)?;
             Ok(())
         }
 
@@ -212,19 +244,25 @@ pub(crate) mod py_api {
             self.inner.flush()
         }
 
-        fn reset_baseline(&mut self, y_true: Vec<f32>, y_pred: Vec<f32>) -> PyResult<()> {
-            self.inner.reset_baseline(&y_true, &y_pred)?;
+        fn reset_baseline(&mut self, y_true: F32NpArray1, y_pred: F32NpArray1) -> PyResult<()> {
+            numpy_slice1d!(y_true_ref = y_true);
+            numpy_slice1d!(y_pred_ref = y_pred);
+
+            self.inner.reset_baseline(y_true_ref, y_pred_ref)?;
             Ok(())
         }
 
         fn reset_baseline_and_decision_threshold(
             &mut self,
-            y_true: Vec<f32>,
-            y_pred: Vec<f32>,
+            y_true: F32NpArray1,
+            y_pred: F32NpArray1,
             threshold: f32,
         ) -> PyResult<()> {
+            numpy_slice1d!(y_true_ref = y_true);
+            numpy_slice1d!(y_pred_ref = y_pred);
+
             self.inner
-                .reset_baseline_and_decision_threshold(&y_true, &y_pred, threshold)?;
+                .reset_baseline_and_decision_threshold(y_true_ref, y_pred_ref, threshold)?;
             Ok(())
         }
     }

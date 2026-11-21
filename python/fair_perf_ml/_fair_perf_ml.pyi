@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 from numpy.typing import NDArray
 from fair_perf_ml.models import LinearRegressionReport, LogisticRegressionReport, BinaryClassificationReport, DriftReport
 
@@ -835,13 +836,13 @@ class PyDataBiasStreaming:
 
     The Python layer handles segmentation (converting raw feature/ground-truth
     values to 0/1 labels) before passing data into this class.  All arrays
-    passed here must already be integer-labelled.
+    passed here must already be integer-labelled, contiguous int8 numpy arrays.
     """
 
     def __init__(
         self,
-        labeled_features: list[int],
-        labeled_ground_truth: list[int],
+        labeled_features: NDArray[np.int8],
+        labeled_ground_truth: NDArray[np.int8],
     ) -> None:
         """
         Construct with a labelled baseline dataset.
@@ -858,13 +859,17 @@ class PyDataBiasStreaming:
         ...
 
     def push_batch(
-        self, labeled_features: list[int], labeled_ground_truth: list[int]
+        self,
+        labeled_features: NDArray[np.int8],
+        labeled_ground_truth: NDArray[np.int8],
     ) -> None:
         """Accumulate a batch of pre-labelled examples into the stream."""
         ...
 
     def reset_baseline(
-        self, labeled_features: list[int], labeled_ground_truth: list[int]
+        self,
+        labeled_features: NDArray[np.int8],
+        labeled_ground_truth: NDArray[np.int8],
     ) -> None:
         """Replace the baseline with a new pre-labelled dataset."""
         ...
@@ -915,14 +920,15 @@ class PyModelBiasStreaming:
     Stateful streaming monitor for post-training model bias metrics.
 
     The Python layer handles segmentation before passing data into this class.
-    All arrays passed here must already be integer-labelled.
+    All arrays passed here must already be integer-labelled, contiguous int8
+    numpy arrays.
     """
 
     def __init__(
         self,
-        labeled_features: list[int],
-        labeled_predictions: list[int],
-        labeled_ground_truth: list[int],
+        labeled_features: NDArray[np.int8],
+        labeled_predictions: NDArray[np.int8],
+        labeled_ground_truth: NDArray[np.int8],
     ) -> None:
         """
         Construct with a labelled baseline dataset.
@@ -942,18 +948,18 @@ class PyModelBiasStreaming:
 
     def push_batch(
         self,
-        labeled_features: list[int],
-        labeled_predictions: list[int],
-        labeled_ground_truth: list[int],
+        labeled_features: NDArray[np.int8],
+        labeled_predictions: NDArray[np.int8],
+        labeled_ground_truth: NDArray[np.int8],
     ) -> None:
         """Accumulate a batch of pre-labelled examples into the stream."""
         ...
 
     def reset_baseline(
         self,
-        labeled_features: list[int],
-        labeled_predictions: list[int],
-        labeled_ground_truth: list[int],
+        labeled_features: NDArray[np.int8],
+        labeled_predictions: NDArray[np.int8],
+        labeled_ground_truth: NDArray[np.int8],
     ) -> None:
         """Replace the baseline with a new pre-labelled dataset."""
         ...
@@ -1010,13 +1016,13 @@ class PyBinaryClassificationStreaming:
 
     The Python layer applies the positive-class label before passing data into
     this class.  All arrays passed here must already be integer-labelled
-    (0 = negative, 1 = positive).
+    (0 = negative, 1 = positive), contiguous int32 numpy arrays.
     """
 
     def __init__(
         self,
-        labeled_y_true: list[int],
-        labeled_y_pred: list[int],
+        labeled_y_true: NDArray[np.int32],
+        labeled_y_pred: NDArray[np.int32],
     ) -> None:
         """
         Construct with a labelled baseline dataset.
@@ -1032,13 +1038,13 @@ class PyBinaryClassificationStreaming:
         ...
 
     def push_batch(
-        self, labeled_y_true: list[int], labeled_y_pred: list[int]
+        self, labeled_y_true: NDArray[np.int32], labeled_y_pred: NDArray[np.int32]
     ) -> None:
         """Accumulate a batch of pre-labelled examples into the stream."""
         ...
 
     def reset_baseline(
-        self, labeled_y_true: list[int], labeled_y_pred: list[int]
+        self, labeled_y_true: NDArray[np.int32], labeled_y_pred: NDArray[np.int32]
     ) -> None:
         """Replace the baseline with a new pre-labelled dataset."""
         ...
@@ -1090,7 +1096,7 @@ class PyLinearRegressionStreaming:
     Stateful streaming monitor for linear regression model performance.
     """
 
-    def __init__(self, y_true: NDArray, y_pred: NDArray) -> None:
+    def __init__(self, y_true: NDArray[np.float32], y_pred: NDArray[np.float32]) -> None:
         """
         Construct with a baseline dataset.
 
@@ -1104,11 +1110,11 @@ class PyLinearRegressionStreaming:
         """Accumulate a single example into the stream."""
         ...
 
-    def push_batch(self, y_true: NDArray, y_pred: NDArray) -> None:
+    def push_batch(self, y_true: NDArray[np.float32], y_pred: NDArray[np.float32]) -> None:
         """Accumulate a batch of examples into the stream."""
         ...
 
-    def reset_baseline(self, y_true: NDArray, y_pred: NDArray) -> None:
+    def reset_baseline(self, y_true: NDArray[np.float32], y_pred: NDArray[np.float32]) -> None:
         """Replace the baseline with a new dataset."""
         ...
 
@@ -1164,8 +1170,8 @@ class PyLogisticRegressionStreaming:
 
     def __init__(
         self,
-        y_true: NDArray,
-        y_pred: NDArray,
+        y_true: NDArray[np.float32],
+        y_pred: NDArray[np.float32],
         threshold: float | None = None,
     ) -> None:
         """
@@ -1183,11 +1189,11 @@ class PyLogisticRegressionStreaming:
         """Accumulate a single example into the stream."""
         ...
 
-    def push_batch(self, y_true: NDArray, y_pred: NDArray) -> None:
+    def push_batch(self, y_true: NDArray[np.float32], y_pred: NDArray[np.float32]) -> None:
         """Accumulate a batch of examples into the stream."""
         ...
 
-    def reset_baseline(self, y_true: NDArray, y_pred: NDArray) -> None:
+    def reset_baseline(self, y_true: NDArray[np.float32], y_pred: NDArray[np.float32]) -> None:
         """
         Replace the baseline with a new dataset.  The decision threshold is
         unchanged.
@@ -1195,7 +1201,7 @@ class PyLogisticRegressionStreaming:
         ...
 
     def reset_baseline_and_decision_threshold(
-        self, y_true: NDArray, y_pred: NDArray, threshold: float
+        self, y_true: NDArray[np.float32], y_pred: NDArray[np.float32], threshold: float
     ) -> None:
         """
         Replace the baseline and update the decision threshold simultaneously.

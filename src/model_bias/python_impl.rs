@@ -144,10 +144,11 @@ pub(crate) mod py_api {
 #[cfg(feature = "python")]
 pub(crate) mod py_streaming_api {
     use crate::data_handler::{
-        py_types_handler::{report_to_py_dict, PyDictResult},
+        py_types_handler::{report_to_py_dict, I8NpArray1, PyDictResult},
         BiasSegmentationCriteria, BiasSegmentationType,
     };
     use crate::metrics::ModelBiasMetricVec;
+    use crate::numpy_slice1d;
     use crate::model_bias::streaming::StreamingModelBias;
     use pyo3::prelude::*;
     use pyo3::types::IntoPyDict;
@@ -163,16 +164,20 @@ pub(crate) mod py_streaming_api {
     impl PyModelBiasStreaming {
         #[new]
         fn new(
-            features: Vec<i8>,
-            predictions: Vec<i8>,
-            ground_truth: Vec<i8>,
+            features: I8NpArray1<'_>,
+            predictions: I8NpArray1<'_>,
+            ground_truth: I8NpArray1<'_>,
         ) -> PyResult<PyModelBiasStreaming> {
+            numpy_slice1d!(features_ref = features);
+            numpy_slice1d!(predictions_ref = predictions);
+            numpy_slice1d!(ground_truth_ref = ground_truth);
+
             let inner = StreamingModelBias::new(
-                &features,
+                features_ref,
                 BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
-                &predictions,
+                predictions_ref,
                 BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
-                &ground_truth,
+                ground_truth_ref,
                 BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
             )?;
 
@@ -183,8 +188,17 @@ pub(crate) mod py_streaming_api {
             self.inner.push(&feature, &pred, &gt);
         }
 
-        fn push_batch(&mut self, feature: Vec<i8>, pred: Vec<i8>, gt: Vec<i8>) -> PyResult<()> {
-            self.inner.push_batch(&feature, &pred, &gt)?;
+        fn push_batch(
+            &mut self,
+            feature: I8NpArray1<'_>,
+            pred: I8NpArray1<'_>,
+            gt: I8NpArray1<'_>,
+        ) -> PyResult<()> {
+            numpy_slice1d!(feature_ref = feature);
+            numpy_slice1d!(pred_ref = pred);
+            numpy_slice1d!(gt_ref = gt);
+
+            self.inner.push_batch(feature_ref, pred_ref, gt_ref)?;
             Ok(())
         }
 
@@ -192,8 +206,17 @@ pub(crate) mod py_streaming_api {
             self.inner.flush()
         }
 
-        fn reset_baseline(&mut self, feature: Vec<i8>, pred: Vec<i8>, gt: Vec<i8>) -> PyResult<()> {
-            self.inner.reset_baseline(&feature, &pred, &gt)?;
+        fn reset_baseline(
+            &mut self,
+            feature: I8NpArray1<'_>,
+            pred: I8NpArray1<'_>,
+            gt: I8NpArray1<'_>,
+        ) -> PyResult<()> {
+            numpy_slice1d!(feature_ref = feature);
+            numpy_slice1d!(pred_ref = pred);
+            numpy_slice1d!(gt_ref = gt);
+
+            self.inner.reset_baseline(feature_ref, pred_ref, gt_ref)?;
             Ok(())
         }
         fn drift_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {

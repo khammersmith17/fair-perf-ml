@@ -15,15 +15,24 @@ from collections.abc import Sequence
 from typing import Protocol, Self
 
 import numpy as np
-from fair_perf_ml._internal import cast_floating_point_slice
+from fair_perf_ml._internal import (FloatingPointDataSlice,
+                                    cast_floating_point_slice)
 from fair_perf_ml.models import (ClassificationDriftMetric, DriftReport,
                                  DriftSnapshot, LinearRegressionDriftMetric,
                                  ModelPerformanceDriftMetric,
                                  PerformanceSnapshot)
+from numpy.typing import NDArray
 
 from .._fair_perf_ml import (PyBinaryClassificationStreaming,
                              PyLinearRegressionStreaming,
                              PyLogisticRegressionStreaming)
+
+
+def _cast_f32(arr: FloatingPointDataSlice) -> NDArray[np.float32]:
+    """
+    The Rust core reads the buffer directly as a contiguous f32 slice.
+    """
+    return np.ascontiguousarray(cast_floating_point_slice(arr), dtype=np.float32)
 
 
 class LabelBound(Protocol):
@@ -107,9 +116,9 @@ class BinaryClassificationStreaming[T: LabelBound](LabeledStreamingBase[T]):
     def _apply_label(self, value: T) -> int:
         return int(value == self._label)
 
-    def _apply_label_batch(self, value_slice: Sequence[T]) -> list[int]:
+    def _apply_label_batch(self, value_slice: Sequence[T]) -> NDArray[np.int32]:
         arr = np.array(value_slice)
-        return (arr == self._label).astype(np.int8).tolist()
+        return (arr == self._label).astype(np.int32)
 
     def update_stream(self, y_true: T, y_pred: T) -> None:
         """
@@ -237,7 +246,7 @@ class LinearRegressionStreaming(ModelPerfStreamingBase[float]):
             y_pred: Sequence[float] - baseline prediction values
         """
         self._inner = PyLinearRegressionStreaming(
-            cast_floating_point_slice(y_true), cast_floating_point_slice(y_pred)
+            _cast_f32(y_true), _cast_f32(y_pred)
         )
 
     def update_stream(self, y_true: float, y_pred: float) -> None:
@@ -259,7 +268,7 @@ class LinearRegressionStreaming(ModelPerfStreamingBase[float]):
             y_pred: Sequence[float]
         """
         self._inner.push_batch(
-            cast_floating_point_slice(y_true), cast_floating_point_slice(y_pred)
+            _cast_f32(y_true), _cast_f32(y_pred)
         )
 
     def reset_baseline(self, y_true: Sequence[float], y_pred: Sequence[float]) -> None:
@@ -270,7 +279,7 @@ class LinearRegressionStreaming(ModelPerfStreamingBase[float]):
             y_pred: Sequence[float] - new baseline prediction values
         """
         self._inner.reset_baseline(
-            cast_floating_point_slice(y_true), cast_floating_point_slice(y_pred)
+            _cast_f32(y_true), _cast_f32(y_pred)
         )
 
     def flush(self) -> None:
@@ -352,8 +361,8 @@ class LogisticRegressionStreaming(ModelPerfStreamingBase[float]):
                 defaults to 0.5
         """
         self._inner: PyLogisticRegressionStreaming = PyLogisticRegressionStreaming(
-            cast_floating_point_slice(y_true),
-            cast_floating_point_slice(y_pred),
+            _cast_f32(y_true),
+            _cast_f32(y_pred),
             threshold,
         )
 
@@ -377,7 +386,7 @@ class LogisticRegressionStreaming(ModelPerfStreamingBase[float]):
             y_pred: Sequence[float] - predicted probabilities
         """
         self._inner.push_batch(
-            cast_floating_point_slice(y_true), cast_floating_point_slice(y_pred)
+            _cast_f32(y_true), _cast_f32(y_pred)
         )
 
     def flush(self) -> None:
@@ -395,7 +404,7 @@ class LogisticRegressionStreaming(ModelPerfStreamingBase[float]):
             y_pred: Sequence[float] - new baseline predicted probabilities
         """
         self._inner.reset_baseline(
-            cast_floating_point_slice(y_true), cast_floating_point_slice(y_pred)
+            _cast_f32(y_true), _cast_f32(y_pred)
         )
 
     def reset_baseline_and_decision_threshold(
@@ -412,8 +421,8 @@ class LogisticRegressionStreaming(ModelPerfStreamingBase[float]):
             threshold: float - new decision threshold
         """
         self._inner.reset_baseline_and_decision_threshold(
-            cast_floating_point_slice(y_true),
-            cast_floating_point_slice(y_pred),
+            _cast_f32(y_true),
+            _cast_f32(y_pred),
             threshold,
         )
 

@@ -6,7 +6,6 @@ mod macros;
 pub mod metrics;
 pub mod model_bias;
 pub mod model_perf;
-mod models;
 pub mod reporting;
 mod runtime;
 

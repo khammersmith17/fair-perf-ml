@@ -9,10 +9,11 @@ use crate::runtime::DataBiasRuntime;
 pub(crate) mod py_api {
     use super::StreamingDataBias;
     use crate::data_handler::{
-        py_types_handler::{report_to_py_dict, PyDictResult},
+        py_types_handler::{report_to_py_dict, I8NpArray1, PyDictResult},
         BiasSegmentationCriteria, BiasSegmentationType,
     };
     use crate::metrics::DataBiasMetricVec;
+    use crate::numpy_slice1d;
     use pyo3::prelude::*;
     use pyo3::types::IntoPyDict;
 
@@ -29,11 +30,17 @@ pub(crate) mod py_api {
     #[pymethods]
     impl PyDataBiasStreaming {
         #[new]
-        fn new(feature_data: Vec<i8>, gt_data: Vec<i8>) -> PyResult<PyDataBiasStreaming> {
+        fn new(
+            feature_data: I8NpArray1<'_>,
+            gt_data: I8NpArray1<'_>,
+        ) -> PyResult<PyDataBiasStreaming> {
+            numpy_slice1d!(feature_ref = feature_data);
+            numpy_slice1d!(gt_ref = gt_data);
+
             let inner = StreamingDataBias::new(
-                &feature_data,
+                feature_ref,
                 BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
-                &gt_data,
+                gt_ref,
                 BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
             )?;
             Ok(PyDataBiasStreaming { inner })
@@ -47,13 +54,19 @@ pub(crate) mod py_api {
             self.inner.push(&f, &g)
         }
 
-        fn push_batch(&mut self, f: Vec<i8>, g: Vec<i8>) -> PyResult<()> {
-            self.inner.push_batch(&f, &g)?;
+        fn push_batch(&mut self, f: I8NpArray1<'_>, g: I8NpArray1<'_>) -> PyResult<()> {
+            numpy_slice1d!(f_ref = f);
+            numpy_slice1d!(g_ref = g);
+
+            self.inner.push_batch(f_ref, g_ref)?;
             Ok(())
         }
 
-        fn reset_baseline(&mut self, f: Vec<i8>, g: Vec<i8>) -> PyResult<()> {
-            self.inner.reset_baseline(&f, &g)?;
+        fn reset_baseline(&mut self, f: I8NpArray1<'_>, g: I8NpArray1<'_>) -> PyResult<()> {
+            numpy_slice1d!(f_ref = f);
+            numpy_slice1d!(g_ref = g);
+
+            self.inner.reset_baseline(f_ref, g_ref)?;
             Ok(())
         }
 

@@ -93,7 +93,7 @@ class BiasSegmentationProtocol[T: SegmentationValueBounds](ABC):
         """
 
     @abstractmethod
-    def _label_batch(self, values: Sequence[T]) -> list[int]:
+    def _label_batch(self, values: Sequence[T]) -> NDArray[np.int8]:
         """
         Label a batch of examples.
         """
@@ -147,9 +147,9 @@ class LabeledBiasSegmentation[T: SegmentationValueBounds](BiasSegmentationProtoc
     def _label(self, value: T) -> int:
         return int(value == self._value)
 
-    def _label_batch(self, values: Sequence[T]) -> list[int]:
+    def _label_batch(self, values: Sequence[T]) -> NDArray[np.int8]:
         arr = np.array(values)
-        return (arr == self._value).astype(np.int8).tolist()
+        return (arr == self._value).astype(np.int8)
 
     @property
     def _seg_value(self) -> T:
@@ -196,25 +196,19 @@ class ThresholdBiasSegmentation[T: SegmentationValueBounds](BiasSegmentationProt
             case _:
                 raise RuntimeError("State is invalid, please file an issue")
 
-    def _label_batch(self, values: Sequence[T]) -> list[int]:
+    def _label_batch(self, values: Sequence[T]) -> NDArray[np.int8]:
         arr = np.array(values)
         match self._threshold_type:
             case BiasSegmentationThresholdType.GreaterThanEqualTo:
-                return (arr >= self._value).astype(np.int8).tolist()
+                return (arr >= self._value).astype(np.int8)
             case BiasSegmentationThresholdType.GreaterThan:
-                return (
-                    ((arr >= self._value) & (arr != self._value))
-                    .astype(np.int8)
-                    .tolist()
-                )
+                return ((arr >= self._value) & (arr != self._value)).astype(np.int8)
             case BiasSegmentationThresholdType.LessThanEqualTo:
-                return (
-                    ((~(arr >= self._value)) | (arr == self._value))
-                    .astype(np.int8)
-                    .tolist()
+                return ((~(arr >= self._value)) | (arr == self._value)).astype(
+                    np.int8
                 )
             case BiasSegmentationThresholdType.LessThan:
-                return (~(arr >= self._value)).astype(np.int8).tolist()
+                return (~(arr >= self._value)).astype(np.int8)
             case _:
                 raise RuntimeError("State is invalid, please file an issue")
 

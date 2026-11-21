@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 from fair_perf_ml._internal import (EmptyDatasetException,
                                     NonUniformTypeException)
@@ -25,7 +26,8 @@ def test_labeled_label_no_match():
 def test_labeled_label_batch():
     seg = LabeledBiasSegmentation("male")  # pyright: ignore
     result = seg._label_batch(["male", "female", "male", "other"])
-    assert result == [1, 0, 1, 0]
+    assert result.dtype == np.int8
+    assert result.tolist() == [1, 0, 1, 0]
 
 
 def test_labeled_seg_value():
@@ -74,7 +76,7 @@ def test_threshold_greater_than_batch():
         0.5, BiasSegmentationThresholdType.GreaterThan  # pyright: ignore
     )
     result = seg._label_batch([0.4, 0.5, 0.6])
-    assert result == [0, 0, 1]
+    assert result.tolist() == [0, 0, 1]
 
 
 def test_threshold_gte_above():
@@ -103,7 +105,7 @@ def test_threshold_gte_batch():
         0.5, BiasSegmentationThresholdType.GreaterThanEqualTo  # pyright: ignore
     )
     result = seg._label_batch([0.4, 0.5, 0.6])
-    assert result == [0, 1, 1]
+    assert result.tolist() == [0, 1, 1]
 
 
 def test_threshold_less_than_below():
@@ -132,7 +134,7 @@ def test_threshold_less_than_batch():
         0.5, BiasSegmentationThresholdType.LessThan  # pyright: ignore
     )
     result = seg._label_batch([0.4, 0.5, 0.6])
-    assert result == [1, 0, 0]
+    assert result.tolist() == [1, 0, 0]
 
 
 def test_threshold_lte_below():
@@ -161,7 +163,7 @@ def test_threshold_lte_batch():
         0.5, BiasSegmentationThresholdType.LessThanEqualTo  # pyright: ignore
     )
     result = seg._label_batch([0.4, 0.5, 0.6])
-    assert result == [1, 1, 0]
+    assert result.tolist() == [1, 1, 0]
 
 
 def test_threshold_seg_type():

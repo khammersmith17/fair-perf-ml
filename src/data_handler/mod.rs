@@ -3,15 +3,19 @@ use crate::errors::{BiasError, ModelPerfResult, ModelPerformanceError};
 pub(crate) mod py_types_handler {
     use super::{BiasSegmentationCriteria, BiasSegmentationType, SegmentationThresholdType};
     use crate::errors::BiasError;
-    use numpy::dtype;
-    use numpy::PyUntypedArrayMethods;
-    use numpy::{PyArrayDescrMethods, PyUntypedArray};
+    use numpy::{
+        array as np_array, dtype, PyArrayDescrMethods, PyUntypedArray, PyUntypedArrayMethods,
+    };
     use pyo3::exceptions::PyTypeError;
     use pyo3::prelude::*;
     use pyo3::types::{PyBool, PyDict, PyDictMethods, PyFloat, PyInt, PyString};
     use std::collections::HashMap;
     use std::env;
     use std::sync::OnceLock;
+
+    pub(crate) type I8NpArray1<'a> = Bound<'a, np_array::PyArray1<i8>>;
+    pub(crate) type I32NpArray1<'a> = Bound<'a, np_array::PyArray1<i32>>;
+    pub(crate) type F32NpArray1<'a> = Bound<'a, np_array::PyArray1<f32>>;
 
     pub type PyDictResult<'py> = PyResult<Bound<'py, PyDict>>;
 
