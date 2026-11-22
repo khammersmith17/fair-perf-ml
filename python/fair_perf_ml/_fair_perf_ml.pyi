@@ -318,7 +318,7 @@ def py_model_perf_class_rt_partial(
 # ============================================================================
 
 
-def py_compute_drift_continuous_distribtuion(
+def py_compute_drift_continuous_distribution(
     baseline: NDArray,
     candidate: NDArray,
     drift_metrics: list[str],
@@ -340,7 +340,7 @@ def py_compute_drift_continuous_distribtuion(
     ...
 
 
-def py_compute_drift_categorical_distribtuion(
+def py_compute_drift_categorical_distribution(
     baseline: list[str],
     candidate: list[str],
     drift_metrics: list[str],

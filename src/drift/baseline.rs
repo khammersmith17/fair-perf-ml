@@ -202,7 +202,11 @@ impl<T: Hash + Ord + Clone> BaselineCategoricalBins<T> {
 
     /// Resolve the bin idx for a particular key, otherwise return out the bin reserved for the
     /// "other" bucket.
-    pub(crate) fn get_bin(&self, key: &T) -> usize {
+    pub(crate) fn get_bin<Q>(&self, key: &Q) -> usize
+    where
+        T: std::borrow::Borrow<Q>,
+        Q: Hash + Eq,
+    {
         if let Some(idx) = self.idx_map.get(key) {
             *idx
         } else {

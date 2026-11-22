@@ -16,6 +16,8 @@ pub(crate) mod py_api {
     };
     use std::collections::HashMap;
 
+    // Allowing the large number of arguments given this crosses FFI boundary.
+    #[allow(clippy::too_many_arguments)]
     #[pyfunction]
     #[pyo3(signature = (
         feature_array,
@@ -138,114 +140,5 @@ pub(crate) mod py_api {
 
         let py_dict = report_to_py_dict(py, analysis_res?);
         Ok(py_dict)
-    }
-}
-
-#[cfg(feature = "python")]
-pub(crate) mod py_streaming_api {
-    use crate::data_handler::{
-        py_types_handler::{report_to_py_dict, I8NpArray1, PyDictResult},
-        BiasSegmentationCriteria, BiasSegmentationType,
-    };
-    use crate::metrics::ModelBiasMetricVec;
-    use crate::numpy_slice1d;
-    use crate::model_bias::streaming::StreamingModelBias;
-    use pyo3::prelude::*;
-    use pyo3::types::IntoPyDict;
-
-    #[pyclass]
-    pub(crate) struct PyModelBiasStreaming {
-        inner: StreamingModelBias<i8, i8, i8>,
-    }
-
-    // class segmentation will happen in python layer
-    // and as such, not exposing the method to update seg criteria
-    #[pymethods]
-    impl PyModelBiasStreaming {
-        #[new]
-        fn new(
-            features: I8NpArray1<'_>,
-            predictions: I8NpArray1<'_>,
-            ground_truth: I8NpArray1<'_>,
-        ) -> PyResult<PyModelBiasStreaming> {
-            numpy_slice1d!(features_ref = features);
-            numpy_slice1d!(predictions_ref = predictions);
-            numpy_slice1d!(ground_truth_ref = ground_truth);
-
-            let inner = StreamingModelBias::new(
-                features_ref,
-                BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
-                predictions_ref,
-                BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
-                ground_truth_ref,
-                BiasSegmentationCriteria::new(1_i8, BiasSegmentationType::Label),
-            )?;
-
-            Ok(PyModelBiasStreaming { inner })
-        }
-
-        fn push(&mut self, feature: i8, pred: i8, gt: i8) {
-            self.inner.push(&feature, &pred, &gt);
-        }
-
-        fn push_batch(
-            &mut self,
-            feature: I8NpArray1<'_>,
-            pred: I8NpArray1<'_>,
-            gt: I8NpArray1<'_>,
-        ) -> PyResult<()> {
-            numpy_slice1d!(feature_ref = feature);
-            numpy_slice1d!(pred_ref = pred);
-            numpy_slice1d!(gt_ref = gt);
-
-            self.inner.push_batch(feature_ref, pred_ref, gt_ref)?;
-            Ok(())
-        }
-
-        fn flush(&mut self) {
-            self.inner.flush()
-        }
-
-        fn reset_baseline(
-            &mut self,
-            feature: I8NpArray1<'_>,
-            pred: I8NpArray1<'_>,
-            gt: I8NpArray1<'_>,
-        ) -> PyResult<()> {
-            numpy_slice1d!(feature_ref = feature);
-            numpy_slice1d!(pred_ref = pred);
-            numpy_slice1d!(gt_ref = gt);
-
-            self.inner.reset_baseline(feature_ref, pred_ref, gt_ref)?;
-            Ok(())
-        }
-        fn drift_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
-            let report = self.inner.drift_snapshot()?;
-            Ok(report_to_py_dict(py, report))
-        }
-
-        fn drift_report<'py>(&self, py: Python<'py>, drift_threshold: f32) -> PyDictResult<'py> {
-            let report = self.inner.drift_report(Some(drift_threshold))?;
-            report.into_py_dict(py)
-        }
-
-        fn drift_report_partial_metrics<'py>(
-            &self,
-            py: Python<'py>,
-            metrics: Vec<String>,
-            drift_threshold: f32,
-        ) -> PyDictResult<'py> {
-            let m_vec = ModelBiasMetricVec::try_from(metrics.as_ref())?;
-            let report = self
-                .inner
-                .drift_report_partial_metrics(m_vec.as_ref(), Some(drift_threshold))?;
-            report.into_py_dict(py)
-        }
-
-        fn performance_snapshot<'py>(&self, py: Python<'py>) -> PyDictResult<'py> {
-            let report = self.inner.performance_snapshot()?;
-
-            Ok(report_to_py_dict(py, report))
-        }
     }
 }

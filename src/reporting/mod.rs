@@ -77,8 +77,9 @@ where
 #[cfg(feature = "python")]
 pub(crate) mod py_report_utils {
     use super::{DriftReport, MetricDrift};
-    use crate::metrics;
+    use crate::metrics::py_ml_metric::PyMachineLearningMetric;
     use pyo3::{
+        intern,
         types::{IntoPyDict, PyDict, PyDictMethods, PyList, PyListMethods},
         Bound, PyResult, Python,
     };
@@ -87,15 +88,20 @@ pub(crate) mod py_report_utils {
     /// Utility to coerce a report into a Python dictionary.
     impl<T> IntoPyDict<'_> for DriftReport<T>
     where
-        T: metrics::MachineLearningMetric + Serialize + std::fmt::Display,
+        T: PyMachineLearningMetric + Serialize + std::fmt::Display,
     {
         fn into_py_dict(self, py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+            let passed_str = intern!(py, "passed");
+            let metric_str = intern!(py, "metric");
+            let drift_str = intern!(py, "drift");
+            let failed_report_str = intern!(py, "failed_report");
+
             let dict = PyDict::new(py);
             let Self {
                 passed,
                 failed_report,
             } = self;
-            let _ = dict.set_item("passed", passed);
+            let _ = dict.set_item(passed_str, passed);
 
             if passed {
                 return Ok(dict);
@@ -108,11 +114,11 @@ pub(crate) mod py_report_utils {
             for report in fp.into_iter() {
                 let curr = PyDict::new(py);
                 let MetricDrift { metric, drift } = report;
-                let _ = curr.set_item("metric", metric.to_string());
-                let _ = curr.set_item("drift", drift);
+                let _ = curr.set_item(metric_str, metric.as_py_str(py));
+                let _ = curr.set_item(drift_str, drift);
                 failed_report_list.append(curr)?;
             }
-            let _ = dict.set_item("failed_report", failed_report_list);
+            let _ = dict.set_item(failed_report_str, failed_report_list);
 
             Ok(dict)
         }

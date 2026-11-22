@@ -3,6 +3,7 @@ use crate::errors::{BiasError, ModelPerfResult, ModelPerformanceError};
 pub(crate) mod py_types_handler {
     use super::{BiasSegmentationCriteria, BiasSegmentationType, SegmentationThresholdType};
     use crate::errors::BiasError;
+    use crate::metrics::py_ml_metric::PyMachineLearningMetric;
     use numpy::{
         array as np_array, dtype, PyArrayDescrMethods, PyUntypedArray, PyUntypedArrayMethods,
     };
@@ -38,11 +39,11 @@ pub(crate) mod py_types_handler {
         report: HashMap<T, f32>,
     ) -> Bound<'py, PyDict>
     where
-        T: crate::metrics::MachineLearningMetric,
+        T: PyMachineLearningMetric,
     {
         let dict = PyDict::new(py);
         for (key, val) in report.into_iter() {
-            let _ = dict.set_item(key.to_string(), val);
+            let _ = dict.set_item(key.as_py_str(py), val);
         }
         dict
     }

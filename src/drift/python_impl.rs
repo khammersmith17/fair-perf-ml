@@ -3,7 +3,7 @@ pub(crate) mod py_api {
 
     use ahash::HashMap;
     use numpy::PyReadonlyArray1;
-    use pyo3::{prelude::*, pyclass, pymethods};
+    use pyo3::{prelude::*, pybacked::PyBackedStr, pyclass, pymethods};
     use std::num::NonZeroU64;
     use std::time::Duration;
 
@@ -31,7 +31,7 @@ pub(crate) mod py_api {
     }
 
     #[pyfunction]
-    pub(crate) fn py_compute_drift_continuous_distribtuion<'py>(
+    pub(crate) fn py_compute_drift_continuous_distribution<'py>(
         baseline: PyReadonlyArray1<'py, f64>,
         candidate: PyReadonlyArray1<'py, f64>,
         drift_metrics: Vec<String>,
@@ -54,7 +54,7 @@ pub(crate) mod py_api {
     }
 
     #[pyfunction]
-    pub(crate) fn py_compute_drift_categorical_distribtuion<'py>(
+    pub(crate) fn py_compute_drift_categorical_distribution(
         baseline: Vec<String>,
         candidate: Vec<String>,
         drift_metrics: Vec<String>,
@@ -189,11 +189,9 @@ pub(crate) mod py_api {
             } else {
                 None
             };
-            let cadence: Option<Duration> = if let Some(flush_cadence) = flush_cadence_opt {
-                Some(Duration::new(flush_cadence, 0))
-            } else {
-                None
-            };
+
+            let cadence = flush_cadence_opt.map(|c| Duration::new(c, 0));
+
             let inner = StreamingContinuousDataDrift::new_flush(
                 baseline_slice,
                 qtype_opt,
@@ -424,10 +422,7 @@ pub(crate) mod py_api {
         #[new]
         #[pyo3(signature = (baseline_data))]
         fn new(baseline_data: Vec<String>) -> PyResult<PyCategoricalDataDrift> {
-            let inner = match CategoricalDataDrift::new(&baseline_data) {
-                Ok(psi) => psi,
-                Err(e) => return Err(e.into()),
-            };
+            let inner = CategoricalDataDrift::new(&baseline_data)?;
             Ok(Self { inner })
         }
 
@@ -444,7 +439,7 @@ pub(crate) mod py_api {
             Ok(self.inner.compute_drift(&runtime_data, drift_t)?)
         }
 
-        fn compute_drift_mutliple_criteria<'py>(
+        fn compute_drift_mutliple_criteria(
             &mut self,
             runtime_data: Vec<String>,
             drift_types: Vec<String>,
@@ -501,11 +496,8 @@ pub(crate) mod py_api {
             flush_rate: Option<u64>,
             flush_cadence: Option<u64>,
         ) -> PyResult<PyStreamingCategoricalDataDriftFlush> {
-            let cadence: Option<Duration> = if let Some(cadence_raw) = flush_cadence {
-                Some(Duration::new(cadence_raw, 0))
-            } else {
-                None
-            };
+            let cadence: Option<Duration> = flush_cadence.map(|c| Duration::new(c, 0));
+
             let inner =
                 StreamingCategoricalDataDrift::new_flush(&baseline_data, flush_rate, cadence)?;
 

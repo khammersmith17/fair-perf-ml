@@ -50,10 +50,7 @@ pub(crate) mod py_api {
         threshold: f32,
     ) -> PyResult<Bound<'py, PyDict>> {
         let metrics_to_eval: LinearRegressionMetricVec =
-            match LinearRegressionMetricVec::try_from(evaluation_metrics.as_slice()) {
-                Ok(m) => m,
-                Err(e) => return Err(e.into()),
-            };
+            LinearRegressionMetricVec::try_from(evaluation_metrics.as_slice())?;
         let drift_report = regression_performance_runtime(
             baseline,
             latest,
@@ -74,10 +71,7 @@ pub(crate) mod py_api {
         threshold: f32,
     ) -> PyResult<Bound<'py, PyDict>> {
         let metrics_to_eval: LogisticRegressionMetricVec =
-            match LogisticRegressionMetricVec::try_from(evaluation_metrics.as_slice()) {
-                Ok(m) => m,
-                Err(e) => return Err(e.into()),
-            };
+            LogisticRegressionMetricVec::try_from(evaluation_metrics.as_slice())?;
         let drift_report = logistic_performance_runtime(
             baseline,
             latest,
@@ -116,10 +110,7 @@ pub(crate) mod py_api {
         threshold: f32,
     ) -> PyResult<Bound<'py, PyDict>> {
         let metrics_to_eval: ClassificationMetricVec =
-            match ClassificationMetricVec::try_from(evaluation_metrics.as_slice()) {
-                Ok(m) => m,
-                Err(e) => return Err(e.into()),
-            };
+            ClassificationMetricVec::try_from(evaluation_metrics.as_slice())?;
         let drift_report = classification_performance_runtime(
             baseline,
             latest,
@@ -195,10 +186,7 @@ pub(crate) mod py_api {
         let Ok((y_true, y_pred)) = validate_and_cast_regression(py, y_true_src, y_pred_src) else {
             return Err(PyValueError::new_err("Invalid types passed"));
         };
-        let report = match model_perf_linear_regression_analysis(&y_true, &y_pred) {
-            Ok(r) => r,
-            Err(e) => return Err(e.into()),
-        };
+        let report = model_perf_linear_regression_analysis(&y_true, &y_pred)?;
         Ok(report_to_py_dict(py, report))
     }
 

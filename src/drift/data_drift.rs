@@ -24,11 +24,8 @@ enum StreamModeInner {
 impl StreamModeInner {
     /// Resets state on flush.
     fn perform_flush(&mut self) {
-        match self {
-            StreamModeInner::Flush { last_flush_ts, .. } => {
-                *last_flush_ts = Instant::now();
-            }
-            _ => {}
+        if let StreamModeInner::Flush { last_flush_ts, .. } = self {
+            *last_flush_ts = Instant::now();
         }
     }
 
@@ -401,10 +398,11 @@ impl StreamingContinuousDataDrift<DecayModeMark> {
         let StreamModeInner::ExponentialDecay(decay_factor) = self.mode else {
             unreachable!()
         };
-        for bin in self.stream_bins.iter_mut() {
-            *bin = *bin * decay_factor;
-        }
-        self.total_stream_size = self.total_stream_size * decay_factor;
+        self.stream_bins
+            .iter_mut()
+            .for_each(|bin| *bin *= decay_factor);
+
+        self.total_stream_size *= decay_factor;
     }
 
     /// Push a single example into the stream.
@@ -1026,15 +1024,20 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, DecayModeMark> {
         let StreamModeInner::ExponentialDecay(decay_factor) = self.mode else {
             unreachable!()
         };
-        for bin in self.stream_bins.iter_mut() {
-            *bin = *bin * decay_factor;
-        }
-        self.total_stream_size = self.total_stream_size * decay_factor;
+        self.stream_bins
+            .iter_mut()
+            .for_each(|bin| *bin *= decay_factor);
+
+        self.total_stream_size *= decay_factor;
     }
 
     /// Push a single label into the stream.
     #[inline]
-    pub fn update_stream(&mut self, item: &T) {
+    pub fn update_stream<Q>(&mut self, item: &Q)
+    where
+        T: std::borrow::Borrow<Q>,
+        Q: Hash + Eq,
+    {
         let idx = self.baseline.get_bin(item);
         self.stream_bins[idx] += 1_f64;
         self.total_stream_size += 1_f64;
@@ -1043,7 +1046,11 @@ impl<T: Hash + Ord + Clone> StreamingCategoricalDataDrift<T, DecayModeMark> {
     /// Push a batch of labels into the stream.
     ///
     /// Returns [`DriftError::EmptyRuntimeData`] if the slice is empty.
-    pub fn update_stream_batch(&mut self, runtime_data: &[T]) -> Result<(), DriftError> {
+    pub fn update_stream_batch<Q>(&mut self, runtime_data: &[Q]) -> Result<(), DriftError>
+    where
+        T: std::borrow::Borrow<Q>,
+        Q: Hash + Eq,
+    {
         if runtime_data.is_empty() {
             return Err(DriftError::EmptyRuntimeData);
         }

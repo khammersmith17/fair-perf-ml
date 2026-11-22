@@ -16,8 +16,8 @@ from fair_perf_ml._internal import FloatingPointDataSlice
 from numpy.typing import NDArray
 
 from .._fair_perf_ml import (PyCategoricalDataDrift, PyContinuousDataDrift,
-                             py_compute_drift_categorical_distribtuion,
-                             py_compute_drift_continuous_distribtuion)
+                             py_compute_drift_categorical_distribution,
+                             py_compute_drift_continuous_distribution)
 
 
 class QuantileType(str, Enum):
@@ -103,7 +103,7 @@ def compute_drift_categorical_distribution(
     returns:
         list[float] - one entry for every drift method provided, element wise mapped.
     """
-    return py_compute_drift_categorical_distribtuion(
+    return py_compute_drift_categorical_distribution(
         _cast_to_string_iterable(baseline_distribution),
         _cast_to_string_iterable(candidate_distribution),
         list(map(_map_drift_metric_type, drift_metrics)),
@@ -129,7 +129,7 @@ def compute_drift_continuous_distribution(
     """
     if isinstance(quantile_type, QuantileType):
         quantile_type = quantile_type.value
-    return py_compute_drift_continuous_distribtuion(
+    return py_compute_drift_continuous_distribution(
         _cast_to_numpy_float_arr(baseline_distribution),
         _cast_to_numpy_float_arr(candidate_distribution),
         list(map(_map_drift_metric_type, drift_metrics)),

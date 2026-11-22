@@ -22,7 +22,7 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     };
 
     use drift::python_impl::py_api::{
-        py_compute_drift_categorical_distribtuion, py_compute_drift_continuous_distribtuion,
+        py_compute_drift_categorical_distribution, py_compute_drift_continuous_distribution,
         PyCategoricalDataDrift, PyContinuousDataDrift, PyStreamingCategoricalDataDriftDecay,
         PyStreamingCategoricalDataDriftFlush, PyStreamingContinuousDataDriftDecay,
         PyStreamingContinuousDataDriftFlush,
@@ -41,7 +41,7 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     };
 
     use data_bias::streaming::py_api::PyDataBiasStreaming;
-    use model_bias::python_impl::py_streaming_api::PyModelBiasStreaming;
+    use model_bias::streaming::py_api::PyModelBiasStreaming;
     use model_perf::streaming::py_api::{
         PyBinaryClassificationStreaming, PyLinearRegressionStreaming, PyLogisticRegressionStreaming,
     };
@@ -64,11 +64,11 @@ fn fair_perf_ml(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_model_perf_lin_reg_rt_partial, m)?)?;
     m.add_function(wrap_pyfunction!(py_model_perf_log_reg_rt_full, m)?)?;
     m.add_function(wrap_pyfunction!(
-        py_compute_drift_categorical_distribtuion,
+        py_compute_drift_categorical_distribution,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
-        py_compute_drift_continuous_distribtuion,
+        py_compute_drift_continuous_distribution,
         m
     )?)?;
 

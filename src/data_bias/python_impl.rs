@@ -37,6 +37,8 @@ pub(crate) mod py_api {
         Ok(report_to_py_dict(py, res))
     }
 
+    // Allowing the large number of arguments given this crosses FFI boundary.
+    #[allow(clippy::too_many_arguments)]
     #[pyfunction]
     #[pyo3(signature = (
         feature_array,

@@ -85,16 +85,16 @@ impl TryFrom<HashMap<String, f32>> for DataBiasRuntime {
     }
 }
 
-impl Into<DataBiasAnalysisReport> for DataBiasRuntime {
-    fn into(self) -> DataBiasAnalysisReport {
+impl From<DataBiasRuntime> for DataBiasAnalysisReport {
+    fn from(rt: DataBiasRuntime) -> DataBiasAnalysisReport {
         let mut result = DataBiasAnalysisReport::with_capacity(7);
-        result.insert(DataBiasMetric::ClassImbalance, self.ci);
-        result.insert(DataBiasMetric::DifferenceInProportionOfLabels, self.dpl);
-        result.insert(DataBiasMetric::KlDivergence, self.kl);
-        result.insert(DataBiasMetric::JsDivergence, self.js);
-        result.insert(DataBiasMetric::LpNorm, self.lpnorm);
-        result.insert(DataBiasMetric::TotalVariationDistance, self.tvd);
-        result.insert(DataBiasMetric::KolmogorovSmirnov, self.ks);
+        result.insert(DataBiasMetric::ClassImbalance, rt.ci);
+        result.insert(DataBiasMetric::DifferenceInProportionOfLabels, rt.dpl);
+        result.insert(DataBiasMetric::KlDivergence, rt.kl);
+        result.insert(DataBiasMetric::JsDivergence, rt.js);
+        result.insert(DataBiasMetric::LpNorm, rt.lpnorm);
+        result.insert(DataBiasMetric::TotalVariationDistance, rt.tvd);
+        result.insert(DataBiasMetric::KolmogorovSmirnov, rt.ks);
         result
     }
 }
@@ -484,30 +484,27 @@ impl ModelBiasRuntime {
     }
 }
 
-impl Into<ModelBiasAnalysisReport> for ModelBiasRuntime {
-    fn into(self) -> ModelBiasAnalysisReport {
+impl From<ModelBiasRuntime> for ModelBiasAnalysisReport {
+    fn from(rt: ModelBiasRuntime) -> ModelBiasAnalysisReport {
         let mut report = ModelBiasAnalysisReport::with_capacity(12);
         report.insert(
             ModelBiasMetric::DifferenceInPositivePredictedLabels,
-            self.ddpl,
+            rt.ddpl,
         );
-        report.insert(ModelBiasMetric::DisparateImpact, self.di);
-        report.insert(ModelBiasMetric::AccuracyDifference, self.ad);
-        report.insert(ModelBiasMetric::RecallDifference, self.rd);
-        report.insert(
-            ModelBiasMetric::DifferenceInConditionalAcceptance,
-            self.dcacc,
-        );
-        report.insert(ModelBiasMetric::DifferenceInAcceptanceRate, self.dar);
-        report.insert(ModelBiasMetric::SpecialityDifference, self.sd);
-        report.insert(ModelBiasMetric::DifferenceInConditionalRejection, self.dcr);
-        report.insert(ModelBiasMetric::DifferenceInRejectionRate, self.drr);
-        report.insert(ModelBiasMetric::TreatmentEquity, self.te);
+        report.insert(ModelBiasMetric::DisparateImpact, rt.di);
+        report.insert(ModelBiasMetric::AccuracyDifference, rt.ad);
+        report.insert(ModelBiasMetric::RecallDifference, rt.rd);
+        report.insert(ModelBiasMetric::DifferenceInConditionalAcceptance, rt.dcacc);
+        report.insert(ModelBiasMetric::DifferenceInAcceptanceRate, rt.dar);
+        report.insert(ModelBiasMetric::SpecialityDifference, rt.sd);
+        report.insert(ModelBiasMetric::DifferenceInConditionalRejection, rt.dcr);
+        report.insert(ModelBiasMetric::DifferenceInRejectionRate, rt.drr);
+        report.insert(ModelBiasMetric::TreatmentEquity, rt.te);
         report.insert(
             ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels,
-            self.ccdpl,
+            rt.ccdpl,
         );
-        report.insert(ModelBiasMetric::GeneralizedEntropy, self.ge);
+        report.insert(ModelBiasMetric::GeneralizedEntropy, rt.ge);
         report
     }
 }
@@ -836,17 +833,17 @@ impl BinaryClassificationRuntime {
     }
 }
 
-impl Into<BinaryClassificationAnalysisReport> for BinaryClassificationRuntime {
-    fn into(self) -> BinaryClassificationAnalysisReport {
+impl From<BinaryClassificationRuntime> for BinaryClassificationAnalysisReport {
+    fn from(rt: BinaryClassificationRuntime) -> BinaryClassificationAnalysisReport {
         use ClassificationEvaluationMetric as C;
         let mut map: HashMap<C, f32> = HashMap::with_capacity(7);
-        map.insert(C::BalancedAccuracy, self.balanced_accuracy);
-        map.insert(C::PrecisionPositive, self.precision_positive);
-        map.insert(C::PrecisionNegative, self.precision_negative);
-        map.insert(C::RecallPositive, self.recall_positive);
-        map.insert(C::RecallNegative, self.recall_negative);
-        map.insert(C::Accuracy, self.accuracy);
-        map.insert(C::F1Score, self.f1_score);
+        map.insert(C::BalancedAccuracy, rt.balanced_accuracy);
+        map.insert(C::PrecisionPositive, rt.precision_positive);
+        map.insert(C::PrecisionNegative, rt.precision_negative);
+        map.insert(C::RecallPositive, rt.recall_positive);
+        map.insert(C::RecallNegative, rt.recall_negative);
+        map.insert(C::Accuracy, rt.accuracy);
+        map.insert(C::F1Score, rt.f1_score);
         map
     }
 }
@@ -1049,18 +1046,18 @@ impl LogisticRegressionRuntime {
     }
 }
 
-impl Into<LogisticRegressionAnalysisReport> for LogisticRegressionRuntime {
-    fn into(self) -> LogisticRegressionAnalysisReport {
+impl From<LogisticRegressionRuntime> for LogisticRegressionAnalysisReport {
+    fn from(rt: LogisticRegressionRuntime) -> LogisticRegressionAnalysisReport {
         use ClassificationEvaluationMetric as M;
         let mut map: HashMap<M, f32> = HashMap::with_capacity(8);
-        map.insert(M::BalancedAccuracy, self.balanced_accuracy);
-        map.insert(M::PrecisionPositive, self.precision_positive);
-        map.insert(M::PrecisionNegative, self.precision_negative);
-        map.insert(M::RecallPositive, self.recall_positive);
-        map.insert(M::RecallNegative, self.recall_negative);
-        map.insert(M::Accuracy, self.accuracy);
-        map.insert(M::F1Score, self.f1_score);
-        map.insert(M::LogLoss, self.log_loss);
+        map.insert(M::BalancedAccuracy, rt.balanced_accuracy);
+        map.insert(M::PrecisionPositive, rt.precision_positive);
+        map.insert(M::PrecisionNegative, rt.precision_negative);
+        map.insert(M::RecallPositive, rt.recall_positive);
+        map.insert(M::RecallNegative, rt.recall_negative);
+        map.insert(M::Accuracy, rt.accuracy);
+        map.insert(M::F1Score, rt.f1_score);
+        map.insert(M::LogLoss, rt.log_loss);
         map
     }
 }
@@ -1361,18 +1358,18 @@ impl LinearRegressionRuntime {
         result
     }
 }
-impl Into<LinearRegressionAnalysisReport> for LinearRegressionRuntime {
-    fn into(self) -> LinearRegressionAnalysisReport {
+impl From<LinearRegressionRuntime> for LinearRegressionAnalysisReport {
+    fn from(rt: LinearRegressionRuntime) -> LinearRegressionAnalysisReport {
         use LinearRegressionEvaluationMetric as L;
         let mut map: HashMap<L, f32> = HashMap::with_capacity(8);
-        map.insert(L::RootMeanSquaredError, self.rmse);
-        map.insert(L::MeanSquaredError, self.mse);
-        map.insert(L::MeanAbsoluteError, self.mae);
-        map.insert(L::RSquared, self.r_squared);
-        map.insert(L::MaxError, self.max_error);
-        map.insert(L::MeanSquaredLogError, self.msle);
-        map.insert(L::RootMeanSquaredLogError, self.rmsle);
-        map.insert(L::MeanAbsolutePercentageError, self.mape);
+        map.insert(L::RootMeanSquaredError, rt.rmse);
+        map.insert(L::MeanSquaredError, rt.mse);
+        map.insert(L::MeanAbsoluteError, rt.mae);
+        map.insert(L::RSquared, rt.r_squared);
+        map.insert(L::MaxError, rt.max_error);
+        map.insert(L::MeanSquaredLogError, rt.msle);
+        map.insert(L::RootMeanSquaredLogError, rt.rmsle);
+        map.insert(L::MeanAbsolutePercentageError, rt.mape);
         map
     }
 }

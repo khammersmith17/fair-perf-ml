@@ -18,13 +18,45 @@ pub(crate) fn get_stability_eps() -> f64 {
 
 /// Trait to enfore trait bounds around what is a crate supported machine learning/data metric.
 pub trait MachineLearningMetric:
-    std::fmt::Debug + PartialEq + Serialize + std::fmt::Display
+    std::fmt::Debug + PartialEq + Serialize + std::fmt::Display + AsRef<str> + Copy
 {
 }
 impl MachineLearningMetric for DataBiasMetric {}
 impl MachineLearningMetric for ModelBiasMetric {}
 impl MachineLearningMetric for ClassificationEvaluationMetric {}
 impl MachineLearningMetric for LinearRegressionEvaluationMetric {}
+
+#[cfg(feature = "python")]
+pub(crate) mod py_ml_metric {
+    use crate::impl_metrics_table;
+    use pyo3::{sync::GILOnceCell, types::PyString, Bound, Py, Python};
+
+    /// Coerce to a Python string an intern it.
+    pub(crate) trait PyMachineLearningMetric: super::MachineLearningMetric {
+        /// Gives a reference to the table of interned PyString for each metric.
+        fn py_interned_table(py: Python<'_>) -> &'static [Py<PyString>];
+
+        fn idx(&self) -> usize;
+
+        /// Resolve the interned string from the table and bind it to the interpreter.
+        fn as_py_str<'py>(&self, py: Python<'py>) -> &Bound<'py, PyString> {
+            Self::py_interned_table(py)[self.idx()].bind(py)
+        }
+    }
+
+    // Generate the interned table implemetnation for each metric.
+    impl_metrics_table!(super::DataBiasMetric, super::FULL_DATA_BIAS_METRICS);
+    impl_metrics_table!(super::ModelBiasMetric, super::FULL_MODEL_BIAS_METRICS);
+    impl_metrics_table!(
+        super::ClassificationEvaluationMetric,
+        super::FULL_LOGISTIC_REGRESSION_METRICS
+    );
+
+    impl_metrics_table!(
+        super::LinearRegressionEvaluationMetric,
+        super::FULL_REGRESSION_METRICS
+    );
+}
 
 /// New type wrapper for Vec<DataBiasMetric>, this is to allow for an implementation of
 /// `From<Vec<DataBiasMetric>>`, or TryFrom<T> where T is something the looks like the String
@@ -212,7 +244,7 @@ impl TryFrom<&[String]> for ModelBiasMetricVec {
 }
 
 /// Pre-training data bias metrics supported by the crate.
-#[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Debug, Clone, Copy)]
 pub enum DataBiasMetric {
     ClassImbalance,
     DifferenceInProportionOfLabels,
@@ -223,17 +255,23 @@ pub enum DataBiasMetric {
     KolmogorovSmirnov,
 }
 
+impl AsRef<str> for DataBiasMetric {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::ClassImbalance => "ClassImbalance",
+            Self::DifferenceInProportionOfLabels => "DifferenceInProportionOfLabels",
+            Self::KlDivergence => "KlDivergence",
+            Self::JsDivergence => "JsDivergence",
+            Self::LpNorm => "LpNorm",
+            Self::TotalVariationDistance => "TotalVariationDistance",
+            Self::KolmogorovSmirnov => "KolmogorovSmirnov",
+        }
+    }
+}
+
 impl std::fmt::Display for DataBiasMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::ClassImbalance => write!(f, "ClassImbalance"),
-            Self::DifferenceInProportionOfLabels => write!(f, "DifferenceInProportionOfLabels"),
-            Self::KlDivergence => write!(f, "KlDivergence"),
-            Self::JsDivergence => write!(f, "JsDivergence"),
-            Self::LpNorm => write!(f, "LpNorm"),
-            Self::TotalVariationDistance => write!(f, "TotalVariationDistance"),
-            Self::KolmogorovSmirnov => write!(f, "KolmogorovSmirnov"),
-        }
+        f.write_str(self.as_ref())
     }
 }
 
@@ -266,7 +304,7 @@ impl TryFrom<&str> for DataBiasMetric {
 }
 
 /// Post-training model bias metrics supported by the crate.
-#[derive(Deserialize, Serialize, Hash, Eq, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, Hash, Eq, PartialEq, Debug, Clone, Copy)]
 pub enum ModelBiasMetric {
     DifferenceInPositivePredictedLabels,
     DisparateImpact,
@@ -282,28 +320,30 @@ pub enum ModelBiasMetric {
     GeneralizedEntropy,
 }
 
+impl AsRef<str> for ModelBiasMetric {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::DifferenceInPositivePredictedLabels => "DifferenceInPositivePredictedLabels",
+            Self::DisparateImpact => "DisparateImpact",
+            Self::AccuracyDifference => "AccuracyDifference",
+            Self::RecallDifference => "RecallDifference",
+            Self::DifferenceInConditionalAcceptance => "DifferenceInConditionalAcceptance",
+            Self::DifferenceInAcceptanceRate => "DifferenceInAcceptanceRate",
+            Self::SpecialityDifference => "SpecialityDifference",
+            Self::DifferenceInConditionalRejection => "DifferenceInConditionalRejection",
+            Self::DifferenceInRejectionRate => "DifferenceInRejectionRate",
+            Self::TreatmentEquity => "TreatmentEquity",
+            Self::ConditionalDemographicDesparityPredictedLabels => {
+                "ConditionalDemographicDesparityPredictedLabels"
+            }
+            Self::GeneralizedEntropy => "GeneralizedEntropy",
+        }
+    }
+}
+
 impl std::fmt::Display for ModelBiasMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::DifferenceInPositivePredictedLabels => {
-                write!(f, "DifferenceInPositivePredictedLabels")
-            }
-            Self::DisparateImpact => write!(f, "DisparateImpact"),
-            Self::AccuracyDifference => write!(f, "AccuracyDifference"),
-            Self::RecallDifference => write!(f, "RecallDifference"),
-            Self::DifferenceInConditionalAcceptance => {
-                write!(f, "DifferenceInConditionalAcceptance")
-            }
-            Self::DifferenceInAcceptanceRate => write!(f, "DifferenceInAcceptanceRate"),
-            Self::SpecialityDifference => write!(f, "SpecialityDifference"),
-            Self::DifferenceInConditionalRejection => write!(f, "DifferenceInConditionalRejection"),
-            Self::DifferenceInRejectionRate => write!(f, "DifferenceInRejectionRate"),
-            Self::TreatmentEquity => write!(f, "TreatmentEquity"),
-            Self::ConditionalDemographicDesparityPredictedLabels => {
-                write!(f, "ConditionalDemographicDesparityPredictedLabels")
-            }
-            Self::GeneralizedEntropy => write!(f, "GeneralizedEntropy"),
-        }
+        f.write_str(self.as_ref())
     }
 }
 
@@ -384,7 +424,7 @@ pub const FULL_BINARY_CLASSIFICATION_METRICS: [ClassificationEvaluationMetric; 7
 
 /// Evaluation metrics for binary classification and logistic regression models.
 /// `LogLoss` is only valid for logistic regression.
-#[derive(Serialize, Deserialize, PartialEq, Hash, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Hash, Eq, Debug, Clone, Copy)]
 pub enum ClassificationEvaluationMetric {
     BalancedAccuracy,
     PrecisionPositive,
@@ -397,7 +437,7 @@ pub enum ClassificationEvaluationMetric {
 }
 
 /// Evaluation metrics for linear regression models.
-#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub enum LinearRegressionEvaluationMetric {
     RootMeanSquaredError,
     MeanSquaredError,
@@ -426,18 +466,24 @@ impl TryFrom<&str> for ClassificationEvaluationMetric {
     }
 }
 
+impl AsRef<str> for ClassificationEvaluationMetric {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::BalancedAccuracy => "BalancedAccuracy",
+            Self::PrecisionPositive => "PrecisionPositive",
+            Self::PrecisionNegative => "PrecisionNegative",
+            Self::RecallPositive => "RecallPositive",
+            Self::RecallNegative => "RecallNegative",
+            Self::Accuracy => "Accuracy",
+            Self::F1Score => "F1Score",
+            Self::LogLoss => "LogLoss",
+        }
+    }
+}
+
 impl std::fmt::Display for ClassificationEvaluationMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::BalancedAccuracy => write!(f, "BalancedAccuracy"),
-            Self::PrecisionPositive => write!(f, "PrecisionPositive"),
-            Self::PrecisionNegative => write!(f, "PrecisionNegative"),
-            Self::RecallPositive => write!(f, "RecallPositive"),
-            Self::RecallNegative => write!(f, "RecallNegative"),
-            Self::Accuracy => write!(f, "Accuracy"),
-            Self::F1Score => write!(f, "F1Score"),
-            Self::LogLoss => write!(f, "LogLoss"),
-        }
+        f.write_str(self.as_ref())
     }
 }
 
@@ -458,18 +504,24 @@ impl TryFrom<&str> for LinearRegressionEvaluationMetric {
     }
 }
 
+impl AsRef<str> for LinearRegressionEvaluationMetric {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::RootMeanSquaredError => "RootMeanSquaredError",
+            Self::MeanSquaredError => "MeanSquaredError",
+            Self::MeanAbsoluteError => "MeanAbsoluteError",
+            Self::RSquared => "RSquared",
+            Self::MaxError => "MaxError",
+            Self::MeanSquaredLogError => "MeanSquaredLogError",
+            Self::RootMeanSquaredLogError => "RootMeanSquaredLogError",
+            Self::MeanAbsolutePercentageError => "MeanAbsolutePercentageError",
+        }
+    }
+}
+
 impl std::fmt::Display for LinearRegressionEvaluationMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::RootMeanSquaredError => write!(f, "RootMeanSquaredError"),
-            Self::MeanSquaredError => write!(f, "MeanSquaredError"),
-            Self::MeanAbsoluteError => write!(f, "MeanAbsoluteError"),
-            Self::RSquared => write!(f, "RSquared"),
-            Self::MaxError => write!(f, "MaxError"),
-            Self::MeanSquaredLogError => write!(f, "MeanSquaredLogError"),
-            Self::RootMeanSquaredLogError => write!(f, "RootMeanSquaredLogError"),
-            Self::MeanAbsolutePercentageError => write!(f, "MeanAbsolutePercentageError"),
-        }
+        f.write_str(self.as_ref())
     }
 }
 
@@ -524,7 +576,10 @@ mod tests {
     fn classification_metric_display_round_trips_via_try_from() {
         for m in &FULL_LOGISTIC_REGRESSION_METRICS {
             let s = m.to_string();
-            assert_eq!(ClassificationEvaluationMetric::try_from(s.as_str()).unwrap(), *m);
+            assert_eq!(
+                ClassificationEvaluationMetric::try_from(s.as_str()).unwrap(),
+                *m
+            );
         }
     }
 
@@ -542,7 +597,9 @@ mod tests {
     #[test]
     fn full_binary_classification_metrics_excludes_log_loss() {
         assert_eq!(FULL_BINARY_CLASSIFICATION_METRICS.len(), 7);
-        assert!(!FULL_BINARY_CLASSIFICATION_METRICS.contains(&ClassificationEvaluationMetric::LogLoss));
+        assert!(
+            !FULL_BINARY_CLASSIFICATION_METRICS.contains(&ClassificationEvaluationMetric::LogLoss)
+        );
     }
 
     // --- LinearRegressionEvaluationMetric ---
@@ -551,7 +608,10 @@ mod tests {
     fn linear_regression_metric_display_round_trips_via_try_from() {
         for m in &FULL_REGRESSION_METRICS {
             let s = m.to_string();
-            assert_eq!(LinearRegressionEvaluationMetric::try_from(s.as_str()).unwrap(), *m);
+            assert_eq!(
+                LinearRegressionEvaluationMetric::try_from(s.as_str()).unwrap(),
+                *m
+            );
         }
     }
 
@@ -571,26 +631,37 @@ mod tests {
     fn data_bias_metric_vec_from_vec() {
         let v = vec![DataBiasMetric::ClassImbalance, DataBiasMetric::LpNorm];
         let wrapped = DataBiasMetricVec::from(v);
-        assert_eq!(wrapped.as_ref(), &[DataBiasMetric::ClassImbalance, DataBiasMetric::LpNorm]);
+        assert_eq!(
+            wrapped.as_ref(),
+            &[DataBiasMetric::ClassImbalance, DataBiasMetric::LpNorm]
+        );
     }
 
     #[test]
     fn data_bias_metric_vec_try_from_strings_success() {
         let strings: Vec<String> = vec!["ClassImbalance".into(), "LpNorm".into()];
         let vec = DataBiasMetricVec::try_from(strings.as_slice()).unwrap();
-        assert_eq!(vec.as_ref(), &[DataBiasMetric::ClassImbalance, DataBiasMetric::LpNorm]);
+        assert_eq!(
+            vec.as_ref(),
+            &[DataBiasMetric::ClassImbalance, DataBiasMetric::LpNorm]
+        );
     }
 
     #[test]
     fn data_bias_metric_vec_try_from_strings_invalid_returns_error() {
         let strings: Vec<String> = vec!["ClassImbalance".into(), "BadMetric".into()];
         let err = DataBiasMetricVec::try_from(strings.as_slice()).unwrap_err();
-        assert!(matches!(err, InvalidMetricError::DataBiasMetricError(ref v) if v.contains(&"BadMetric".to_string())));
+        assert!(
+            matches!(err, InvalidMetricError::DataBiasMetricError(ref v) if v.contains(&"BadMetric".to_string()))
+        );
     }
 
     #[test]
     fn data_bias_metric_vec_try_from_all_full_metrics() {
-        let strings: Vec<String> = FULL_DATA_BIAS_METRICS.iter().map(|m| m.to_string()).collect();
+        let strings: Vec<String> = FULL_DATA_BIAS_METRICS
+            .iter()
+            .map(|m| m.to_string())
+            .collect();
         let vec = DataBiasMetricVec::try_from(strings.as_slice()).unwrap();
         assert_eq!(vec.as_ref().len(), 7);
     }
@@ -610,7 +681,10 @@ mod tests {
         let vec = ModelBiasMetricVec::try_from(strings.as_slice()).unwrap();
         assert_eq!(
             vec.as_ref(),
-            &[ModelBiasMetric::DisparateImpact, ModelBiasMetric::GeneralizedEntropy]
+            &[
+                ModelBiasMetric::DisparateImpact,
+                ModelBiasMetric::GeneralizedEntropy
+            ]
         );
     }
 
@@ -627,7 +701,10 @@ mod tests {
     fn logistic_regression_metric_vec_from_vec() {
         let v = vec![ClassificationEvaluationMetric::Accuracy];
         let wrapped = LogisticRegressionMetricVec::from(v);
-        assert_eq!(wrapped.as_ref(), &[ClassificationEvaluationMetric::Accuracy]);
+        assert_eq!(
+            wrapped.as_ref(),
+            &[ClassificationEvaluationMetric::Accuracy]
+        );
     }
 
     #[test]
@@ -636,7 +713,10 @@ mod tests {
         let vec = LogisticRegressionMetricVec::try_from(strings.as_slice()).unwrap();
         assert_eq!(
             vec.as_ref(),
-            &[ClassificationEvaluationMetric::Accuracy, ClassificationEvaluationMetric::LogLoss]
+            &[
+                ClassificationEvaluationMetric::Accuracy,
+                ClassificationEvaluationMetric::LogLoss
+            ]
         );
     }
 
@@ -653,7 +733,10 @@ mod tests {
     fn linear_regression_metric_vec_from_vec() {
         let v = vec![LinearRegressionEvaluationMetric::RSquared];
         let wrapped = LinearRegressionMetricVec::from(v);
-        assert_eq!(wrapped.as_ref(), &[LinearRegressionEvaluationMetric::RSquared]);
+        assert_eq!(
+            wrapped.as_ref(),
+            &[LinearRegressionEvaluationMetric::RSquared]
+        );
     }
 
     #[test]
@@ -691,7 +774,10 @@ mod tests {
         let vec = ClassificationMetricVec::try_from(strings.as_slice()).unwrap();
         assert_eq!(
             vec.as_ref(),
-            &[ClassificationEvaluationMetric::F1Score, ClassificationEvaluationMetric::Accuracy]
+            &[
+                ClassificationEvaluationMetric::F1Score,
+                ClassificationEvaluationMetric::Accuracy
+            ]
         );
     }
 
@@ -699,14 +785,138 @@ mod tests {
     fn classification_metric_vec_rejects_log_loss() {
         let strings: Vec<String> = vec!["Accuracy".into(), "LogLoss".into()];
         let err = ClassificationMetricVec::try_from(strings.as_slice()).unwrap_err();
-        assert!(matches!(err, InvalidMetricError::ClassificationMetricError(_)));
+        assert!(matches!(
+            err,
+            InvalidMetricError::ClassificationMetricError(_)
+        ));
     }
 
     #[test]
     fn classification_metric_vec_try_from_strings_invalid_returns_error() {
         let strings: Vec<String> = vec!["Accuracy".into(), "BadMetric".into()];
         let err = ClassificationMetricVec::try_from(strings.as_slice()).unwrap_err();
-        assert!(matches!(err, InvalidMetricError::ClassificationMetricError(_)));
+        assert!(matches!(
+            err,
+            InvalidMetricError::ClassificationMetricError(_)
+        ));
+    }
+
+    // --- FULL_* table ordering ---
+    // The interned Python string tables are built from the FULL_* arrays and indexed by the
+    // variant discriminant, so each array must list every variant in declaration order.
+
+    fn assert_declaration_order(discriminants: impl Iterator<Item = usize>) {
+        for (i, d) in discriminants.enumerate() {
+            assert_eq!(
+                d, i,
+                "FULL_* array out of declaration order at position {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn full_data_bias_metrics_in_declaration_order() {
+        assert_declaration_order(FULL_DATA_BIAS_METRICS.iter().map(|m| *m as usize));
+    }
+
+    #[test]
+    fn full_model_bias_metrics_in_declaration_order() {
+        assert_declaration_order(FULL_MODEL_BIAS_METRICS.iter().map(|m| *m as usize));
+    }
+
+    #[test]
+    fn full_logistic_regression_metrics_in_declaration_order() {
+        assert_declaration_order(FULL_LOGISTIC_REGRESSION_METRICS.iter().map(|m| *m as usize));
+        // LogLoss is the last variant, so the table must cover it
+        assert_eq!(
+            ClassificationEvaluationMetric::LogLoss as usize,
+            FULL_LOGISTIC_REGRESSION_METRICS.len() - 1
+        );
+    }
+
+    #[test]
+    fn full_regression_metrics_in_declaration_order() {
+        assert_declaration_order(FULL_REGRESSION_METRICS.iter().map(|m| *m as usize));
+    }
+
+    // --- FULL_* variant coverage ---
+    // The matches below intentionally have no wildcard arm. Adding a variant to a metric enum
+    // will fail to compile here until it is handled, at which point VARIANT_COUNT must be bumped
+    // and the variant added to the corresponding FULL_* array, otherwise the length check fails.
+
+    #[test]
+    fn full_data_bias_metrics_cover_all_variants() {
+        const VARIANT_COUNT: usize = 7;
+        for m in FULL_DATA_BIAS_METRICS {
+            match m {
+                DataBiasMetric::ClassImbalance
+                | DataBiasMetric::DifferenceInProportionOfLabels
+                | DataBiasMetric::KlDivergence
+                | DataBiasMetric::JsDivergence
+                | DataBiasMetric::LpNorm
+                | DataBiasMetric::TotalVariationDistance
+                | DataBiasMetric::KolmogorovSmirnov => {}
+            }
+        }
+        assert_eq!(FULL_DATA_BIAS_METRICS.len(), VARIANT_COUNT);
+    }
+
+    #[test]
+    fn full_model_bias_metrics_cover_all_variants() {
+        const VARIANT_COUNT: usize = 12;
+        for m in FULL_MODEL_BIAS_METRICS {
+            match m {
+                ModelBiasMetric::DifferenceInPositivePredictedLabels
+                | ModelBiasMetric::DisparateImpact
+                | ModelBiasMetric::AccuracyDifference
+                | ModelBiasMetric::RecallDifference
+                | ModelBiasMetric::DifferenceInConditionalAcceptance
+                | ModelBiasMetric::DifferenceInAcceptanceRate
+                | ModelBiasMetric::SpecialityDifference
+                | ModelBiasMetric::DifferenceInConditionalRejection
+                | ModelBiasMetric::DifferenceInRejectionRate
+                | ModelBiasMetric::TreatmentEquity
+                | ModelBiasMetric::ConditionalDemographicDesparityPredictedLabels
+                | ModelBiasMetric::GeneralizedEntropy => {}
+            }
+        }
+        assert_eq!(FULL_MODEL_BIAS_METRICS.len(), VARIANT_COUNT);
+    }
+
+    #[test]
+    fn full_logistic_regression_metrics_cover_all_variants() {
+        const VARIANT_COUNT: usize = 8;
+        for m in FULL_LOGISTIC_REGRESSION_METRICS {
+            match m {
+                ClassificationEvaluationMetric::BalancedAccuracy
+                | ClassificationEvaluationMetric::PrecisionPositive
+                | ClassificationEvaluationMetric::PrecisionNegative
+                | ClassificationEvaluationMetric::RecallPositive
+                | ClassificationEvaluationMetric::RecallNegative
+                | ClassificationEvaluationMetric::Accuracy
+                | ClassificationEvaluationMetric::F1Score
+                | ClassificationEvaluationMetric::LogLoss => {}
+            }
+        }
+        assert_eq!(FULL_LOGISTIC_REGRESSION_METRICS.len(), VARIANT_COUNT);
+    }
+
+    #[test]
+    fn full_regression_metrics_cover_all_variants() {
+        const VARIANT_COUNT: usize = 8;
+        for m in FULL_REGRESSION_METRICS {
+            match m {
+                LinearRegressionEvaluationMetric::RootMeanSquaredError
+                | LinearRegressionEvaluationMetric::MeanSquaredError
+                | LinearRegressionEvaluationMetric::MeanAbsoluteError
+                | LinearRegressionEvaluationMetric::RSquared
+                | LinearRegressionEvaluationMetric::MaxError
+                | LinearRegressionEvaluationMetric::MeanSquaredLogError
+                | LinearRegressionEvaluationMetric::RootMeanSquaredLogError
+                | LinearRegressionEvaluationMetric::MeanAbsolutePercentageError => {}
+            }
+        }
+        assert_eq!(FULL_REGRESSION_METRICS.len(), VARIANT_COUNT);
     }
 
     // --- get_stability_eps ---
